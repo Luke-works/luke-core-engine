@@ -1,0 +1,8 @@
+target/
+luke-data/
+.git/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.log

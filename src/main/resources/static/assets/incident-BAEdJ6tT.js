@@ -1,0 +1,1 @@
+import{t as e}from"./client-BE5HWJIN.js";async function t(t){let{data:n}=await e.get(`/incident`,{params:t});return n}async function n(t){let{data:n}=await e.get(`/incident/count`,{params:t});return n}async function r(t){let{data:n}=await e.delete(`/incident/${t}`);return n}export{n,t as r,r as t};

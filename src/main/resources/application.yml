@@ -1,0 +1,84 @@
+server:
+  # Render injects PORT at runtime; 8080 is the local default
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: luke-core-engine
+  # Default: H2 in-memory database (no setup needed)
+  # To use PostgreSQL, set SPRING_PROFILES_ACTIVE=postgres
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./luke-data/luke-engine;AUTO_SERVER=TRUE}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    driver-class-name: ${DB_DRIVER:org.h2.Driver}
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
+
+# CIBSeven / Camunda Engine Configuration
+camunda:
+  bpm:
+    admin-user:
+      id: ${CAMUNDA_ADMIN_USER:admin}
+      password: ${CAMUNDA_ADMIN_PASSWORD:admin}
+      first-name: Admin
+      last-name: User
+    database:
+      schema-update: true
+    filter:
+      create: All Tasks
+    authorization:
+      # Enabled so cluster managers (parent_cluster members, via camunda-admin
+      # group) get full access while customer tenants are scoped to their own
+      # data. New tenants/users created via consumer-ui MUST receive explicit
+      # tenant-scoped authorizations on signup or they get a blank app.
+      enabled: true
+    history-level: full
+    default-serialization-format: application/json
+    auto-deployment-enabled: false
+    generic-properties:
+      properties:
+        historyTimeToLive: P180D
+        enforceHistoryTimeToLive: false
+        generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-]+"
+
+# Luke defaults
+luke:
+  tenant:
+    # The "parent cluster" tenant — operations tenant for cluster managers
+    # (admin/admin via core-ui-tailadmin). NOT a default for end-user signups;
+    # customer organizations create their own tenants via consumer-ui.
+    parent-cluster-id: ${LUKE_PARENT_CLUSTER_ID:parent_cluster}
+    parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
+  capabilities:
+    base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
+  cors:
+    # Comma-separated origin patterns. Local dev default allows any localhost
+    # port; in production set ALLOWED_ORIGINS to your deployed UI URLs.
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:*}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.luke: DEBUG
+    org.cibseven: INFO

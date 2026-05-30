@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Hexagon background -->
+  <path d="M64 8L112 36V92L64 120L16 92V36L64 8Z" fill="#3B82F6" opacity="0.12"/>
+  <path d="M64 8L112 36V92L64 120L16 92V36L64 8Z" stroke="#3B82F6" stroke-width="3" fill="none"/>
+  <!-- L letterform -->
+  <path d="M46 38V90H82" stroke="#3B82F6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Circuit dots -->
+  <circle cx="82" cy="90" r="4" fill="#3B82F6"/>
+  <circle cx="46" cy="38" r="4" fill="#3B82F6"/>
+  <!-- Data flow lines -->
+  <path d="M82 90L96 76" stroke="#3B82F6" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="96" cy="76" r="2.5" fill="#3B82F6" opacity="0.6"/>
+  <path d="M46 38L32 52" stroke="#3B82F6" stroke-width="2.5" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="32" cy="52" r="2.5" fill="#3B82F6" opacity="0.6"/>
+</svg>

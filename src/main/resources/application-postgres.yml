@@ -1,0 +1,20 @@
+# PostgreSQL profile — activate with: --spring.profiles.active=postgres
+# Or set environment variable: SPRING_PROFILES_ACTIVE=postgres
+
+spring:
+  datasource:
+    # Prefer DB_URL when set (single-string JDBC URL); otherwise construct from
+    # individual host/port/db fields. Render's blueprint wires the individual
+    # fields from the managed Postgres instance.
+    url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DATABASE:luke_camunda}}
+    username: ${DB_USERNAME:luke}
+    password: ${DB_PASSWORD:luke}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 30000
+      connection-timeout: 20000
+  h2:
+    console:
+      enabled: false

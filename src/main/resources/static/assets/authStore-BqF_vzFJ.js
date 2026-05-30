@@ -1,0 +1,1 @@
+import{n as e,t}from"./middleware-BmZBH-hd.js";var n=e()(t(e=>({isAuthenticated:!1,username:null,password:null,login:(t,n)=>{e({isAuthenticated:!0,username:t,password:n})},logout:()=>{e({isAuthenticated:!1,username:null,password:null})}}),{name:`luke-core-auth-storage`}));export{n as t};
