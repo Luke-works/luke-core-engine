@@ -1,1 +1,0 @@
-import{o as e,u as t}from"./dist-DpcFxDWc.js";var n=t();function r(){return(0,n.jsx)(e,{to:`/admin/users`,replace:!0})}export{r as default};

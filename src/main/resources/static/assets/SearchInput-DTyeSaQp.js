@@ -1,5 +1,0 @@
-import{u as e}from"./dist-DpcFxDWc.js";import{t}from"./createLucideIcon-BFFHiVlW.js";var n=t(`search`,[[`path`,{d:`m21 21-4.34-4.34`,key:`14j7rj`}],[`circle`,{cx:`11`,cy:`11`,r:`8`,key:`4ej97u`}]]),r=e();function i({value:e,onChange:t,placeholder:i=`Search...`,className:a=``}){return(0,r.jsxs)(`div`,{className:`relative w-full ${a}`,children:[(0,r.jsx)(n,{size:16,className:`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none`,style:{color:`var(--text-muted)`}}),(0,r.jsx)(`input`,{type:`text`,value:e,onChange:e=>t(e.target.value),placeholder:i,className:`w-full h-9 pl-9 pr-3 text-sm rounded-md outline-none transition-colors duration-150 focus:ring-1`,style:{backgroundColor:`var(--bg-elevated)`,border:`1px solid var(--border)`,color:`var(--text-primary)`,"--tw-ring-color":`var(--accent-blue)`}}),(0,r.jsx)(`style`,{children:`
-        .relative input::placeholder {
-          color: var(--text-muted);
-        }
-      `})]})}export{i as t};

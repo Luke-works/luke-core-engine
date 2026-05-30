@@ -1,1 +1,0 @@
-import{u as e}from"./dist-DpcFxDWc.js";var t=e();function n({className:e=``,width:n,height:r}){return(0,t.jsx)(`div`,{className:`animate-pulse rounded ${e}`,style:{backgroundColor:`var(--bg-muted)`,width:n??`100%`,height:r??`1rem`,borderRadius:`var(--radius-sm)`}})}export{n as t};
