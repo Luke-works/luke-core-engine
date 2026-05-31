@@ -57,7 +57,7 @@ services:
 
 databases:
   - name: luke-camunda-db
-    plan: starter            # 256MB RAM, 1GB storage, $7/mo
+    plan: basic_256mb        # 256MB RAM, 1GB storage, $7/mo (replaces legacy 'starter')
     databaseName: luke_camunda
     user: luke
     region: ohio             # must match the web service region
