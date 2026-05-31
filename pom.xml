@@ -32,6 +32,10 @@
     <properties>
         <java.version>21</java.version>
         <cibseven.version>2.1.0</cibseven.version>
+        <!-- Scripting language engines (JSR-223) -->
+        <groovy.version>4.0.24</groovy.version>
+        <graaljs.version>24.1.1</graaljs.version>
+        <jython.version>2.7.3</jython.version>
     </properties>
 
     <!-- ============================================================= -->
@@ -69,6 +73,48 @@
         <dependency>
             <groupId>org.cibseven.spin</groupId>
             <artifactId>cibseven-spin-dataformat-json-jackson</artifactId>
+        </dependency>
+
+        <!-- ========================================================= -->
+        <!-- Scripting language engines (JSR-223)                      -->
+        <!-- Discovered automatically by the engine's ScriptEngine     -->
+        <!-- manager; ScriptingEnginePlugin enables GraalVM JS host    -->
+        <!-- access so scripts can use `execution`, etc.               -->
+        <!-- ========================================================= -->
+
+        <!-- Groovy  → script language "groovy" -->
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy-jsr223</artifactId>
+            <version>${groovy.version}</version>
+        </dependency>
+
+        <!-- JavaScript (GraalVM JS) → script language "javascript" / "js".
+             Nashorn was removed from the JDK in Java 15, so JS scripting
+             requires GraalVM JS on Java 21. -->
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>polyglot</artifactId>
+            <version>${graaljs.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>js-community</artifactId>
+            <version>${graaljs.version}</version>
+            <type>pom</type>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js-scriptengine</artifactId>
+            <version>${graaljs.version}</version>
+        </dependency>
+
+        <!-- Python (Jython) → script language "python".
+             NOTE: Jython implements Python 2.7, not Python 3. -->
+        <dependency>
+            <groupId>org.python</groupId>
+            <artifactId>jython-standalone</artifactId>
+            <version>${jython.version}</version>
         </dependency>
 
         <!-- Spring Boot Starters -->
