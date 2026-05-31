@@ -76,6 +76,30 @@
         </dependency>
 
         <!-- ========================================================= -->
+        <!-- CIBSeven Connect (HTTP/SOAP connectors for Service Tasks) -->
+        <!--                                                           -->
+        <!-- Without these, the Spring Boot starter's @ConditionalOn-  -->
+        <!-- Class auto-config for ConnectProcessEnginePlugin never    -->
+        <!-- fires, so the BPMN parser installs no connector parse     -->
+        <!-- listener and <camunda:connector> elements on Service      -->
+        <!-- Tasks are silently ignored (connector never linked).      -->
+        <!--                                                           -->
+        <!-- engine-plugin-connect → registers the parse listener that -->
+        <!--   binds connectors to Service Tasks at deployment time.   -->
+        <!-- connect-connectors-all → the HTTP + SOAP connector        -->
+        <!--   implementations invoked at runtime.                     -->
+        <!-- Versions are managed by the cibseven-bom.                 -->
+        <!-- ========================================================= -->
+        <dependency>
+            <groupId>org.cibseven.bpm</groupId>
+            <artifactId>cibseven-engine-plugin-connect</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.cibseven.connect</groupId>
+            <artifactId>cibseven-connect-connectors-all</artifactId>
+        </dependency>
+
+        <!-- ========================================================= -->
         <!-- Scripting language engines (JSR-223)                      -->
         <!-- Discovered automatically by the engine's ScriptEngine     -->
         <!-- manager; ScriptingEnginePlugin enables GraalVM JS host    -->
