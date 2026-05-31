@@ -110,7 +110,6 @@ No BPMN process definitions are auto-deployed on startup. Customer-specific BPMN
 |---|---|
 | `/engine-rest/**` | Standard Camunda REST API (process definitions, instances, tasks, identity) |
 | `/api/topics/**` | External task topic registry CRUD ([TopicRegistryController](src/main/java/com/luke/engine/topic/TopicRegistryController.java)) |
-| `/api/database/**` | Read-only DB explorer for the operator UI ([DatabaseController](src/main/java/com/luke/engine/database/DatabaseController.java)) |
 | `/actuator/health` | Spring Boot health endpoint |
 | `/actuator/metrics` | Spring Boot metrics |
 
