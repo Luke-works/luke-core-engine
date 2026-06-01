@@ -51,7 +51,8 @@ public class OnboardingController {
 
     public record OnboardUserRequest(
             String id, String firstName, String lastName,
-            String email, String password, String tenantId, String role) {}
+            String email, String password, String tenantId,
+            String role, String accessLevel) {}
 
     @PostMapping("/onboard-user")
     public ResponseEntity<?> onboard(
@@ -77,7 +78,9 @@ public class OnboardingController {
         if (identityService.createTenantQuery().tenantId(req.tenantId()).count() == 0) {
             return badRequest("Unknown tenant '" + req.tenantId() + "'");
         }
-        if (identityService.createGroupQuery().groupId(req.role()).count() == 0) {
+        // Resolve the role to the right access tier (Read-Only uses the -readonly variant).
+        String roleGroup = resolveRoleGroup(req.role(), req.accessLevel());
+        if (identityService.createGroupQuery().groupId(roleGroup).count() == 0) {
             return badRequest("Unknown role '" + req.role() + "'");
         }
 
@@ -97,8 +100,8 @@ public class OnboardingController {
             if (!isTenantMember(req.tenantId(), req.id())) {
                 identityService.createTenantUserMembership(req.tenantId(), req.id());
             }
-            if (!isGroupMember(req.role(), req.id())) {
-                identityService.createMembership(req.id(), req.role());
+            if (!isGroupMember(roleGroup, req.id())) {
+                identityService.createMembership(req.id(), roleGroup);
             }
         } catch (Exception e) {
             if (createdUser) {
@@ -113,12 +116,28 @@ public class OnboardingController {
                     .body(Map.of("error", "Onboarding failed", "message", String.valueOf(e.getMessage())));
         }
 
-        log.info("Onboarded user '{}' into tenant '{}' as '{}' (created={})", req.id(), req.tenantId(), req.role(), createdUser);
+        log.info("Onboarded user '{}' into tenant '{}' as '{}' ({}, created={})",
+                req.id(), req.tenantId(), roleGroup, accessLevel(req.accessLevel()), createdUser);
         return ResponseEntity.ok(Map.of(
                 "id", req.id(),
                 "tenantId", req.tenantId(),
-                "role", req.role(),
+                "role", roleGroup,
                 "created", createdUser));
+    }
+
+    /** Read-Only resolves to the role's -readonly variant when it exists; otherwise the base role. */
+    private String resolveRoleGroup(String role, String accessLevel) {
+        if (role != null && "READ_ONLY".equalsIgnoreCase(accessLevel)) {
+            String readonly = role + "-readonly";
+            if (identityService.createGroupQuery().groupId(readonly).count() > 0) {
+                return readonly;
+            }
+        }
+        return role;
+    }
+
+    private String accessLevel(String value) {
+        return "READ_ONLY".equalsIgnoreCase(value) ? "READ_ONLY" : "READ_WRITE";
     }
 
     /** Returns the authenticated username, or null if Basic auth is missing/invalid. */
