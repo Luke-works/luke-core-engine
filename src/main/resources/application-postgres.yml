@@ -6,7 +6,13 @@ spring:
     # Prefer DB_URL when set (single-string JDBC URL); otherwise construct from
     # individual host/port/db fields. Render's blueprint wires the individual
     # fields from the managed Postgres instance.
-    url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DATABASE:luke_camunda}}
+    #
+    # DB_SCHEMA lets several environments share one Postgres instance by isolating
+    # each in its own schema (e.g. platform_dev / platform_qa / platform_uat).
+    # currentSchema points the connection's search_path at it; the Hikari
+    # connection-init-sql creates the schema on first connect (Postgres won't
+    # auto-create it). Defaults to "public" when DB_SCHEMA is unset.
+    url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DATABASE:luke_camunda}?currentSchema=${DB_SCHEMA:public}}
     username: ${DB_USERNAME:luke}
     password: ${DB_PASSWORD:luke}
     driver-class-name: org.postgresql.Driver
@@ -15,6 +21,8 @@ spring:
       minimum-idle: 5
       idle-timeout: 30000
       connection-timeout: 20000
+      # Ensure the env's schema exists before Camunda/Hibernate create tables in it.
+      connection-init-sql: CREATE SCHEMA IF NOT EXISTS ${DB_SCHEMA:public}
   h2:
     console:
       enabled: false
