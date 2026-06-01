@@ -30,12 +30,15 @@ import org.springframework.context.annotation.Configuration;
  * Rejects deployments that are created without a tenant id.
  *
  * A Camunda deployment is created via a multipart/form-data POST to
- * {@code /engine-rest/deployment/create}, where the tenant is carried in the
+ * {@code .../engine-rest/deployment/create}, where the tenant is carried in the
  * {@code tenant-id} form field. The generic {@link TenantFilter} deliberately
  * exempts {@code /engine-rest/deployment} (so cross-tenant reads/deletes still
- * work), so deployment <em>creation</em> is guarded here instead: we buffer the
- * request body, require a non-blank {@code tenant-id} part, and only then let
- * the request reach the engine. Untenanted deployments are blocked with 400.
+ * work), so deployment <em>creation</em> is guarded here instead.
+ *
+ * Registered on {@code /engine-rest/*} (the pattern the other engine filters use
+ * and that reliably wraps the CIBSeven REST servlet) and narrowed internally to
+ * the create call. We buffer the body, require a non-blank {@code tenant-id}
+ * part, and only then let the request reach the engine.
  */
 @Configuration
 public class DeploymentTenantFilter {
@@ -46,14 +49,16 @@ public class DeploymentTenantFilter {
     public FilterRegistrationBean<Filter> deploymentTenantEnforcementFilter() {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new RequireTenantOnDeploymentFilter());
-        registration.addUrlPatterns("/engine-rest/deployment/create");
+        registration.addUrlPatterns("/engine-rest/*");
         registration.setName("deploymentTenantEnforcementFilter");
         registration.setOrder(3); // after auth (1) and tenant enforcement (2)
+        log.info("DeploymentTenantFilter registered — enforcing non-blank tenant-id on POST .../deployment/create");
         return registration;
     }
 
     private static class RequireTenantOnDeploymentFilter implements Filter {
 
+        private static final Logger log = LoggerFactory.getLogger(RequireTenantOnDeploymentFilter.class);
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
         // Matches the multipart part:  name="tenant-id" [more part headers] CRLF CRLF <value> CRLF --boundary
@@ -68,29 +73,33 @@ public class DeploymentTenantFilter {
             HttpServletRequest httpReq = (HttpServletRequest) request;
             HttpServletResponse httpResp = (HttpServletResponse) response;
 
-            // Only POST creates a deployment; let anything else pass untouched.
-            if (!"POST".equalsIgnoreCase(httpReq.getMethod())) {
+            String path = httpReq.getRequestURI();
+
+            // Only guard deployment creation (POST .../deployment/create); pass everything else through.
+            if (!"POST".equalsIgnoreCase(httpReq.getMethod()) || path == null || !path.endsWith("/deployment/create")) {
                 chain.doFilter(request, response);
                 return;
             }
 
             // Buffer the body so we can inspect it and still hand it to the engine.
             byte[] body = httpReq.getInputStream().readAllBytes();
+            String tenantId = extractTenantId(body);
 
-            if (!hasTenantId(body)) {
-                log.warn("Rejected deployment without tenant id: {} {}", httpReq.getMethod(), httpReq.getRequestURI());
+            if (tenantId == null || tenantId.isBlank()) {
+                log.warn("DeploymentTenantFilter: REJECT deploy without tenant id (path={}, {} bytes)", path, body.length);
                 sendError(httpResp);
                 return;
             }
 
+            log.info("DeploymentTenantFilter: allow deploy (tenant='{}', path={})", tenantId, path);
             chain.doFilter(new CachedBodyRequest(httpReq, body), response);
         }
 
-        private boolean hasTenantId(byte[] body) {
+        private String extractTenantId(byte[] body) {
             // Multipart field values are short ASCII; ISO-8859-1 keeps byte offsets intact.
             String text = new String(body, StandardCharsets.ISO_8859_1);
             Matcher matcher = TENANT_ID_PART.matcher(text);
-            return matcher.find() && !matcher.group(1).trim().isEmpty();
+            return matcher.find() ? matcher.group(1).trim() : null;
         }
 
         private void sendError(HttpServletResponse response) throws IOException {
