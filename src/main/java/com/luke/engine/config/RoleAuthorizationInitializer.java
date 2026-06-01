@@ -40,6 +40,10 @@ public class RoleAuthorizationInitializer {
 
     static final String TENANT_ADMIN = "tenant-admin";
     static final String TENANT_USER = "tenant-user";
+    static final String TENANT_VIEWER = "tenant-viewer";
+    static final String TASK_WORKER = "task-worker";
+    static final String PROCESS_OPERATOR = "process-operator";
+    static final String DEPLOYER = "deployer";
 
     private final IdentityService identityService;
     private final AuthorizationService authorizationService;
@@ -53,8 +57,12 @@ public class RoleAuthorizationInitializer {
     public void ensureRoles() {
         ensureGroup(TENANT_USER, "Tenant User");
         ensureGroup(TENANT_ADMIN, "Tenant Admin");
+        ensureGroup(TENANT_VIEWER, "Tenant Viewer");
+        ensureGroup(TASK_WORKER, "Task Worker");
+        ensureGroup(PROCESS_OPERATOR, "Process Operator");
+        ensureGroup(DEPLOYER, "Deployer");
 
-        // ── tenant-user ────────────────────────────────────────────────
+        // ── tenant-user — general operational user ─────────────────────
         grant(TENANT_USER, Resources.PROCESS_DEFINITION,
                 Permissions.READ, Permissions.READ_INSTANCE, Permissions.CREATE_INSTANCE, Permissions.READ_HISTORY);
         grant(TENANT_USER, Resources.PROCESS_INSTANCE,
@@ -65,7 +73,7 @@ public class RoleAuthorizationInitializer {
         grant(TENANT_USER, Resources.DECISION_DEFINITION, Permissions.READ, Permissions.READ_HISTORY);
         grant(TENANT_USER, Resources.DECISION_REQUIREMENTS_DEFINITION, Permissions.READ);
 
-        // ── tenant-admin ───────────────────────────────────────────────
+        // ── tenant-admin — full control of the tenant's runtime data ───
         grant(TENANT_ADMIN, Resources.PROCESS_DEFINITION, Permissions.ALL);
         grant(TENANT_ADMIN, Resources.PROCESS_INSTANCE, Permissions.ALL);
         grant(TENANT_ADMIN, Resources.TASK, Permissions.ALL);
@@ -74,7 +82,41 @@ public class RoleAuthorizationInitializer {
         grant(TENANT_ADMIN, Resources.DECISION_REQUIREMENTS_DEFINITION, Permissions.ALL);
         grant(TENANT_ADMIN, Resources.BATCH, Permissions.ALL);
 
-        log.info("Role authorization spaces ensured: {}, {}", TENANT_USER, TENANT_ADMIN);
+        // ── tenant-viewer — read-only / auditor ────────────────────────
+        grant(TENANT_VIEWER, Resources.PROCESS_DEFINITION,
+                Permissions.READ, Permissions.READ_INSTANCE, Permissions.READ_HISTORY);
+        grant(TENANT_VIEWER, Resources.PROCESS_INSTANCE, Permissions.READ);
+        grant(TENANT_VIEWER, Resources.TASK, Permissions.READ);
+        grant(TENANT_VIEWER, Resources.DEPLOYMENT, Permissions.READ);
+        grant(TENANT_VIEWER, Resources.DECISION_DEFINITION, Permissions.READ, Permissions.READ_HISTORY);
+        grant(TENANT_VIEWER, Resources.DECISION_REQUIREMENTS_DEFINITION, Permissions.READ);
+
+        // ── task-worker — human-task operator (may also start instances) ─
+        grant(TASK_WORKER, Resources.PROCESS_DEFINITION,
+                Permissions.READ, Permissions.READ_INSTANCE, Permissions.CREATE_INSTANCE);
+        grant(TASK_WORKER, Resources.PROCESS_INSTANCE,
+                Permissions.READ, Permissions.CREATE);
+        grant(TASK_WORKER, Resources.TASK,
+                Permissions.READ, Permissions.UPDATE, Permissions.TASK_WORK, Permissions.TASK_ASSIGN);
+
+        // ── process-operator — monitoring / ops (no deploy) ────────────
+        grant(PROCESS_OPERATOR, Resources.PROCESS_DEFINITION,
+                Permissions.READ, Permissions.READ_INSTANCE, Permissions.READ_HISTORY);
+        grant(PROCESS_OPERATOR, Resources.PROCESS_INSTANCE,
+                Permissions.READ, Permissions.UPDATE, Permissions.DELETE);
+        grant(PROCESS_OPERATOR, Resources.TASK, Permissions.READ);
+        grant(PROCESS_OPERATOR, Resources.BATCH, Permissions.READ, Permissions.CREATE);
+
+        // ── deployer — developer / Modeler persona ─────────────────────
+        grant(DEPLOYER, Resources.DEPLOYMENT, Permissions.CREATE, Permissions.READ, Permissions.DELETE);
+        grant(DEPLOYER, Resources.PROCESS_DEFINITION,
+                Permissions.READ, Permissions.READ_INSTANCE, Permissions.CREATE_INSTANCE, Permissions.READ_HISTORY);
+        grant(DEPLOYER, Resources.PROCESS_INSTANCE, Permissions.READ, Permissions.CREATE);
+        grant(DEPLOYER, Resources.DECISION_DEFINITION, Permissions.READ);
+        grant(DEPLOYER, Resources.DECISION_REQUIREMENTS_DEFINITION, Permissions.READ);
+
+        log.info("Role authorization spaces ensured: {}, {}, {}, {}, {}, {}",
+                TENANT_USER, TENANT_ADMIN, TENANT_VIEWER, TASK_WORKER, PROCESS_OPERATOR, DEPLOYER);
     }
 
     private void ensureGroup(String id, String name) {
