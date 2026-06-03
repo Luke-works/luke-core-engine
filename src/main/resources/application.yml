@@ -61,6 +61,15 @@ luke:
     parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
   capabilities:
     base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
+  auth:
+    # Consumer gateway (luke-auth-engine) trust. When enabled, /engine-rest/*
+    # also accepts Bearer act-as-user tokens signed by the gateway, verified
+    # against its published JWKS. Disabled by default → Basic-auth only.
+    gateway:
+      enabled: ${LUKE_AUTH_GATEWAY_ENABLED:false}
+      jwks-url: ${LUKE_AUTH_GATEWAY_JWKS_URL:}
+      issuer: ${LUKE_AUTH_GATEWAY_ISSUER:luke-auth-engine}
+      audience: ${LUKE_AUTH_GATEWAY_AUDIENCE:luke-core-engine}
   cors:
     # Comma-separated origin patterns. Local dev default allows any localhost
     # port; in production set ALLOWED_ORIGINS to your deployed UI URLs.

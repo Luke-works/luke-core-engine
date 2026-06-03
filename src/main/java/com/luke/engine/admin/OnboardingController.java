@@ -54,6 +54,53 @@ public class OnboardingController {
             String email, String password, String tenantId,
             String role, String accessLevel) {}
 
+    /**
+     * Onboarding payload for a Clerk-authenticated consumer user. Identical to
+     * {@link OnboardUserRequest} except there is no password — Clerk owns
+     * authentication, so the engine user gets a random unusable one — and the
+     * id is derived from the Clerk subject, not supplied directly.
+     */
+    public record OnboardClerkUserRequest(
+            String clerkSub, String firstName, String lastName,
+            String email, String tenantId,
+            String role, String accessLevel) {}
+
+    /** Namespaces Clerk identities in the engine. MUST match luke-auth-engine's IdentityResolver. */
+    private static final String CLERK_PREFIX = "clerk:";
+
+    /**
+     * Onboard a Clerk user: derive the engine userId as {@code clerk:<sub>}
+     * (the exact id luke-auth-engine asserts at request time), assign a random
+     * unusable password, then reuse the standard onboarding flow. Until this
+     * runs, a Clerk user can authenticate but the engine returns 403
+     * "not provisioned".
+     */
+    @PostMapping("/onboard-clerk-user")
+    public ResponseEntity<?> onboardClerkUser(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody OnboardClerkUserRequest req) {
+
+        if (!StringUtils.hasText(req.clerkSub())) {
+            return badRequest("clerkSub is required");
+        }
+        String engineUserId = CLERK_PREFIX + req.clerkSub();
+
+        OnboardUserRequest delegate = new OnboardUserRequest(
+                engineUserId,
+                req.firstName(), req.lastName(), req.email(),
+                randomUnusablePassword(),
+                req.tenantId(), req.role(), req.accessLevel());
+
+        return onboard(authHeader, delegate);
+    }
+
+    /** Long random secret so the CIBSeven password field is satisfied but never matches. */
+    private String randomUnusablePassword() {
+        byte[] bytes = new byte[48];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return "clerk-nologin-" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     @PostMapping("/onboard-user")
     public ResponseEntity<?> onboard(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
