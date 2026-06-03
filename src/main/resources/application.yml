@@ -49,7 +49,10 @@ camunda:
       properties:
         historyTimeToLive: P180D
         enforceHistoryTimeToLive: false
-        generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-]+"
+        # Colon (:) is allowed so namespaced ids like Clerk consumer users
+        # (clerk:<sub>) pass CIBSeven's resource-id validation. Without it,
+        # creating user 'clerk:user_…' fails: "is not a valid resource identifier".
+        generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-:]+"
 
 # Luke defaults
 luke:
