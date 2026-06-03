@@ -26,3 +26,23 @@ spring:
   h2:
     console:
       enabled: false
+
+# CIBSeven schema isolation (PostgreSQL, shared instance).
+#
+# Several env engines share ONE Postgres instance, each isolated in its own
+# schema (platform_dev/qa/uat). currentSchema/search_path alone is not enough:
+# Camunda's "do my tables already exist?" check is NOT schema-scoped, so it
+# scans ALL schemas. When dev + qa first boot together, whichever wins the race
+# creates ACT_* tables; the other engine then sees those tables, assumes its own
+# already exist, skips creation, and crashes with
+# `relation "act_id_user" does not exist`.
+#
+# schema-name scopes the table-presence check to THIS env's schema; table-prefix
+# makes every statement schema-qualified, so creation/queries are deterministic
+# regardless of search_path.
+camunda:
+  bpm:
+    database:
+      schema-update: true
+      schema-name: ${DB_SCHEMA:public}
+      table-prefix: ${DB_SCHEMA:public}.
