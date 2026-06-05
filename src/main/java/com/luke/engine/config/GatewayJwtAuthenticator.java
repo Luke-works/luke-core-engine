@@ -79,8 +79,12 @@ public class GatewayJwtAuthenticator {
         try {
             Jwt jwt = decoder.decode(rawToken);
 
-            if (!expectedIssuer.equals(jwt.getIssuer() == null ? null : jwt.getIssuer().toString())) {
-                log.warn("Gateway token rejected: issuer mismatch (got {})", jwt.getIssuer());
+            // Read 'iss' as a raw string — the issuer is a service name
+            // ("luke-auth-engine"), not a URL, so jwt.getIssuer() (which coerces
+            // the claim to a URL) would throw.
+            String issuer = jwt.getClaimAsString("iss");
+            if (!expectedIssuer.equals(issuer)) {
+                log.warn("Gateway token rejected: issuer mismatch (got {})", issuer);
                 return null;
             }
             List<String> aud = jwt.getAudience();
