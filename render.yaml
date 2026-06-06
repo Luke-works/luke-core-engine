@@ -53,7 +53,7 @@ services:
       # CORS — tighten to your deployed UI URLs once they exist.
       # Comma-separated list; supports patterns like https://*.onrender.com
       - key: ALLOWED_ORIGINS
-        value: "https://*.onrender.com"
+        value: "https://*.onrender.com,https://*.lukeflow.com"
 
 databases:
   - name: luke-camunda-db
