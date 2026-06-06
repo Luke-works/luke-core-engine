@@ -36,7 +36,6 @@ public class CapabilitiesProxyController {
             "/api/capabilities/**",
             "/api/my-subscriptions/**",
             "/api/my-capabilities",
-            "/api/tenants/**",
             "/api/form-definitions/**",
             "/api/form-instances/**"
         },

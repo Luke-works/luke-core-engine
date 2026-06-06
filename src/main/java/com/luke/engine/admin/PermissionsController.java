@@ -87,12 +87,14 @@ public class PermissionsController {
         roles.put("taskUser", NONE);
         List<String> candidateGroups = new ArrayList<>();
         List<Map<String, String>> rawGroups = new ArrayList<>();
+        boolean tenantAdmin = false;
 
         for (Group g : groups) {
             rawGroups.add(Map.of("id", g.getId(), "type", String.valueOf(g.getType())));
             if (ROLE_TYPE.equals(g.getType())) {
                 boolean readOnly = g.getId().endsWith(READONLY_SUFFIX);
                 String base = readOnly ? g.getId().substring(0, g.getId().length() - READONLY_SUFFIX.length()) : g.getId();
+                if ("tenant-admin".equals(base)) tenantAdmin = true; // org owner / tenant admin
                 String dim = ROLE_DIMENSION.get(base);
                 if (dim != null) {
                     roles.put(dim, maxLevel(roles.get(dim), readOnly ? READ : READ_WRITE));
@@ -105,6 +107,7 @@ public class PermissionsController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", userId);
         body.put("operator", operator);
+        body.put("tenantAdmin", tenantAdmin);
         body.put("tenants", tenants);
         body.put("roles", roles);
         body.put("candidateGroups", candidateGroups);
