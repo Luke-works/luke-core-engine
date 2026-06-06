@@ -34,7 +34,11 @@ public class CapabilitiesProxyController {
             "/api/sla/**",
             "/api/process-calendars/**",
             "/api/capabilities/**",
-            "/api/my-subscriptions/**"
+            "/api/my-subscriptions/**",
+            "/api/my-capabilities",
+            "/api/tenants/**",
+            "/api/form-definitions/**",
+            "/api/form-instances/**"
         },
         method = { RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.PATCH }
     )
