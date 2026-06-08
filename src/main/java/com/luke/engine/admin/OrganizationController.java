@@ -64,8 +64,14 @@ public class OrganizationController {
         }
         String name = body.name().trim();
 
-        // Organization names must be unique (exact match).
-        if (identityService.createTenantQuery().tenantName(name).count() > 0) {
+        // Organization names must be unique (case-insensitive, trimmed). CIBSeven's
+        // tenantName query is exact/case-sensitive and Postgres LIKE is case-sensitive,
+        // so we compare normalized names here. (O(n) over tenants — fine at this scale;
+        // revisit with a normalized-name index if org count grows large.)
+        String normalized = name.toLowerCase();
+        boolean nameTaken = identityService.createTenantQuery().list().stream()
+                .anyMatch(t -> t.getName() != null && t.getName().trim().toLowerCase().equals(normalized));
+        if (nameTaken) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "error", "Conflict",
                     "message", "An organization named '" + name + "' already exists. Please choose a different name."));
