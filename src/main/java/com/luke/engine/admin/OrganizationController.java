@@ -62,6 +62,14 @@ public class OrganizationController {
         if (body == null || body.name() == null || body.name().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Bad Request", "message", "name is required"));
         }
+        String name = body.name().trim();
+
+        // Organization names must be unique (exact match).
+        if (identityService.createTenantQuery().tenantName(name).count() > 0) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "error", "Conflict",
+                    "message", "An organization named '" + name + "' already exists. Please choose a different name."));
+        }
 
         // 1. Ensure the caller exists as an engine user (first-org bootstrap).
         if (identityService.createUserQuery().userId(userId).count() == 0) {
@@ -69,15 +77,15 @@ public class OrganizationController {
             u.setFirstName(notBlank(body.firstName()) ? body.firstName() : userId);
             u.setLastName(notBlank(body.lastName()) ? body.lastName() : "");
             if (notBlank(body.email())) u.setEmail(body.email());
-            u.setPassword(UUID.randomUUID().toString()); // unusable — Clerk owns auth
+            u.setPassword(UUID.randomUUID().toString()); // unusable — WorkOS owns auth
             identityService.saveUser(u);
             log.info("Provisioned engine user '{}' via org creation", userId);
         }
 
-        // 2. Create the tenant (unique slug).
-        String tenantId = uniqueTenantId(slug(body.name()));
+        // 2. Create the tenant. Id = TEN-<3 letters>-<DDMMMYY>; name = the display name.
+        String tenantId = uniqueTenantId();
         Tenant tenant = identityService.newTenant(tenantId);
-        tenant.setName(body.name().trim());
+        tenant.setName(name);
         identityService.saveTenant(tenant);
 
         // 3. Join the creator and make them the owner (tenant-admin).
@@ -85,7 +93,7 @@ public class OrganizationController {
         if (!isMember(userId, TENANT_ADMIN)) {
             identityService.createMembership(userId, TENANT_ADMIN);
         }
-        log.info("User '{}' created org '{}' (tenant {}) as owner", userId, body.name(), tenantId);
+        log.info("User '{}' created org '{}' (tenant {}) as owner", userId, name, tenantId);
 
         // 4. Give the new org its default capabilities so the owner can use them.
         try {
@@ -95,7 +103,7 @@ public class OrganizationController {
         }
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Map.of("tenantId", tenantId, "name", body.name().trim(), "role", TENANT_ADMIN));
+                .body(Map.of("tenantId", tenantId, "name", name, "role", TENANT_ADMIN));
     }
 
     /* ── auth (Bearer act-as | Basic); NO provisioning requirement ────── */
@@ -126,17 +134,27 @@ public class OrganizationController {
         return identityService.createUserQuery().userId(userId).memberOfGroup(groupId).count() > 0;
     }
 
-    private String uniqueTenantId(String base) {
-        String id = base;
+    private static final String LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String[] MONTHS = {
+            "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
+
+    /** Tenant id of the form {@code TEN-<3 random letters>-<DDMMMYY>}, regenerated until unique. */
+    private String uniqueTenantId() {
+        String id = tenantCode();
         while (identityService.createTenantQuery().tenantId(id).count() > 0) {
-            id = base + "-" + UUID.randomUUID().toString().substring(0, 4);
+            id = tenantCode();
         }
         return id;
     }
 
-    private static String slug(String name) {
-        String s = name.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
-        return s.isBlank() ? "org" : (s.length() > 50 ? s.substring(0, 50) : s);
+    /** e.g. {@code TEN-XKQ-08JUN26} — provisioning date in DDMMMYY. */
+    private static String tenantCode() {
+        java.time.LocalDate d = java.time.LocalDate.now();
+        String date = String.format("%02d%s%02d", d.getDayOfMonth(), MONTHS[d.getMonthValue() - 1], d.getYear() % 100);
+        StringBuilder sb = new StringBuilder("TEN-");
+        for (int i = 0; i < 3; i++) sb.append(LETTERS.charAt(RNG.nextInt(LETTERS.length())));
+        return sb.append('-').append(date).toString();
     }
 
     private static boolean notBlank(String s) {
