@@ -41,8 +41,12 @@ public class OrgAdminController {
     private static final String ORGANIZATIONAL_TYPE = "ORGANIZATIONAL";
     private static final String READONLY = "-readonly";
 
-    /** Roles an org owner may assign (not tenant-admin / camunda-admin). */
+    private static final String TENANT_ADMIN = "tenant-admin";
+
+    /** Roles an org owner may assign. Includes {@code tenant-admin} so an owner can
+     *  promote co-owners — guarded so the last owner can never be removed. */
     private static final Map<String, String> ROLE_DIM = Map.of(
+            "tenant-admin", "tenantAdmin",
             "tenant-user", "tenantUser", "process-operator", "processUser", "task-worker", "taskUser");
     private static final Set<String> ASSIGNABLE_ROLES = ROLE_DIM.keySet();
 
@@ -117,6 +121,13 @@ public class OrgAdminController {
         Ctx ctx = requireAdmin(auth, tenant);
         requireTenantMember(userId, ctx.tenant);
         if (!ASSIGNABLE_ROLES.contains(role)) throw bad("role must be one of " + ASSIGNABLE_ROLES);
+        // Don't let an org lose its last owner: removing tenant-admin from the only
+        // remaining owner would leave nobody able to administer the tenant.
+        if (TENANT_ADMIN.equals(role) && "none".equals(body.level())
+                && isOwner(userId) && !hasOtherOwner(userId, ctx.tenant)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot remove the last org owner. Assign another owner first.");
+        }
         deleteMembership(userId, role);
         deleteMembership(userId, role + READONLY);
         if ("read-write".equals(body.level())) identityService.createMembership(userId, role);
@@ -237,6 +248,21 @@ public class OrgAdminController {
         return new Ctx(userId, tenant, false);
     }
 
+    /** Does this user hold the owner (tenant-admin) role in either tier? */
+    private boolean isOwner(String userId) {
+        return identityService.createGroupQuery().groupMember(userId).list().stream()
+                .anyMatch(g -> TENANT_ADMIN.equals(g.getId()) || (TENANT_ADMIN + READONLY).equals(g.getId()));
+    }
+
+    /** Is there another owner of {@code tenant} besides {@code excludeUserId}? */
+    private boolean hasOtherOwner(String excludeUserId, String tenant) {
+        for (User u : identityService.createUserQuery().memberOfTenant(tenant).list()) {
+            if (u.getId().equals(excludeUserId)) continue;
+            if (isOwner(u.getId())) return true;
+        }
+        return false;
+    }
+
     private void requireTenantMember(String userId, String tenant) {
         if (identityService.createUserQuery().userId(userId).memberOfTenant(tenant).count() == 0) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "User '" + userId + "' is not in this org");
@@ -251,6 +277,7 @@ public class OrgAdminController {
 
     private Map<String, String> rolesOf(List<Group> groups) {
         Map<String, String> roles = new LinkedHashMap<>();
+        roles.put("tenantAdmin", "none");
         roles.put("tenantUser", "none");
         roles.put("processUser", "none");
         roles.put("taskUser", "none");
