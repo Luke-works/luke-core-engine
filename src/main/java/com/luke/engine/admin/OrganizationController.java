@@ -101,11 +101,16 @@ public class OrganizationController {
         }
         log.info("User '{}' created org '{}' (tenant {}) as owner", userId, name, tenantId);
 
-        // 4. Give the new org its default capabilities so the owner can use them.
+        // 4. Give the new org its default capabilities so the owner can use them:
+        //    subscribe the tenant, then grant the owner read-write. Effective access
+        //    needs BOTH (subscription + per-user grant), so granting is not optional —
+        //    without it the owner would have no capabilities and the UI would hide them.
         try {
             rest.put(capabilitiesBaseUrl + "/api/tenants/" + tenantId + "/capabilities/FORMS", null);
+            rest.put(capabilitiesBaseUrl + "/api/tenants/" + tenantId + "/users/" + userId + "/capabilities/FORMS",
+                    Map.of("level", "read-write"));
         } catch (Exception e) {
-            log.warn("Could not auto-subscribe tenant {} to FORMS: {}", tenantId, e.getMessage());
+            log.warn("Could not grant owner {} FORMS in tenant {}: {}", userId, tenantId, e.getMessage());
         }
 
         return ResponseEntity.status(HttpStatus.CREATED)
