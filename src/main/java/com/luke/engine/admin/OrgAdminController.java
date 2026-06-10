@@ -202,7 +202,12 @@ public class OrgAdminController {
                                    @PathVariable String userId) {
         Ctx ctx = requireAdmin(auth, tenant);
         requireTenantMember(userId, ctx.tenant);
-        return rest.getForObject(capabilitiesBaseUrl + "/api/tenants/" + enc(ctx.tenant) + "/users/" + enc(userId) + "/capabilities", Object.class);
+        // Pass tenant/userId as URI template variables so RestTemplate encodes them
+        // exactly once. Manually pre-encoding (e.g. URLEncoder) double-encodes the
+        // ':' in "workos:user_…" to "%3A", which is then stored as a different key
+        // than the session reads with — silently dropping the user's capabilities.
+        return rest.getForObject(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities",
+                Object.class, ctx.tenant, userId);
     }
 
     @PutMapping("/users/{userId}/capabilities/{code}")
@@ -211,15 +216,16 @@ public class OrgAdminController {
                                @PathVariable String userId, @PathVariable String code, @RequestBody LevelBody body) {
         Ctx ctx = requireAdmin(auth, tenant);
         requireTenantMember(userId, ctx.tenant);
-        String url = capabilitiesBaseUrl + "/api/tenants/" + enc(ctx.tenant) + "/users/" + enc(userId) + "/capabilities/" + enc(code);
+        // URI template variables → encoded exactly once (see userCapabilities above).
+        String url = capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/{code}";
         if ("none".equals(body.level())) {
-            rest.delete(url);
+            rest.delete(url, ctx.tenant, userId, code);
             return Map.of("removed", true);
         }
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
         var req = new org.springframework.http.HttpEntity<>(Map.of("level", body.level()), headers);
-        return rest.exchange(url, org.springframework.http.HttpMethod.PUT, req, Object.class).getBody();
+        return rest.exchange(url, org.springframework.http.HttpMethod.PUT, req, Object.class, ctx.tenant, userId, code).getBody();
     }
 
     /* ── authorization + helpers ─────────────────────────────────────── */
@@ -326,10 +332,6 @@ public class OrgAdminController {
             }
         }
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid credentials required");
-    }
-
-    private static String enc(String s) {
-        return java.net.URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
     private static ResponseStatusException bad(String msg) {

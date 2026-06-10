@@ -106,9 +106,12 @@ public class OrganizationController {
         //    needs BOTH (subscription + per-user grant), so granting is not optional —
         //    without it the owner would have no capabilities and the UI would hide them.
         try {
-            rest.put(capabilitiesBaseUrl + "/api/tenants/" + tenantId + "/capabilities/FORMS", null);
-            rest.put(capabilitiesBaseUrl + "/api/tenants/" + tenantId + "/users/" + userId + "/capabilities/FORMS",
-                    Map.of("level", "read-write"));
+            // URI template variables so the ':' in "workos:user_…" is encoded exactly
+            // once — pre-encoding/concatenation can double-encode and store a key the
+            // session never matches, silently dropping the owner's capabilities.
+            rest.put(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/FORMS", null, tenantId);
+            rest.put(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/FORMS",
+                    Map.of("level", "read-write"), tenantId, userId);
         } catch (Exception e) {
             log.warn("Could not grant owner {} FORMS in tenant {}: {}", userId, tenantId, e.getMessage());
         }
