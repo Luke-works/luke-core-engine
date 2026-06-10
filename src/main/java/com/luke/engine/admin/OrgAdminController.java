@@ -57,11 +57,14 @@ public class OrgAdminController {
 
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
+    private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
     private final RestTemplate rest = new RestTemplate();
 
-    public OrgAdminController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth) {
+    public OrgAdminController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+                             com.luke.engine.config.CapabilityOperatorAuth operatorAuth) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
+        this.operatorAuth = operatorAuth;
     }
 
     public record NewUser(String id, String firstName, String lastName, String email, String password,
@@ -206,8 +209,8 @@ public class OrgAdminController {
         // exactly once. Manually pre-encoding (e.g. URLEncoder) double-encodes the
         // ':' in "workos:user_…" to "%3A", which is then stored as a different key
         // than the session reads with — silently dropping the user's capabilities.
-        return rest.getForObject(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities",
-                Object.class, ctx.tenant, userId);
+        return rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities",
+                org.springframework.http.HttpMethod.GET, operatorAuth.entity(), Object.class, ctx.tenant, userId).getBody();
     }
 
     @PutMapping("/users/{userId}/capabilities/{code}")
@@ -219,10 +222,10 @@ public class OrgAdminController {
         // URI template variables → encoded exactly once (see userCapabilities above).
         String url = capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/{code}";
         if ("none".equals(body.level())) {
-            rest.delete(url, ctx.tenant, userId, code);
+            rest.exchange(url, org.springframework.http.HttpMethod.DELETE, operatorAuth.entity(), Void.class, ctx.tenant, userId, code);
             return Map.of("removed", true);
         }
-        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        org.springframework.http.HttpHeaders headers = operatorAuth.headers();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
         var req = new org.springframework.http.HttpEntity<>(Map.of("level", body.level()), headers);
         return rest.exchange(url, org.springframework.http.HttpMethod.PUT, req, Object.class, ctx.tenant, userId, code).getBody();

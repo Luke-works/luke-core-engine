@@ -41,11 +41,14 @@ public class OrganizationController {
 
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
+    private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
     private final org.springframework.web.client.RestTemplate rest = new org.springframework.web.client.RestTemplate();
 
-    public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth) {
+    public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+                                 com.luke.engine.config.CapabilityOperatorAuth operatorAuth) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
+        this.operatorAuth = operatorAuth;
     }
 
     public record CreateOrg(String name, String firstName, String lastName, String email) {}
@@ -109,9 +112,14 @@ public class OrganizationController {
             // URI template variables so the ':' in "workos:user_…" is encoded exactly
             // once — pre-encoding/concatenation can double-encode and store a key the
             // session never matches, silently dropping the owner's capabilities.
-            rest.put(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/FORMS", null, tenantId);
-            rest.put(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/FORMS",
-                    Map.of("level", "read-write"), tenantId, userId);
+            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/FORMS",
+                    org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, tenantId);
+            org.springframework.http.HttpHeaders grantHeaders = operatorAuth.headers();
+            grantHeaders.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/FORMS",
+                    org.springframework.http.HttpMethod.PUT,
+                    new org.springframework.http.HttpEntity<>(Map.of("level", "read-write"), grantHeaders),
+                    Void.class, tenantId, userId);
         } catch (Exception e) {
             log.warn("Could not grant owner {} FORMS in tenant {}: {}", userId, tenantId, e.getMessage());
         }

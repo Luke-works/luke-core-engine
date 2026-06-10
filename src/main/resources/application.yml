@@ -64,6 +64,13 @@ luke:
     parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
   capabilities:
     base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
+    # Operator credential presented to capability-engine on the admin routes
+    # (/api/tenants/** — subscriptions + grants). Must match capability-engine's
+    # CAPABILITY_OPERATOR_USER/PASSWORD. Unset → no header (capability-engine then
+    # leaves those routes open for local dev).
+    operator:
+      user: ${CAPABILITY_OPERATOR_USER:}
+      password: ${CAPABILITY_OPERATOR_PASSWORD:}
   auth:
     # Consumer gateway (luke-auth-engine) trust. When enabled, /engine-rest/*
     # also accepts Bearer act-as-user tokens signed by the gateway, verified
