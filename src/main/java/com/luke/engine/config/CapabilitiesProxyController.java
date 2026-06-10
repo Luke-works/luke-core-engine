@@ -46,13 +46,17 @@ public class CapabilitiesProxyController {
         String query = request.getQueryString();
         String targetUrl = capabilitiesBaseUrl + path + (query != null ? "?" + query : "");
 
-        // Forward headers
+        // Forward headers. Drop Accept-Encoding so the capabilities service returns
+        // plain (uncompressed) JSON: this proxy reads the body as a String and does
+        // not decompress, so a gzip response would otherwise be relayed as garbage.
+        // Content-Length is recomputed by the client for the new request.
         HttpHeaders headers = new HttpHeaders();
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String name = headerNames.nextElement();
-            // Skip host header
-            if ("host".equalsIgnoreCase(name)) continue;
+            if ("host".equalsIgnoreCase(name)
+                    || "accept-encoding".equalsIgnoreCase(name)
+                    || "content-length".equalsIgnoreCase(name)) continue;
             headers.set(name, request.getHeader(name));
         }
 
