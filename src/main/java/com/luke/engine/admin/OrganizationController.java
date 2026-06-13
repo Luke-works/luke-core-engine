@@ -42,13 +42,16 @@ public class OrganizationController {
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
     private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
+    private final com.luke.engine.form.FormProcessDeployer formProcessDeployer;
     private final org.springframework.web.client.RestTemplate rest = new org.springframework.web.client.RestTemplate();
 
     public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-                                 com.luke.engine.config.CapabilityOperatorAuth operatorAuth) {
+                                 com.luke.engine.config.CapabilityOperatorAuth operatorAuth,
+                                 com.luke.engine.form.FormProcessDeployer formProcessDeployer) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
         this.operatorAuth = operatorAuth;
+        this.formProcessDeployer = formProcessDeployer;
     }
 
     public record CreateOrg(String name, String firstName, String lastName, String email) {}
@@ -103,6 +106,9 @@ public class OrganizationController {
             identityService.createMembership(userId, TENANT_ADMIN);
         }
         log.info("User '{}' created org '{}' (tenant {}) as owner", userId, name, tenantId);
+
+        // Give the new tenant its own copy of the form-intake process (best-effort).
+        formProcessDeployer.deployFor(tenantId);
 
         // 4. Give the new org its default capabilities so the owner can use them:
         //    subscribe the tenant, then grant the owner read-write. Effective access

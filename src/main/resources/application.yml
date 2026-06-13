@@ -62,6 +62,14 @@ luke:
     # customer organizations create their own tenants via consumer-ui.
     parent-cluster-id: ${LUKE_PARENT_CLUSTER_ID:parent_cluster}
     parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
+  forms:
+    # BPMN process key started for each form submission (deployed per tenant).
+    intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
+  internal:
+    # Shared secret for server-to-server calls into /api/internal/** (e.g.
+    # capability-engine starting a process). MUST match capability-engine's
+    # value; unset → the internal endpoints reject everything (403).
+    shared-secret: ${LUKE_INTERNAL_SHARED_SECRET:}
   capabilities:
     base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
     # Operator credential presented to capability-engine on the admin routes

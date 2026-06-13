@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_1qzif0b" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.29.0" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.22.0">
+  <bpmn:process id="FormSubmissionIntakeProcess" name="Form Submission Intake Process" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_0cb2k0q</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:endEvent id="Event_08s3r75">
+      <bpmn:incoming>Flow_07edqp4</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0cb2k0q" sourceRef="StartEvent_1" targetRef="Activity_1c3gauj" />
+    <bpmn:sequenceFlow id="Flow_07edqp4" sourceRef="Activity_1c3gauj" targetRef="Event_08s3r75" />
+    <bpmn:userTask id="Activity_1c3gauj" name="Review Submission">
+      <bpmn:incoming>Flow_0cb2k0q</bpmn:incoming>
+      <bpmn:outgoing>Flow_07edqp4</bpmn:outgoing>
+    </bpmn:userTask>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="FormSubmissionIntakeProcess">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="192" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_08s3r75_di" bpmnElement="Event_08s3r75">
+        <dc:Bounds x="542" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_041gqhq_di" bpmnElement="Activity_1c3gauj">
+        <dc:Bounds x="330" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_0cb2k0q_di" bpmnElement="Flow_0cb2k0q">
+        <di:waypoint x="228" y="120" />
+        <di:waypoint x="330" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_07edqp4_di" bpmnElement="Flow_07edqp4">
+        <di:waypoint x="430" y="120" />
+        <di:waypoint x="542" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
