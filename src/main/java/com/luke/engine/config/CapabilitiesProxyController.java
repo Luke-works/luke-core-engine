@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
@@ -26,7 +27,10 @@ public class CapabilitiesProxyController {
     @Value("${luke.capabilities.base-url:http://localhost:8082}")
     private String capabilitiesBaseUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // JDK HttpClient factory (Java 11+) — supports PATCH; the default
+    // SimpleClientHttpRequestFactory uses HttpURLConnection, which rejects it
+    // ("Invalid HTTP method: PATCH"). Restricted headers are dropped below.
+    private final RestTemplate restTemplate = new RestTemplate(new JdkClientHttpRequestFactory());
 
     @RequestMapping(
         value = {
@@ -55,9 +59,16 @@ public class CapabilitiesProxyController {
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String name = headerNames.nextElement();
+            // Drop hop-by-hop / managed headers that Java's HttpClient forbids
+            // setting (host, content-length, connection, transfer-encoding,
+            // expect, upgrade) plus accept-encoding (we don't decompress).
             if ("host".equalsIgnoreCase(name)
                     || "accept-encoding".equalsIgnoreCase(name)
-                    || "content-length".equalsIgnoreCase(name)) continue;
+                    || "content-length".equalsIgnoreCase(name)
+                    || "connection".equalsIgnoreCase(name)
+                    || "transfer-encoding".equalsIgnoreCase(name)
+                    || "expect".equalsIgnoreCase(name)
+                    || "upgrade".equalsIgnoreCase(name)) continue;
             headers.set(name, request.getHeader(name));
         }
 
