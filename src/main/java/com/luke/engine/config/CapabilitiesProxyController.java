@@ -62,13 +62,23 @@ public class CapabilitiesProxyController {
             // Drop hop-by-hop / managed headers that Java's HttpClient forbids
             // setting (host, content-length, connection, transfer-encoding,
             // expect, upgrade) plus accept-encoding (we don't decompress).
+            //
+            // Also drop the browser's CORS-negotiation headers (origin,
+            // access-control-request-*): this is a server-to-server hop, so they
+            // are meaningless here — and forwarding Origin makes the capability
+            // engine's CORS filter reject the request ("Invalid CORS request").
+            // The old RestTemplate (HttpURLConnection) silently dropped Origin;
+            // the JDK HttpClient factory does not, so we drop it explicitly.
             if ("host".equalsIgnoreCase(name)
                     || "accept-encoding".equalsIgnoreCase(name)
                     || "content-length".equalsIgnoreCase(name)
                     || "connection".equalsIgnoreCase(name)
                     || "transfer-encoding".equalsIgnoreCase(name)
                     || "expect".equalsIgnoreCase(name)
-                    || "upgrade".equalsIgnoreCase(name)) continue;
+                    || "upgrade".equalsIgnoreCase(name)
+                    || "origin".equalsIgnoreCase(name)
+                    || "access-control-request-method".equalsIgnoreCase(name)
+                    || "access-control-request-headers".equalsIgnoreCase(name)) continue;
             headers.set(name, request.getHeader(name));
         }
 
