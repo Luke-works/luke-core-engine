@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.cibseven.bpm.engine.IdentityService;
+import org.cibseven.spin.plugin.variable.SpinValues;
 import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.runtime.ProcessInstance;
 import org.slf4j.Logger;
@@ -60,14 +61,23 @@ public class InternalProcessController {
 
         Map<String, Object> vars = body.variables() != null ? new HashMap<>(body.variables()) : new HashMap<>();
 
-        // formData is always stored as a JSON STRING variable (never a serialized
-        // object) — coerce if a caller ever passes it as an object/map.
+        // Store formData as a JSON (Spin) variable — structured and navigable in
+        // Camunda (type Object/json, e.g. ${formData.prop('email').stringValue()}),
+        // not a flat String. Accepts an incoming JSON string or an object/map.
         Object fd = vars.get("formData");
-        if (fd != null && !(fd instanceof String)) {
-            try {
-                vars.put("formData", MAPPER.writeValueAsString(fd));
-            } catch (Exception e) {
-                vars.put("formData", String.valueOf(fd));
+        if (fd != null) {
+            String json = null;
+            if (fd instanceof String s) {
+                json = s;
+            } else {
+                try { json = MAPPER.writeValueAsString(fd); } catch (Exception ignored) { /* leave null */ }
+            }
+            if (json != null && !json.isBlank()) {
+                try {
+                    vars.put("formData", SpinValues.jsonValue(json).create());
+                } catch (Exception e) {
+                    vars.put("formData", json); // fall back to a plain string if not valid JSON
+                }
             }
         }
 
