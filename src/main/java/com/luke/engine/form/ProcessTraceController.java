@@ -5,8 +5,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.cibseven.bpm.engine.HistoryService;
+import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.history.HistoricProcessInstance;
+import org.cibseven.bpm.engine.runtime.Incident;
 import org.cibseven.bpm.engine.task.IdentityLink;
 import org.cibseven.bpm.engine.task.Task;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,10 +29,12 @@ public class ProcessTraceController {
 
     private final TaskService taskService;
     private final HistoryService historyService;
+    private final RuntimeService runtimeService;
 
-    public ProcessTraceController(TaskService taskService, HistoryService historyService) {
+    public ProcessTraceController(TaskService taskService, HistoryService historyService, RuntimeService runtimeService) {
         this.taskService = taskService;
         this.historyService = historyService;
+        this.runtimeService = runtimeService;
     }
 
     @GetMapping("/{processInstanceId}")
@@ -72,6 +76,20 @@ public class ProcessTraceController {
         }
         out.put("activeTasks", tasks);
         out.put("landedInUserTask", !tasks.isEmpty());
+
+        // Runtime incidents = the process ran into a problem (failed job/service
+        // task, etc.). This is the "error details if it runs into issues".
+        List<Map<String, Object>> incidents = new ArrayList<>();
+        for (Incident inc : runtimeService.createIncidentQuery().processInstanceId(processInstanceId).list()) {
+            Map<String, Object> im = new HashMap<>();
+            im.put("type", inc.getIncidentType());
+            im.put("message", inc.getIncidentMessage());
+            im.put("activityId", inc.getActivityId());
+            im.put("timestamp", inc.getIncidentTimestamp() != null ? inc.getIncidentTimestamp().getTime() : null);
+            incidents.add(im);
+        }
+        out.put("incidents", incidents);
+        out.put("hasIncident", !incidents.isEmpty());
         return out;
     }
 }
