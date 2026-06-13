@@ -61,22 +61,22 @@ public class InternalProcessController {
 
         Map<String, Object> vars = body.variables() != null ? new HashMap<>(body.variables()) : new HashMap<>();
 
-        // Store formData as a JSON (Spin) variable — structured and navigable in
-        // Camunda (type Object/json, e.g. ${formData.prop('email').stringValue()}),
-        // not a flat String. Accepts an incoming JSON string or an object/map.
-        Object fd = vars.get("formData");
-        if (fd != null) {
-            String json = null;
-            if (fd instanceof String s) {
-                json = s;
-            } else {
-                try { json = MAPPER.writeValueAsString(fd); } catch (Exception ignored) { /* leave null */ }
+        // Store the JSON payloads as JSON (Spin) variables — structured and
+        // navigable in Camunda (type Object/json, e.g.
+        // ${formData.prop('email').stringValue()}), not flat Strings. Each accepts
+        // an incoming JSON string or an object/map.
+        for (String varKey : new String[] {"formData", "formMetaData"}) {
+            Object v = vars.get(varKey);
+            if (v == null) continue;
+            String json = v instanceof String s ? s : null;
+            if (json == null) {
+                try { json = MAPPER.writeValueAsString(v); } catch (Exception ignored) { /* leave null */ }
             }
             if (json != null && !json.isBlank()) {
                 try {
-                    vars.put("formData", SpinValues.jsonValue(json).create());
+                    vars.put(varKey, SpinValues.jsonValue(json).create());
                 } catch (Exception e) {
-                    vars.put("formData", json); // fall back to a plain string if not valid JSON
+                    vars.put(varKey, json); // fall back to a plain string if not valid JSON
                 }
             }
         }
