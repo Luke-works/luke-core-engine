@@ -37,7 +37,8 @@ public class CapabilitiesProxyController {
             "/api/my-subscriptions/**",
             "/api/my-capabilities",
             "/api/form-definitions/**",
-            "/api/form-instances/**"
+            "/api/form-instances/**",
+            "/api/public/**"
         },
         method = { RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.PATCH }
     )
