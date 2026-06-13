@@ -1,5 +1,6 @@
 package com.luke.engine.form;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class InternalProcessController {
 
     private static final Logger log = LoggerFactory.getLogger(InternalProcessController.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final RuntimeService runtimeService;
     private final IdentityService identityService;
@@ -57,6 +59,17 @@ public class InternalProcessController {
         }
 
         Map<String, Object> vars = body.variables() != null ? new HashMap<>(body.variables()) : new HashMap<>();
+
+        // formData is always stored as a JSON STRING variable (never a serialized
+        // object) — coerce if a caller ever passes it as an object/map.
+        Object fd = vars.get("formData");
+        if (fd != null && !(fd instanceof String)) {
+            try {
+                vars.put("formData", MAPPER.writeValueAsString(fd));
+            } catch (Exception e) {
+                vars.put("formData", String.valueOf(fd));
+            }
+        }
 
         // Scope the engine to the tenant so the tenant-specific definition is
         // selected and the instance is tagged with the tenant.
