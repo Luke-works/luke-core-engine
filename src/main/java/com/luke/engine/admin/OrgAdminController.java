@@ -88,6 +88,10 @@ public class OrgAdminController {
             row.put("email", u.getEmail());
             row.put("roles", rolesOf(groups));
             row.put("candidateGroups", candidateGroupsOf(groups, ctx.tenant));
+            // Platform (admin/support) accounts are camunda-admin members — flagged so
+            // the UI can separate them from real end users (the admin is auto-added to
+            // every tenant for support access).
+            row.put("platform", groups.stream().anyMatch(g -> CAMUNDA_ADMIN_GROUP.equals(g.getId())));
             out.add(row);
         }
         return out;

@@ -39,6 +39,10 @@ public class OrganizationController {
     @org.springframework.beans.factory.annotation.Value("${luke.capabilities.base-url:http://localhost:8082}")
     private String capabilitiesBaseUrl;
 
+    /** Platform admin/support account auto-added to every new tenant for support access. */
+    @org.springframework.beans.factory.annotation.Value("${camunda.bpm.admin-user.id:admin}")
+    private String adminUserId;
+
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
     private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
@@ -106,6 +110,21 @@ public class OrganizationController {
             identityService.createMembership(userId, TENANT_ADMIN);
         }
         log.info("User '{}' created org '{}' (tenant {}) as owner", userId, name, tenantId);
+
+        // Auto-provision the platform admin into the new tenant for support access
+        // (membership only — no org role). Best-effort; never blocks org creation. The
+        // UI hides platform accounts from the owner's member list by default.
+        try {
+            if (notBlank(adminUserId)
+                    && !adminUserId.equals(userId)
+                    && identityService.createUserQuery().userId(adminUserId).count() > 0
+                    && identityService.createTenantQuery().tenantId(tenantId).userMember(adminUserId).count() == 0) {
+                identityService.createTenantUserMembership(tenantId, adminUserId);
+                log.info("Auto-provisioned platform admin '{}' into tenant '{}'", adminUserId, tenantId);
+            }
+        } catch (Exception e) {
+            log.warn("Could not auto-provision admin '{}' into tenant '{}': {}", adminUserId, tenantId, e.getMessage());
+        }
 
         // Give the new tenant its own copy of the form-intake process (best-effort).
         formProcessDeployer.deployFor(tenantId);
