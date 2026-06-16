@@ -42,6 +42,9 @@ public class CapabilitiesProxyController {
             "/api/my-capabilities",
             "/api/form-definitions/**",
             "/api/form-instances/**",
+            "/api/emails/**",
+            "/api/email-servers/**",
+            "/api/email-verification/**",
             "/api/public/**"
         },
         method = { RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.PATCH }

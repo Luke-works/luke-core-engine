@@ -114,24 +114,39 @@ public class OrganizationController {
         //    subscribe the tenant, then grant the owner read-write. Effective access
         //    needs BOTH (subscription + per-user grant), so granting is not optional —
         //    without it the owner would have no capabilities and the UI would hide them.
+        //    Each capability is granted independently so one failing doesn't block the
+        //    others. EMAIL unlocks the email feature + the OTP verification flow (the
+        //    verification routes are EMAIL-guarded); actually sending still requires the
+        //    org to pass verification, which provisions its Postmark server.
+        grantCapability(tenantId, userId, "FORMS");
+        grantCapability(tenantId, userId, "EMAIL");
+        // SECRETS is internal-only for now (no tenant-facing API), so it is not granted here.
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("tenantId", tenantId, "name", name, "role", TENANT_ADMIN));
+    }
+
+    /**
+     * Subscribe a tenant to a capability and grant the owner read-write on it, via
+     * the operator credential (server-to-server into capability-engine). Best-effort:
+     * a failure is logged, not fatal, so org creation still succeeds.
+     */
+    private void grantCapability(String tenantId, String userId, String capability) {
         try {
             // URI template variables so the ':' in "workos:user_…" is encoded exactly
             // once — pre-encoding/concatenation can double-encode and store a key the
             // session never matches, silently dropping the owner's capabilities.
-            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/FORMS",
-                    org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, tenantId);
+            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/{cap}",
+                    org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, tenantId, capability);
             org.springframework.http.HttpHeaders grantHeaders = operatorAuth.headers();
             grantHeaders.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/FORMS",
+            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/{cap}",
                     org.springframework.http.HttpMethod.PUT,
                     new org.springframework.http.HttpEntity<>(Map.of("level", "read-write"), grantHeaders),
-                    Void.class, tenantId, userId);
+                    Void.class, tenantId, userId, capability);
         } catch (Exception e) {
-            log.warn("Could not grant owner {} FORMS in tenant {}: {}", userId, tenantId, e.getMessage());
+            log.warn("Could not grant owner {} {} in tenant {}: {}", userId, capability, tenantId, e.getMessage());
         }
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Map.of("tenantId", tenantId, "name", name, "role", TENANT_ADMIN));
     }
 
     /* ── auth (Bearer act-as | Basic); NO provisioning requirement ────── */
