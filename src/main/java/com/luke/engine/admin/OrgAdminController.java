@@ -229,6 +229,17 @@ public class OrgAdminController {
             rest.exchange(url, org.springframework.http.HttpMethod.DELETE, operatorAuth.entity(), Void.class, ctx.tenant, userId, code);
             return Map.of("removed", true);
         }
+        // EMAIL is a company-sending capability: a personal/free mailbox account can't
+        // verify a business sender, so it must not be granted to one (the UI also hides
+        // the option, but enforce it here too so the API can't be bypassed).
+        if ("EMAIL".equalsIgnoreCase(code)) {
+            User target = identityService.createUserQuery().userId(userId).singleResult();
+            String email = target != null ? target.getEmail() : null;
+            if (PersonalEmail.isPersonal(email)) {
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Email can't be granted to a personal email account (" + email + "). Use a company email.");
+            }
+        }
         // Granting a user requires the tenant to be subscribed to the capability
         // (two-layer model). Ensure the org is subscribed first — an owner enabling a
         // capability for a user implies the org has it, mirroring onboarding's

@@ -138,7 +138,12 @@ public class OrganizationController {
         //    verification routes are EMAIL-guarded); actually sending still requires the
         //    org to pass verification, which provisions its Postmark server.
         grantCapability(tenantId, userId, "FORMS");
-        grantCapability(tenantId, userId, "EMAIL");
+        // EMAIL is a company-sending capability — skip it for owners who signed up with
+        // a personal email (they can't verify a business sender). They can still be
+        // granted it later from a company address.
+        if (!PersonalEmail.isPersonal(body.email())) {
+            grantCapability(tenantId, userId, "EMAIL");
+        }
         // SECRETS is internal-only for now (no tenant-facing API), so it is not granted here.
 
         return ResponseEntity.status(HttpStatus.CREATED)
