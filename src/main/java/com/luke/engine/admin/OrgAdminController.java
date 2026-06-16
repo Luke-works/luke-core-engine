@@ -225,10 +225,41 @@ public class OrgAdminController {
             rest.exchange(url, org.springframework.http.HttpMethod.DELETE, operatorAuth.entity(), Void.class, ctx.tenant, userId, code);
             return Map.of("removed", true);
         }
+        // Granting a user requires the tenant to be subscribed to the capability
+        // (two-layer model). Ensure the org is subscribed first — an owner enabling a
+        // capability for a user implies the org has it, mirroring onboarding's
+        // subscribe+grant. This lets existing orgs adopt newly-added capabilities
+        // (e.g. EMAIL) without a separate operator step.
+        rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/{code}",
+                org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, ctx.tenant, code);
+
         org.springframework.http.HttpHeaders headers = operatorAuth.headers();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
         var req = new org.springframework.http.HttpEntity<>(Map.of("level", body.level()), headers);
         return rest.exchange(url, org.springframework.http.HttpMethod.PUT, req, Object.class, ctx.tenant, userId, code).getBody();
+    }
+
+    /**
+     * Surface failures from the server-to-server capability-engine calls with their
+     * real status + message instead of an opaque 500. e.g. granting a user a
+     * capability the tenant isn't subscribed to comes back as 409 "Tenant … is not
+     * subscribed to EMAIL", and an unknown capability as 404 — both actionable.
+     */
+    @ExceptionHandler(org.springframework.web.client.HttpStatusCodeException.class)
+    public ResponseEntity<Map<String, Object>> downstreamError(
+            org.springframework.web.client.HttpStatusCodeException e) {
+        String message = e.getStatusText();
+        try {
+            com.fasterxml.jackson.databind.JsonNode n =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(e.getResponseBodyAsString());
+            if (n.hasNonNull("message")) message = n.get("message").asText();
+            else if (n.hasNonNull("error")) message = n.get("error").asText();
+        } catch (Exception ignored) {
+            // non-JSON body — keep the status text
+        }
+        log.warn("Capability-engine call failed: HTTP {} — {}", e.getStatusCode().value(), message);
+        return ResponseEntity.status(e.getStatusCode())
+                .body(Map.of("error", "Capability service error", "message", message));
     }
 
     /* ── authorization + helpers ─────────────────────────────────────── */
