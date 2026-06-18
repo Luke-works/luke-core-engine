@@ -36,26 +36,26 @@ public class OrganizationController {
     private static final Logger log = LoggerFactory.getLogger(OrganizationController.class);
     private static final String TENANT_ADMIN = "tenant-admin";
 
-    @org.springframework.beans.factory.annotation.Value("${luke.capabilities.base-url:http://localhost:8082}")
-    private String capabilitiesBaseUrl;
-
     /** Platform admin/support account auto-added to every new tenant for support access. */
     @org.springframework.beans.factory.annotation.Value("${camunda.bpm.admin-user.id:admin}")
     private String adminUserId;
 
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
-    private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
     private final com.luke.engine.form.FormProcessDeployer formProcessDeployer;
-    private final org.springframework.web.client.RestTemplate rest = new org.springframework.web.client.RestTemplate();
+    // In-process capability data store (was server-to-server HTTP via the proxy + operator cred).
+    private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
+    private final com.luke.engine.capability.access.CapabilityGrantController grants;
 
     public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-                                 com.luke.engine.config.CapabilityOperatorAuth operatorAuth,
-                                 com.luke.engine.form.FormProcessDeployer formProcessDeployer) {
+                                 com.luke.engine.form.FormProcessDeployer formProcessDeployer,
+                                 com.luke.engine.capability.capability.SubscriptionController subscriptions,
+                                 com.luke.engine.capability.access.CapabilityGrantController grants) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
-        this.operatorAuth = operatorAuth;
         this.formProcessDeployer = formProcessDeployer;
+        this.subscriptions = subscriptions;
+        this.grants = grants;
     }
 
     public record CreateOrg(String name, String firstName, String lastName, String email) {}
@@ -157,17 +157,12 @@ public class OrganizationController {
      */
     private void grantCapability(String tenantId, String userId, String capability) {
         try {
-            // URI template variables so the ':' in "workos:user_…" is encoded exactly
-            // once — pre-encoding/concatenation can double-encode and store a key the
-            // session never matches, silently dropping the owner's capabilities.
-            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/{cap}",
-                    org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, tenantId, capability);
-            org.springframework.http.HttpHeaders grantHeaders = operatorAuth.headers();
-            grantHeaders.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/{cap}",
-                    org.springframework.http.HttpMethod.PUT,
-                    new org.springframework.http.HttpEntity<>(Map.of("level", "read-write"), grantHeaders),
-                    Void.class, tenantId, userId, capability);
+            // In-process now (was a server-to-server PUT subscribe + PUT grant via the
+            // proxy). Subscribe the tenant, then grant the owner read-write — the same
+            // two-layer effect, one JVM, no HTTP hop / operator credential.
+            subscriptions.enable(tenantId, capability);
+            grants.setGrant(tenantId, userId, capability, userId,
+                    new com.luke.engine.capability.access.CapabilityGrantController.GrantBody("read-write"));
         } catch (Exception e) {
             log.warn("Could not grant owner {} {} in tenant {}: {}", userId, capability, tenantId, e.getMessage());
         }

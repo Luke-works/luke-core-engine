@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
 /**
  * Self-service account deletion — the engine side of "delete my account".
@@ -37,16 +36,16 @@ public class AccountController {
 
     private static final Logger log = LoggerFactory.getLogger(AccountController.class);
 
-    @Value("${luke.capabilities.base-url:http://localhost:8082}")
-    private String capabilitiesBaseUrl;
-
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
-    private final RestTemplate rest = new RestTemplate();
+    // In-process capability cleanup (was server-to-server DELETE via the proxy).
+    private final com.luke.engine.capability.access.CapabilityAdminController capabilityAdmin;
 
-    public AccountController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth) {
+    public AccountController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+                            com.luke.engine.capability.access.CapabilityAdminController capabilityAdmin) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
+        this.capabilityAdmin = capabilityAdmin;
     }
 
     @DeleteMapping("/me/account")
@@ -99,11 +98,11 @@ public class AccountController {
     /* ── capability-engine cleanup (best-effort; never blocks identity delete) ── */
 
     private void purgeUserCapabilities(String userId) {
-        safe(() -> rest.delete(capabilitiesBaseUrl + "/api/users/" + enc(userId)));
+        safe(() -> capabilityAdmin.purgeUser(userId));
     }
 
     private void purgeTenantCapabilities(String tenantId) {
-        safe(() -> rest.delete(capabilitiesBaseUrl + "/api/tenants/" + enc(tenantId)));
+        safe(() -> capabilityAdmin.purgeTenant(tenantId));
     }
 
     /* ── auth (Bearer act-as | Basic), mirroring /engine-rest ─────────── */
@@ -137,10 +136,6 @@ public class AccountController {
 
     private static void safe(Runnable r) {
         try { r.run(); } catch (Exception e) { log.warn("Cleanup step failed (continuing): {}", e.getMessage()); }
-    }
-
-    private static String enc(String s) {
-        return java.net.URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
     private static class AuthException extends RuntimeException {

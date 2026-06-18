@@ -18,7 +18,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -52,19 +51,23 @@ public class OrgAdminController {
 
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")
     private String parentClusterId;
-    @Value("${luke.capabilities.base-url:http://localhost:8082}")
-    private String capabilitiesBaseUrl;
 
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
-    private final com.luke.engine.config.CapabilityOperatorAuth operatorAuth;
-    private final RestTemplate rest = new RestTemplate();
+    // In-process capability data store (was server-to-server HTTP via the proxy + operator cred).
+    private final com.luke.engine.capability.capability.CapabilityController capabilities;
+    private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
+    private final com.luke.engine.capability.access.CapabilityGrantController grants;
 
     public OrgAdminController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-                             com.luke.engine.config.CapabilityOperatorAuth operatorAuth) {
+                             com.luke.engine.capability.capability.CapabilityController capabilities,
+                             com.luke.engine.capability.capability.SubscriptionController subscriptions,
+                             com.luke.engine.capability.access.CapabilityGrantController grants) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
-        this.operatorAuth = operatorAuth;
+        this.capabilities = capabilities;
+        this.subscriptions = subscriptions;
+        this.grants = grants;
     }
 
     public record NewUser(String id, String firstName, String lastName, String email, String password,
@@ -200,7 +203,7 @@ public class OrgAdminController {
     public Object catalog(@RequestHeader(value = "Authorization", required = false) String auth,
                           @RequestHeader(value = "X-Tenant-Id", required = false) String tenant) {
         requireAdmin(auth, tenant);
-        return rest.getForObject(capabilitiesBaseUrl + "/api/capabilities", Object.class);
+        return capabilities.list(null);
     }
 
     @GetMapping("/users/{userId}/capabilities")
@@ -209,12 +212,7 @@ public class OrgAdminController {
                                    @PathVariable String userId) {
         Ctx ctx = requireAdmin(auth, tenant);
         requireTenantMember(userId, ctx.tenant);
-        // Pass tenant/userId as URI template variables so RestTemplate encodes them
-        // exactly once. Manually pre-encoding (e.g. URLEncoder) double-encodes the
-        // ':' in "workos:user_…" to "%3A", which is then stored as a different key
-        // than the session reads with — silently dropping the user's capabilities.
-        return rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities",
-                org.springframework.http.HttpMethod.GET, operatorAuth.entity(), Object.class, ctx.tenant, userId).getBody();
+        return grants.listGrants(ctx.tenant, userId);
     }
 
     @PutMapping("/users/{userId}/capabilities/{code}")
@@ -223,10 +221,8 @@ public class OrgAdminController {
                                @PathVariable String userId, @PathVariable String code, @RequestBody LevelBody body) {
         Ctx ctx = requireAdmin(auth, tenant);
         requireTenantMember(userId, ctx.tenant);
-        // URI template variables → encoded exactly once (see userCapabilities above).
-        String url = capabilitiesBaseUrl + "/api/tenants/{tenant}/users/{userId}/capabilities/{code}";
         if ("none".equals(body.level())) {
-            rest.exchange(url, org.springframework.http.HttpMethod.DELETE, operatorAuth.entity(), Void.class, ctx.tenant, userId, code);
+            grants.revoke(ctx.tenant, userId, code);
             return Map.of("removed", true);
         }
         // EMAIL is a company-sending capability: a personal/free mailbox account can't
@@ -240,41 +236,14 @@ public class OrgAdminController {
                         "Email can't be granted to a personal email account (" + email + "). Use a company email.");
             }
         }
-        // Granting a user requires the tenant to be subscribed to the capability
-        // (two-layer model). Ensure the org is subscribed first — an owner enabling a
-        // capability for a user implies the org has it, mirroring onboarding's
-        // subscribe+grant. This lets existing orgs adopt newly-added capabilities
-        // (e.g. EMAIL) without a separate operator step.
-        rest.exchange(capabilitiesBaseUrl + "/api/tenants/{tenant}/capabilities/{code}",
-                org.springframework.http.HttpMethod.PUT, operatorAuth.entity(), Void.class, ctx.tenant, code);
-
-        org.springframework.http.HttpHeaders headers = operatorAuth.headers();
-        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-        var req = new org.springframework.http.HttpEntity<>(Map.of("level", body.level()), headers);
-        return rest.exchange(url, org.springframework.http.HttpMethod.PUT, req, Object.class, ctx.tenant, userId, code).getBody();
-    }
-
-    /**
-     * Surface failures from the server-to-server capability-engine calls with their
-     * real status + message instead of an opaque 500. e.g. granting a user a
-     * capability the tenant isn't subscribed to comes back as 409 "Tenant … is not
-     * subscribed to EMAIL", and an unknown capability as 404 — both actionable.
-     */
-    @ExceptionHandler(org.springframework.web.client.HttpStatusCodeException.class)
-    public ResponseEntity<Map<String, Object>> downstreamError(
-            org.springframework.web.client.HttpStatusCodeException e) {
-        String message = e.getStatusText();
-        try {
-            com.fasterxml.jackson.databind.JsonNode n =
-                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(e.getResponseBodyAsString());
-            if (n.hasNonNull("message")) message = n.get("message").asText();
-            else if (n.hasNonNull("error")) message = n.get("error").asText();
-        } catch (Exception ignored) {
-            // non-JSON body — keep the status text
-        }
-        log.warn("Capability-engine call failed: HTTP {} — {}", e.getStatusCode().value(), message);
-        return ResponseEntity.status(e.getStatusCode())
-                .body(Map.of("error", "Capability service error", "message", message));
+        // Granting a user requires the tenant to be subscribed first (two-layer model):
+        // an owner enabling a capability for a user implies the org has it, mirroring
+        // onboarding's subscribe+grant. In-process now (was server-to-server). The
+        // capability beans throw ResponseStatusException (404/409) which Spring surfaces
+        // with the right status — no downstream-error translation needed.
+        subscriptions.enable(ctx.tenant, code);
+        return grants.setGrant(ctx.tenant, userId, code, ctx.userId,
+                new com.luke.engine.capability.access.CapabilityGrantController.GrantBody(body.level()));
     }
 
     /* ── authorization + helpers ─────────────────────────────────────── */
