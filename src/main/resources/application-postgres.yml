@@ -17,8 +17,11 @@ spring:
     password: ${DB_PASSWORD:luke}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
+      # Sized down from 20 → 8: 20 connections is oversized for the basic-256mb
+      # Postgres and each pooled connection holds driver/statement buffers in the
+      # JVM. 8 matches the small instance + job-executor concurrency.
+      maximum-pool-size: 8
+      minimum-idle: 2
       idle-timeout: 30000
       connection-timeout: 20000
       # Ensure the env's schema exists before Camunda/Hibernate create tables in it.
