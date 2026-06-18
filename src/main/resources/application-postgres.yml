@@ -30,6 +30,19 @@ spring:
     console:
       enabled: false
 
+  # JPA/Hibernate for the luke_* data-store tables. Scope Hibernate to THIS env's
+  # schema so ddl-auto's table-existence check is schema-qualified. WITHOUT this,
+  # the check scans ALL schemas, sees a leftover capability_<env>.luke_* table, and
+  # skips creating it in ${DB_SCHEMA} — queries then fail "relation does not exist".
+  # This is the JPA counterpart of Camunda's schema-name fix below, and mirrors what
+  # luke-capability-engine did with default_schema before the merge.
+  jpa:
+    properties:
+      hibernate:
+        default_schema: ${DB_SCHEMA:public}
+        hbm2ddl:
+          create_namespaces: true
+
 # CIBSeven schema isolation (PostgreSQL, shared instance).
 #
 # Several env engines share ONE Postgres instance, each isolated in its own
