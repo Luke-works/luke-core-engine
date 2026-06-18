@@ -44,7 +44,11 @@ public class OperatorAuthFilter {
             @Value("${luke.auth.operator.password:}") String password) {
         FilterRegistrationBean<Filter> reg = new FilterRegistrationBean<>();
         reg.setFilter(new Impl(user, password));
-        reg.addUrlPatterns("/api/tenants/*");
+        // /api/tenants/**        : all methods (privileged subscription/grant admin).
+        // /api/capabilities(+/*)  : WRITES only — the GLOBAL catalog. GET stays public.
+        //                           (Closes the backlog gap: catalog create/upsert/delete
+        //                           previously had no auth filter at all.)
+        reg.addUrlPatterns("/api/tenants/*", "/api/capabilities", "/api/capabilities/*");
         reg.setName("operatorAuthFilter");
         reg.setOrder(0); // before the gateway/capability filters
         return reg;
@@ -57,10 +61,10 @@ public class OperatorAuthFilter {
             if (user != null && !user.isBlank()) {
                 this.expected = "Basic " + Base64.getEncoder()
                         .encodeToString((user + ":" + password).getBytes(StandardCharsets.UTF_8));
-                log.info("OperatorAuthFilter: enabled — /api/tenants/** requires the operator credential");
+                log.info("OperatorAuthFilter: enabled — /api/tenants/** and /api/capabilities writes require the operator credential");
             } else {
                 this.expected = null;
-                log.warn("OperatorAuthFilter: DISABLED — /api/tenants/** is unauthenticated; "
+                log.warn("OperatorAuthFilter: DISABLED — /api/tenants/** and /api/capabilities writes are unauthenticated; "
                         + "set CAPABILITY_OPERATOR_USER/CAPABILITY_OPERATOR_PASSWORD to enforce");
             }
         }
@@ -71,8 +75,17 @@ public class OperatorAuthFilter {
             HttpServletRequest req = (HttpServletRequest) request;
             HttpServletResponse res = (HttpServletResponse) response;
 
-            if (expected == null || "OPTIONS".equalsIgnoreCase(req.getMethod())) {
-                chain.doFilter(request, response); // dev / preflight
+            // The GLOBAL capability catalog (/api/capabilities) is readable by anyone;
+            // only WRITES (create/upsert/delete) need the operator credential. Tenant
+            // admin routes (/api/tenants/**) require it on every method.
+            String path = req.getRequestURI();
+            String method = req.getMethod();
+            boolean catalog = path.equals("/api/capabilities") || path.startsWith("/api/capabilities/");
+            boolean write = "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)
+                    || "DELETE".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method);
+
+            if (expected == null || "OPTIONS".equalsIgnoreCase(method) || (catalog && !write)) {
+                chain.doFilter(request, response); // dev / preflight / public catalog read
                 return;
             }
 
