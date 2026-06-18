@@ -55,6 +55,32 @@ services:
       - key: ALLOWED_ORIGINS
         value: "https://*.onrender.com,https://*.lukeflow.com"
 
+      # ── Merged capability domain (forms / email / secrets / embed) ──────────
+      # Folded in when luke-capability-engine merged into core. Set the secrets in
+      # the Render dashboard.
+      # Shared secret guards the RETAINED /api/internal/** endpoints (process-start,
+      # secrets, emails). Unset → those endpoints fail closed.
+      - key: LUKE_INTERNAL_SHARED_SECRET
+        sync: false
+      # Postmark transactional email (EMAIL capability).
+      - key: POSTMARK_ACCOUNT_TOKEN
+        sync: false
+      - key: POSTMARK_SERVER_TOKEN
+        sync: false
+      - key: EMAIL_DEFAULT_FROM
+        sync: false
+      - key: EMAIL_SENDER_BASE_DOMAIN
+        value: lukeflow.com
+      # Encrypted secret store (AES-256-GCM master key). LUKE_SECRETS_KEYS_V1 binds
+      # to luke.secrets.keys.v1 via relaxed binding.
+      - key: LUKE_SECRETS_ACTIVE_KEY_ID
+        value: v1
+      - key: LUKE_SECRETS_KEYS_V1
+        sync: false
+      # Signs/verifies public embed tokens.
+      - key: LUKE_EMBED_HMAC_SECRET
+        generateValue: true
+
 databases:
   - name: luke-camunda-db
     plan: basic-256mb        # 256MB RAM, 1GB storage, $7/mo (replaces legacy 'starter')
