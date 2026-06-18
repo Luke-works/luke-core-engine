@@ -34,13 +34,16 @@ public class FormDefinitionController {
     private final FormVersionRepository versions;
     private final FormAuditEventRepository audit;
     private final EmbedTokens embedTokens;
+    private final com.luke.engine.tenant.UserDirectory userDirectory;
 
     public FormDefinitionController(FormDefinitionRepository forms, FormVersionRepository versions,
-                                    FormAuditEventRepository audit, EmbedTokens embedTokens) {
+                                    FormAuditEventRepository audit, EmbedTokens embedTokens,
+                                    com.luke.engine.tenant.UserDirectory userDirectory) {
         this.forms = forms;
         this.versions = versions;
         this.audit = audit;
         this.embedTokens = embedTokens;
+        this.userDirectory = userDirectory;
     }
 
     /* ── request bodies ─────────────────────────────────────── */
@@ -78,22 +81,22 @@ public class FormDefinitionController {
                                      @RequestParam(required = false) String status,
                                      @RequestParam(defaultValue = "false") boolean deleted) {
         requireTenant(tenantId);
-        if (deleted) {
-            return forms.findByTenantIdAndDeletedAtIsNotNullOrderByDeletedAtDesc(tenantId);
-        }
-        return status == null
-                ? forms.findByTenantIdAndDeletedAtIsNullOrderByUpdatedAtDesc(tenantId)
-                : forms.findByTenantIdAndStatusAndDeletedAtIsNullOrderByUpdatedAtDesc(tenantId, status);
+        List<FormDefinition> result = deleted
+                ? forms.findByTenantIdAndDeletedAtIsNotNullOrderByDeletedAtDesc(tenantId)
+                : (status == null
+                    ? forms.findByTenantIdAndDeletedAtIsNullOrderByUpdatedAtDesc(tenantId)
+                    : forms.findByTenantIdAndStatusAndDeletedAtIsNullOrderByUpdatedAtDesc(tenantId, status));
+        return withNames(result);
     }
 
     @GetMapping("/{id}")
     public FormDefinition get(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
-        return load(tenantId, id);
+        return withNames(load(tenantId, id));
     }
 
     @GetMapping("/by-code/{code}")
     public FormDefinition getByCode(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String code) {
-        return loadByCode(tenantId, code);
+        return withNames(loadByCode(tenantId, code));
     }
 
     /**
@@ -397,13 +400,44 @@ public class FormDefinitionController {
 
     /* ── activity feed ──────────────────────────────────────── */
 
+    /** Audit event with the actor's resolved display name (for the UI activity feed). */
+    public record AuditView(String action, String actor, String actorName, String detail,
+                            java.time.LocalDateTime at) {}
+
     @GetMapping("/{id}/audit")
-    public List<FormAuditEvent> auditTrail(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
+    public List<AuditView> auditTrail(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         load(tenantId, id);
-        return audit.findByFormIdAndTenantIdOrderByAtDesc(id, tenantId);
+        List<FormAuditEvent> events = audit.findByFormIdAndTenantIdOrderByAtDesc(id, tenantId);
+        Map<String, String> names = userDirectory.namesFor(events.stream().map(FormAuditEvent::getActor).toList());
+        return events.stream()
+                .map(e -> new AuditView(e.getAction(), e.getActor(),
+                        e.getActor() != null ? names.getOrDefault(e.getActor(), e.getActor()) : null,
+                        e.getDetail(), e.getAt()))
+                .toList();
     }
 
     /* ── helpers ────────────────────────────────────────────── */
+
+    /** Read-time enrichment: fill createdByName/updatedByName on one form. */
+    private FormDefinition withNames(FormDefinition form) {
+        withNames(List.of(form));
+        return form;
+    }
+
+    /** Read-time enrichment: batch-fill createdByName/updatedByName across forms in ONE lookup. */
+    private List<FormDefinition> withNames(List<FormDefinition> list) {
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (FormDefinition f : list) {
+            if (f.getCreatedBy() != null) ids.add(f.getCreatedBy());
+            if (f.getUpdatedBy() != null) ids.add(f.getUpdatedBy());
+        }
+        Map<String, String> names = userDirectory.namesFor(ids);
+        for (FormDefinition f : list) {
+            if (f.getCreatedBy() != null) f.setCreatedByName(names.getOrDefault(f.getCreatedBy(), f.getCreatedBy()));
+            if (f.getUpdatedBy() != null) f.setUpdatedByName(names.getOrDefault(f.getUpdatedBy(), f.getUpdatedBy()));
+        }
+        return list;
+    }
 
     /** Append an immutable audit event for a lifecycle action on {@code form}. */
     private void record(FormDefinition form, String actor, String action, String detail) {

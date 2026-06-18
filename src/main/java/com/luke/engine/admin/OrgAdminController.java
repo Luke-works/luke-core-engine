@@ -74,6 +74,7 @@ public class OrgAdminController {
                           String role, String accessLevel) {}
     public record LevelBody(String level) {}
     public record GroupBody(String name) {}
+    public record UserProfile(String firstName, String lastName) {}
 
     /* ── users in the org, with roles + candidate groups ─────────────── */
 
@@ -119,6 +120,27 @@ public class OrgAdminController {
         identityService.createTenantUserMembership(ctx.tenant, body.id());
         identityService.createMembership(body.id(), roleGroup(body.role(), body.accessLevel()));
         return Map.of("id", body.id(), "tenant", ctx.tenant);
+    }
+
+    /**
+     * Update a member's display name (first/last) in the engine user store — what the
+     * UI resolves created_by/updated_by/audit-actor ids to. Owner (tenant-admin) or
+     * operator only, and the target must be a member of the active tenant.
+     */
+    @PutMapping("/users/{userId}/profile")
+    public Map<String, Object> updateProfile(@RequestHeader(value = "Authorization", required = false) String auth,
+                                             @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                             @PathVariable String userId, @RequestBody UserProfile body) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        requireTenantMember(userId, ctx.tenant);
+        User u = identityService.createUserQuery().userId(userId).singleResult();
+        if (u == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown user: " + userId);
+        if (body.firstName() != null) u.setFirstName(body.firstName().trim());
+        if (body.lastName() != null) u.setLastName(body.lastName().trim());
+        identityService.saveUser(u);
+        return Map.of("id", userId,
+                "firstName", u.getFirstName() != null ? u.getFirstName() : "",
+                "lastName", u.getLastName() != null ? u.getLastName() : "");
     }
 
     /* ── roles (Camunda) ─────────────────────────────────────────────── */
