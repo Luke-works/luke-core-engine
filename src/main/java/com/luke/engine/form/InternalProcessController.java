@@ -1,13 +1,6 @@
 package com.luke.engine.form;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.spin.plugin.variable.SpinValues;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.runtime.ProcessInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,31 +13,27 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Internal, server-to-server endpoint for capability-engine to start a process
- * after a form submission. NOT public — the gateway only exposes /api/public/**,
- * so this is reachable only on the internal network. Guarded by a shared secret
- * ({@code X-Internal-Key}), mirroring capability-engine's OperatorAuthFilter in
- * the reverse direction.
+ * Internal, server-to-server endpoint to start a process after a form submission.
+ * RETAINED behind the shared secret ({@code X-Internal-Key}) for any external/BPMN
+ * caller (e.g. an HTTP connector). The in-process form-submission path now calls
+ * {@link InternalProcessService} directly (no HTTP hop) — both share one impl.
+ *
+ * <p>Kept fail-closed: an unset/empty shared secret rejects every call (guards #41).
+ * (Removal is M5-only, after the BPMN audit confirms no HTTP caller.)
  */
 @RestController
 @RequestMapping("/api/internal")
 public class InternalProcessController {
 
     private static final Logger log = LoggerFactory.getLogger(InternalProcessController.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final RuntimeService runtimeService;
-    private final IdentityService identityService;
-
-    @Value("${luke.forms.intake-process-key:FormSubmissionIntakeProcess}")
-    private String intakeProcessKey;
+    private final InternalProcessService processService;
 
     @Value("${luke.internal.shared-secret:}")
     private String sharedSecret;
 
-    public InternalProcessController(RuntimeService runtimeService, IdentityService identityService) {
-        this.runtimeService = runtimeService;
-        this.identityService = identityService;
+    public InternalProcessController(InternalProcessService processService) {
+        this.processService = processService;
     }
 
     public record StartBody(String tenantId, String businessKey, Map<String, Object> variables) {}
@@ -58,48 +47,12 @@ public class InternalProcessController {
         if (body == null || body.tenantId() == null || body.tenantId().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "tenantId is required");
         }
-
-        Map<String, Object> vars = body.variables() != null ? new HashMap<>(body.variables()) : new HashMap<>();
-
-        // Store the JSON payloads as JSON (Spin) variables — structured and
-        // navigable in Camunda (type Object/json, e.g.
-        // ${formData.prop('email').stringValue()}), not flat Strings. Each accepts
-        // an incoming JSON string or an object/map.
-        for (String varKey : new String[] {"formData", "formMetaData"}) {
-            Object v = vars.get(varKey);
-            if (v == null) continue;
-            String json = v instanceof String s ? s : null;
-            if (json == null) {
-                try { json = MAPPER.writeValueAsString(v); } catch (Exception ignored) { /* leave null */ }
-            }
-            if (json != null && !json.isBlank()) {
-                try {
-                    vars.put(varKey, SpinValues.jsonValue(json).create());
-                } catch (Exception e) {
-                    vars.put(varKey, json); // fall back to a plain string if not valid JSON
-                }
-            }
-        }
-
-        // Scope the engine to the tenant so the tenant-specific definition is
-        // selected and the instance is tagged with the tenant.
-        identityService.setAuthentication(null, null, List.of(body.tenantId()));
         try {
-            ProcessInstance pi = runtimeService.createProcessInstanceByKey(intakeProcessKey)
-                    .processDefinitionTenantId(body.tenantId())
-                    .businessKey(body.businessKey())
-                    .setVariables(vars)
-                    .execute();
-            log.info("Started {} (tenant {}, businessKey {}) → {}", intakeProcessKey, body.tenantId(), body.businessKey(), pi.getProcessInstanceId());
-            return Map.of(
-                    "processInstanceId", pi.getProcessInstanceId(),
-                    "definitionId", pi.getProcessDefinitionId());
+            String pid = processService.start(body.tenantId(), body.businessKey(), body.variables());
+            return Map.of("processInstanceId", pid);
         } catch (Exception e) {
-            // Surface as a 502 so the caller can log it; the caller treats it best-effort.
-            log.warn("Failed to start {} for tenant {}: {}", intakeProcessKey, body.tenantId(), e.getMessage());
+            log.warn("Failed to start intake for tenant {}: {}", body.tenantId(), e.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not start process: " + e.getMessage());
-        } finally {
-            identityService.clearAuthentication();
         }
     }
 }

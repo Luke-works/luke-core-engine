@@ -31,16 +31,16 @@ public class FormEmbedController {
     private final FormDefinitionRepository forms;
     private final FormVersionRepository versions;
     private final FormInstanceRepository instances;
-    private final ProcessStarter processStarter;
+    private final FormSubmissionService submissions;
 
     public FormEmbedController(EmbedTokens embedTokens, FormDefinitionRepository forms,
                                FormVersionRepository versions, FormInstanceRepository instances,
-                               ProcessStarter processStarter) {
+                               FormSubmissionService submissions) {
         this.embedTokens = embedTokens;
         this.forms = forms;
         this.versions = versions;
         this.instances = instances;
-        this.processStarter = processStarter;
+        this.submissions = submissions;
     }
 
     public record SubmitBody(Map<String, Object> data) {}
@@ -79,15 +79,11 @@ public class FormEmbedController {
         inst.setData(body != null ? body.data() : Map.of());
         inst.setContext(new HashMap<>(Map.of("source", "embed")));
         inst.setSubmittedAt(LocalDateTime.now());
-        instances.save(inst);
 
-        // Start the generic intake process (best-effort); records the outcome
-        // (started + id, or failed + error) onto the instance for the tracker.
-        ProcessStarter.StartResult res = processStarter.startForInstance(inst);
-        instances.save(inst);
-        return Map.of("ok", true, "instanceId", inst.getId(),
-                "processInstanceId", res.processInstanceId() != null ? res.processInstanceId() : "",
-                "processStatus", res.status());
+        // Persist the submission + enqueue the process start in ONE transaction
+        // (durable, no HTTP hop). The outbox consumer starts the process off-thread.
+        submissions.submit(inst, null);
+        return Map.of("ok", true, "instanceId", inst.getId(), "processStatus", "QUEUED");
     }
 
     /* ── helpers ────────────────────────────────────────────── */

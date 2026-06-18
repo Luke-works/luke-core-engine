@@ -37,16 +37,16 @@ public class FormInstanceController {
     private final FormInstanceRepository instances;
     private final FormDefinitionRepository forms;
     private final FormVersionRepository versions;
-    private final ProcessStarter processStarter;
+    private final FormSubmissionService submissions;
 
     public FormInstanceController(FormInstanceRepository instances,
                                   FormDefinitionRepository forms,
                                   FormVersionRepository versions,
-                                  ProcessStarter processStarter) {
+                                  FormSubmissionService submissions) {
         this.instances = instances;
         this.forms = forms;
         this.versions = versions;
-        this.processStarter = processStarter;
+        this.submissions = submissions;
     }
 
     /* ── request bodies ─────────────────────────────────────── */
@@ -141,15 +141,9 @@ public class FormInstanceController {
         if (!FormInstanceStates.isOpen(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instance cannot be submitted from state " + inst.getState());
         }
-        if (body != null && body.data() != null) inst.setData(merge(inst.getData(), body.data()));
-        inst.setState(FormInstanceStates.SUBMITTED);
-        inst.setSubmittedAt(LocalDateTime.now());
-        instances.save(inst);
-
-        // Start the generic intake process (best-effort); the outcome (started +
-        // id, or failed + error) is recorded on the instance context for the tracker.
-        processStarter.startForInstance(inst);
-        instances.save(inst);
+        // Atomic: mark SUBMITTED + enqueue the process start in ONE transaction; the
+        // outbox consumer starts the Camunda process off-thread (durable, no HTTP hop).
+        submissions.submit(inst, body != null ? body.data() : null);
         return view(inst, schemaFor(tenantId, inst));
     }
 
@@ -168,12 +162,10 @@ public class FormInstanceController {
         if (existing != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A process is already running for this submission");
         }
-        ProcessStarter.StartResult res = processStarter.startForInstance(inst);
-        instances.save(inst);
-        return Map.of(
-                "status", res.status(),
-                "processInstanceId", res.processInstanceId() != null ? res.processInstanceId() : "",
-                "error", res.error() != null ? res.error() : "");
+        // Re-enqueue; the outbox consumer retries the start off-thread. The outcome
+        // lands on the instance context (processStartStatus / processInstanceId).
+        submissions.reEnqueue(inst);
+        return Map.of("status", "QUEUED", "processInstanceId", "", "error", "");
     }
 
     /** Generic guarded state transition. */
