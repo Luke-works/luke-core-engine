@@ -70,8 +70,8 @@ public class ApiAuthFilter {
     private String parentClusterId;
 
     @Bean
-    public FilterRegistrationBean<Filter> apiAuthFilter(IdentityService identityService,
-                                                        GatewayJwtAuthenticator gatewayAuth) {
+    public FilterRegistrationBean<Filter> apiAuthFilterRegistration(IdentityService identityService,
+                                                                    GatewayJwtAuthenticator gatewayAuth) {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new ApiAuthServletFilter(identityService, gatewayAuth, parentClusterId));
         // "/foo/*" matches both "/foo" and "/foo/bar", so the base paths are covered too.
