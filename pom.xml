@@ -169,6 +169,18 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
+        <!-- Merged from capability-engine: bean validation (@Valid on capability controllers) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- Merged from capability-engine: JOSE/JWT (GatewayTokenVerifier). Also pulled
+             transitively by oauth2-resource-server above; declared explicitly to match. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
         <!-- Database: H2 (default) + PostgreSQL (optional via postgres profile) -->
         <dependency>
             <groupId>com.h2database</groupId>

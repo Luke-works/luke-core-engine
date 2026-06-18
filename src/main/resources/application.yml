@@ -88,10 +88,46 @@ luke:
       jwks-url: ${LUKE_AUTH_GATEWAY_JWKS_URL:}
       issuer: ${LUKE_AUTH_GATEWAY_ISSUER:luke-auth-engine}
       audience: ${LUKE_AUTH_GATEWAY_AUDIENCE:luke-core-engine}
+    # Merged from capability: operator credential the capability OperatorAuthFilter
+    # reads for the former admin routes (/api/tenants/**). M2 reconciles this with
+    # luke.capabilities.operator. Unset → routes open (local dev).
+    operator:
+      user: ${CAPABILITY_OPERATOR_USER:}
+      password: ${CAPABILITY_OPERATOR_PASSWORD:}
   cors:
     # Comma-separated origin patterns. Local dev default allows any localhost
     # port; in production set ALLOWED_ORIGINS to your deployed UI URLs.
     allowed-origins: ${ALLOWED_ORIGINS:http://localhost:*}
+
+  # ── Merged from luke-capability-engine (forms/email/secrets/embed data store) ──
+  # NOTE: capability's JPA default_schema is intentionally dropped — entities now
+  # ride core's currentSchema (Strategy A, one schema per env). Do not re-add it.
+  core-engine:
+    # Used by the form process-start path; becomes a no-op once ProcessStarter
+    # goes in-process (M3).
+    base-url: ${CORE_ENGINE_BASE_URL:http://localhost:8080}
+  embed:
+    # HMAC secret for signing/verifying public embed tokens. Set a real value in prod.
+    hmac-secret: ${LUKE_EMBED_HMAC_SECRET:dev-embed-secret-change-me}
+  email:
+    postmark:
+      base-url: ${POSTMARK_BASE_URL:https://api.postmarkapp.com}
+      account-token: ${POSTMARK_ACCOUNT_TOKEN:}
+      server-token: ${POSTMARK_SERVER_TOKEN:}
+      default-from: ${EMAIL_DEFAULT_FROM:}
+      message-stream: ${POSTMARK_MESSAGE_STREAM:outbound}
+    sender:
+      base-domain: ${EMAIL_SENDER_BASE_DOMAIN:}
+      default-local-part: ${EMAIL_SENDER_DEFAULT_LOCAL_PART:no-reply}
+    verification:
+      code-length: ${EMAIL_VERIFICATION_CODE_LENGTH:6}
+      ttl-seconds: ${EMAIL_VERIFICATION_TTL_SECONDS:600}
+      max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+  secrets:
+    # AES-256-GCM master keys for the encrypted secret store.
+    active-key-id: ${LUKE_SECRETS_ACTIVE_KEY_ID:dev}
+    keys:
+      dev: ${LUKE_SECRETS_KEY_DEV:dev-secrets-master-key-change-me}
 
 # Actuator
 management:
