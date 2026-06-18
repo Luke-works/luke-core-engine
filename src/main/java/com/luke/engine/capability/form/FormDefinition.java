@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
@@ -67,6 +68,12 @@ public class FormDefinition {
     private String createdBy;
     private String updatedBy;
 
+    /** Resolved display names for created_by / updated_by — filled at read time, NOT persisted. */
+    @Transient
+    private String createdByName;
+    @Transient
+    private String updatedByName;
+
     /** When the form last passed its self-test ("Test the form"), and by whom. */
     private LocalDateTime lastTestedAt;
     private String lastTestedBy;
@@ -121,6 +128,12 @@ public class FormDefinition {
 
     public String getUpdatedBy() { return updatedBy; }
     public void setUpdatedBy(String updatedBy) { this.updatedBy = updatedBy; }
+
+    public String getCreatedByName() { return createdByName; }
+    public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
+
+    public String getUpdatedByName() { return updatedByName; }
+    public void setUpdatedByName(String updatedByName) { this.updatedByName = updatedByName; }
 
     public LocalDateTime getLastTestedAt() { return lastTestedAt; }
     public void setLastTestedAt(LocalDateTime lastTestedAt) { this.lastTestedAt = lastTestedAt; }
