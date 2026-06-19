@@ -28,6 +28,9 @@ public final class FormInstanceStates {
     /** States in which the form can still be opened/edited/submitted. */
     public static final Set<String> OPEN = Set.of(CREATED, SENT, OPENED, IN_PROGRESS);
 
+    /** States that count as a received submission (mirrors the UI's {@code isSub}). */
+    public static final Set<String> SUBMITTED_STATES = Set.of(SUBMITTED, PROCESSED);
+
     private static final Map<String, Set<String>> ALLOWED = Map.of(
         CREATED,     Set.of(SENT, OPENED, IN_PROGRESS, SUBMITTED, CANCELLED, EXPIRED),
         SENT,        Set.of(OPENED, IN_PROGRESS, SUBMITTED, CANCELLED, EXPIRED),

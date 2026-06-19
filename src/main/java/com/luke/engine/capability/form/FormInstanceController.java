@@ -119,6 +119,25 @@ public class FormInstanceController {
         return new PagedInstances(result.getContent(), result.getTotalElements(), offset, size);
     }
 
+    /** Per-definition rollup ({@code total}, {@code subs}, {@code last} epoch-ms),
+     *  keyed by definitionCode (#26). Computed server-side over the whole tenant set
+     *  so the cockpit counts don't depend on the (capped) instance page the client
+     *  holds. Definitions with no instances are simply absent (caller defaults to 0). */
+    public record DefinitionSummaryView(long total, long subs, Long last) {}
+
+    @GetMapping("/summary")
+    public Map<String, DefinitionSummaryView> summary(@RequestHeader("X-Tenant-Id") String tenantId) {
+        requireTenant(tenantId);
+        Map<String, DefinitionSummaryView> out = new HashMap<>();
+        for (FormInstanceRepository.DefinitionSummary row
+                : instances.summarizeByDefinition(tenantId, FormInstanceStates.SUBMITTED_STATES)) {
+            Long last = row.getLastAt() == null ? null
+                    : row.getLastAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            out.put(row.getCode(), new DefinitionSummaryView(row.getTotal(), row.getSubs(), last));
+        }
+        return out;
+    }
+
     /** Full view incl. the resolved schema, for rendering. */
     @GetMapping("/{id}")
     public Map<String, Object> get(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {

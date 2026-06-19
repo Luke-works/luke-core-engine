@@ -57,7 +57,10 @@ import java.util.List;
  * {@code X-Tenant-Id} scopes the request to that tenant and a non-privileged
  * caller that is not a member gets 403; no selection keeps the caller's full
  * memberships. Writes to the global {@code /api/topics} registry additionally
- * require an operator (parent-cluster member or {@code camunda-admin}).
+ * require an operator (parent-cluster member or {@code camunda-admin}); the
+ * cross-tenant {@code /api/tenancy/**} metrics are operator-only as well, enforced
+ * in {@code TenancyMetricsController} (this filter supplies authn + the identity
+ * scope the controller's operator check reads).
  */
 @Configuration
 public class ApiAuthFilter {
@@ -75,11 +78,13 @@ public class ApiAuthFilter {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new ApiAuthServletFilter(identityService, gatewayAuth, parentClusterId));
         // "/foo/*" matches both "/foo" and "/foo/bar", so the base paths are covered too.
-        registration.addUrlPatterns("/api/form-inbox/*", "/api/process-trace/*", "/api/topics/*");
+        registration.addUrlPatterns(
+                "/api/form-inbox/*", "/api/process-trace/*", "/api/topics/*", "/api/tenancy/*");
         registration.setName("apiAuthFilter");
         registration.setOrder(1);
         log.info("ApiAuthFilter registered — Basic + {} gateway-Bearer; enforcing auth+tenant on "
-                        + "/api/form-inbox, /api/process-trace, /api/topics (writes to /api/topics require operator)",
+                        + "/api/form-inbox, /api/process-trace, /api/topics, /api/tenancy "
+                        + "(writes to /api/topics + all of /api/tenancy require operator)",
                 gatewayAuth.isEnabled() ? "enabled" : "disabled");
         return registration;
     }
