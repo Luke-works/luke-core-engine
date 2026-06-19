@@ -11,6 +11,7 @@ import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.runtime.ProcessInstance;
 import org.cibseven.bpm.engine.task.Task;
+import org.cibseven.bpm.engine.task.TaskQuery;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,9 +46,20 @@ public class FormInboxController {
     private static final int MAX_PAGE = 200;
     private static final int DEFAULT_PAGE = 50;
 
+    /** A bounded page of inbox tasks plus the full server-side total (#26). */
+    public record PagedInbox(List<Map<String, Object>> items, long total, int firstResult, int maxResults) {}
+
+    /**
+     * List the tenant's open user tasks, paged + sorted + searchable server-side (#26).
+     * {@code search} matches the task name or assignee; {@code sort} is one of
+     * {@code created|name|assignee} with {@code order} asc|desc (default created desc).
+     */
     @GetMapping
-    public List<Map<String, Object>> list(
+    public PagedInbox list(
             @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String order,
             @RequestParam(defaultValue = "0") int firstResult,
             @RequestParam(defaultValue = "" + DEFAULT_PAGE) int maxResults) {
 
@@ -55,11 +67,15 @@ public class FormInboxController {
         int limit = Math.min(Math.max(1, maxResults), MAX_PAGE);
 
         // The inbox IS the open user tasks — paginate it (was an unbounded .list()).
-        List<Task> tasks = taskService.createTaskQuery()
-                .tenantIdIn(tenantId)
-                .active()
-                .orderByTaskCreateTime().desc()
-                .listPage(offset, limit);
+        TaskQuery query = taskService.createTaskQuery().tenantIdIn(tenantId).active();
+        if (search != null && !search.isBlank()) {
+            String like = "%" + search.trim() + "%";
+            query = query.or().taskNameLike(like).taskAssigneeLike(like).endOr();
+        }
+        applyOrder(query, sort, order);
+
+        long total = query.count();
+        List<Task> tasks = query.listPage(offset, limit);
 
         // pid → businessKey ONLY for the tasks on this page (was: every PI in the
         // tenant — also unbounded). Bounded by the page size.
@@ -88,7 +104,21 @@ public class FormInboxController {
             m.put("instanceId", businessKeys.get(t.getProcessInstanceId()));
             out.add(m);
         }
-        return out;
+        return new PagedInbox(out, total, offset, limit);
+    }
+
+    /** Apply a whitelisted task ordering (default: newest first). */
+    private static void applyOrder(TaskQuery query, String sort, String order) {
+        TaskQuery ordered = switch (sort == null ? "" : sort) {
+            case "name" -> query.orderByTaskName();
+            case "assignee" -> query.orderByTaskAssignee();
+            default -> query.orderByTaskCreateTime();
+        };
+        if ("asc".equalsIgnoreCase(order)) {
+            ordered.asc();
+        } else {
+            ordered.desc();
+        }
     }
 
     /** Complete a task (optionally claiming it as the actor). */

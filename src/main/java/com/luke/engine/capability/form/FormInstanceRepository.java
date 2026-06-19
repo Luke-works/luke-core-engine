@@ -6,10 +6,12 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface FormInstanceRepository extends JpaRepository<FormInstance, String> {
+public interface FormInstanceRepository
+        extends JpaRepository<FormInstance, String>, JpaSpecificationExecutor<FormInstance> {
 
     /** Open instances whose expiry has lapsed — swept to EXPIRED (#54). Bounded per run. */
     List<FormInstance> findByStateInAndExpiresAtBefore(
@@ -27,16 +29,10 @@ public interface FormInstanceRepository extends JpaRepository<FormInstance, Stri
 
     List<FormInstance> findByTenantIdAndDefinitionCodeOrderByCreatedAtDesc(String tenantId, String definitionCode);
 
-    // Paged variants (#52) — sort is supplied via the Pageable so the page is bounded
-    // server-side instead of loading the whole (monotonically growing) tenant set.
-    org.springframework.data.domain.Page<FormInstance> findByTenantId(
-            String tenantId, org.springframework.data.domain.Pageable pageable);
-
-    org.springframework.data.domain.Page<FormInstance> findByTenantIdAndState(
-            String tenantId, String state, org.springframework.data.domain.Pageable pageable);
-
-    org.springframework.data.domain.Page<FormInstance> findByTenantIdAndDefinitionCode(
-            String tenantId, String definitionCode, org.springframework.data.domain.Pageable pageable);
+    // The paged list (#52) + filter/search/sort (#26) is served via
+    // JpaSpecificationExecutor.findAll(Specification, Pageable) — see
+    // FormInstanceController.list / FormInstanceSpecs — so the page is bounded and
+    // filtered server-side instead of loading the whole tenant set.
 
     /** Per-definition rollup for the cockpit summary (#26): total, received-submission
      *  count and last-activity, computed server-side so the UI no longer reduces the

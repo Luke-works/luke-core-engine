@@ -100,23 +100,46 @@ public class FormInstanceController {
 
     public record PagedInstances(List<FormInstance> items, long total, int firstResult, int maxResults) {}
 
+    /**
+     * A bounded, filtered, sorted page of instances (#52/#26). Filters: {@code state}
+     * (exact), {@code definitionCode} (exact), {@code submittedOnly} (state ∈ submitted
+     * states), and {@code search} (free text over code/id/createdBy and the friendly
+     * form name). Sorting: {@code sort} (whitelisted) + {@code order} (asc|desc).
+     */
     @GetMapping
     public PagedInstances list(@RequestHeader("X-Tenant-Id") String tenantId,
                                @RequestParam(required = false) String state,
                                @RequestParam(required = false) String definitionCode,
+                               @RequestParam(defaultValue = "false") boolean submittedOnly,
+                               @RequestParam(required = false) String search,
+                               @RequestParam(required = false) String sort,
+                               @RequestParam(required = false) String order,
                                @RequestParam(defaultValue = "0") int firstResult,
                                @RequestParam(defaultValue = "" + DEFAULT_PAGE) int maxResults) {
         requireTenant(tenantId);
         int size = Math.min(Math.max(1, maxResults), MAX_PAGE);
         int offset = Math.max(0, firstResult);
         org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(
-                offset / size, size,
-                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
-        org.springframework.data.domain.Page<FormInstance> result =
-                definitionCode != null ? instances.findByTenantIdAndDefinitionCode(tenantId, definitionCode, pageable)
-                        : state != null ? instances.findByTenantIdAndState(tenantId, state, pageable)
-                                : instances.findByTenantId(tenantId, pageable);
+                offset / size, size, FormInstanceSpecs.sort(sort, order));
+        org.springframework.data.domain.Page<FormInstance> result = instances.findAll(
+                FormInstanceSpecs.filter(tenantId, state, definitionCode, submittedOnly, search,
+                        codesMatchingName(tenantId, search)),
+                pageable);
         return new PagedInstances(result.getContent(), result.getTotalElements(), offset, size);
+    }
+
+    /** Definition codes whose friendly name (or code) matches the search term, so the
+     *  instance search can hit the form name even though it lives on FormDefinition. */
+    private java.util.Set<String> codesMatchingName(String tenantId, String search) {
+        if (search == null || search.isBlank()) return java.util.Set.of();
+        String needle = search.trim().toLowerCase();
+        java.util.Set<String> codes = new java.util.HashSet<>();
+        for (FormDefinition f : forms.findByTenantIdAndDeletedAtIsNullOrderByUpdatedAtDesc(tenantId)) {
+            String name = f.getName() == null ? "" : f.getName().toLowerCase();
+            String code = f.getCode() == null ? "" : f.getCode().toLowerCase();
+            if (name.contains(needle) || code.contains(needle)) codes.add(f.getCode());
+        }
+        return codes;
     }
 
     /** Per-definition rollup ({@code total}, {@code subs}, {@code last} epoch-ms),
