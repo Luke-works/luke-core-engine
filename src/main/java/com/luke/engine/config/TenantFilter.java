@@ -33,6 +33,52 @@ public class TenantFilter {
 
     private static final Logger log = LoggerFactory.getLogger(TenantFilter.class);
 
+    /**
+     * Paths exempt from the tenant-id REQUIREMENT (#41) — they may be called without
+     * an {@code X-Tenant-Id}. They are NOT unauthenticated and NOT unscoped:
+     * {@link RestApiAuthFilter} (order 1, runs first) still authenticates the caller
+     * and calls {@code identityService.setAuthentication(user, groups, scopeTenants)},
+     * so CIBSeven's native tenant checks + authorization ({@code authorization.enabled=true})
+     * apply on these paths too. Each is exempt because it is identity/engine management,
+     * not tenant-scoped runtime data; the control that REPLACES tenant enforcement here
+     * is therefore Camunda authorization seeded per (tenant, user):
+     * <ul>
+     *   <li>{@code /engine-rest/engine}  – engine list / login probe (global, no tenant)</li>
+     *   <li>{@code /engine-rest/version} – REST API version (global, static)</li>
+     *   <li>{@code /engine-rest/tenant}  – tenant management/listing (defines tenants); Camunda Tenant authz</li>
+     *   <li>{@code /engine-rest/user}    – user management; cross-tenant reads gated by Camunda User READ authz</li>
+     *   <li>{@code /engine-rest/group}   – group management; gated by Camunda Group READ authz</li>
+     *   <li>{@code /engine-rest/identity}– identity (verify / group-info); gated by authz</li>
+     *   <li>{@code /engine-rest/deployment} – create is tenant-checked by {@link DeploymentTenantFilter};
+     *       reads/deletes are exempt by design, gated by Camunda Deployment authz</li>
+     * </ul>
+     * NOTE: adding a path here BROADENS what is reachable without a tenant — it must
+     * come with an explicit rationale + the replacing control above, and
+     * {@code TenantFilterExemptionTest} pins this set so a change is deliberate.
+     */
+    static final Set<String> EXEMPT_PATHS = Set.of(
+            "/engine-rest/engine",
+            "/engine-rest/tenant",
+            "/engine-rest/user",
+            "/engine-rest/group",
+            "/engine-rest/identity",
+            "/engine-rest/deployment",
+            "/engine-rest/version"
+    );
+
+    /**
+     * True if {@code path} is an exempt path exactly, or a sub-resource of one
+     * ({@code prefix + "/"}). Anchored so e.g. {@code /engine-rest/users} is NOT
+     * treated as {@code /engine-rest/user}.
+     */
+    static boolean isExemptPath(String path) {
+        if (path == null) return false;
+        for (String exempt : EXEMPT_PATHS) {
+            if (path.equals(exempt) || path.startsWith(exempt + "/")) return true;
+        }
+        return false;
+    }
+
     @Bean
     public FilterRegistrationBean<Filter> tenantEnforcementFilter() {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
@@ -47,17 +93,6 @@ public class TenantFilter {
 
         private static final ObjectMapper MAPPER = new ObjectMapper();
 
-        // Paths exempt from tenant enforcement
-        private static final Set<String> EXEMPT_PATHS = Set.of(
-                "/engine-rest/engine",
-                "/engine-rest/tenant",
-                "/engine-rest/user",
-                "/engine-rest/group",
-                "/engine-rest/identity",
-                "/engine-rest/deployment",
-                "/engine-rest/version"
-        );
-
         @Override
         public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
                 throws IOException, ServletException {
@@ -71,13 +106,12 @@ public class TenantFilter {
                 return;
             }
 
-            // Check if path is exempt
+            // Check if path is exempt (still authenticated + scoped by RestApiAuthFilter;
+            // isolation there relies on Camunda authorization — see EXEMPT_PATHS docs).
             String path = httpReq.getRequestURI();
-            for (String exempt : EXEMPT_PATHS) {
-                if (path.equals(exempt) || path.startsWith(exempt + "/")) {
-                    chain.doFilter(request, response);
-                    return;
-                }
+            if (isExemptPath(path)) {
+                chain.doFilter(request, response);
+                return;
             }
 
             // Look for tenant in header or query param

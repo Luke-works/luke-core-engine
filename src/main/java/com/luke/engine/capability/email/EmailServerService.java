@@ -165,6 +165,30 @@ public class EmailServerService {
 
     /* ── send-time resolution + sender validation ───────────── */
 
+    /**
+     * Resolve just the Postmark Server token for {@code tenantId} — the per-tenant
+     * token from the secret store, or the global fallback when no server is
+     * provisioned. Reuses the same lookup as {@link #resolveSendContext} (no From /
+     * domain enforcement, since publishing a template is not a send). If the tenant
+     * has no provisioned server and no fallback is configured, fails with a clear
+     * 409 so the caller can prompt "connect email first" rather than crashing.
+     */
+    public String resolveServerToken(String tenantId) {
+        Optional<EmailServer> maybe = servers.findByTenantId(tenantId);
+        if (maybe.isEmpty() && isBlank(fallbackServerToken)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "No email server is provisioned for this company; connect email before publishing a template");
+        }
+        String token = maybe.isPresent()
+                ? secretStore.get(tenantId, POSTMARK_TOKEN_SECRET).orElse(null)
+                : fallbackServerToken;
+        if (isBlank(token)) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email sending is not configured (no Postmark server token available)");
+        }
+        return token;
+    }
+
     /** The token to send with, the resolved From, and the default message stream. */
     public record SendContext(String serverToken, String from, String messageStream) {}
 
