@@ -37,7 +37,8 @@ public class GatewayAuthFilter {
         reg.setFilter(new Impl(verifier));
         reg.addUrlPatterns("/api/form-definitions/*", "/api/form-instances/*", "/api/emails/*",
                 "/api/email-servers/*", "/api/email-verification/*", "/api/email-templates/*",
-                "/api/my-capabilities");
+                "/api/my-capabilities",
+                "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*");
         reg.setName("gatewayAuthFilter");
         reg.setOrder(1); // before the capability access interceptor
         return reg;
