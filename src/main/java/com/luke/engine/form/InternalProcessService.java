@@ -64,6 +64,22 @@ public class InternalProcessService {
 
         identityService.setAuthentication(null, null, List.of(tenantId));
         try {
+            // Idempotency (#31): the outbox drives this at-least-once and a retry after a
+            // crash (process started, but the outbox row not yet marked PUBLISHED) would
+            // otherwise start a SECOND process. If one with this businessKey is already
+            // running for the tenant, return it instead of starting a duplicate.
+            if (businessKey != null && !businessKey.isBlank()) {
+                List<ProcessInstance> existing = runtimeService.createProcessInstanceQuery()
+                        .processInstanceBusinessKey(businessKey)
+                        .tenantIdIn(tenantId)
+                        .list();
+                if (!existing.isEmpty()) {
+                    String pid = existing.get(0).getProcessInstanceId();
+                    log.info("Idempotent start: businessKey {} (tenant {}) already running → {}",
+                            businessKey, tenantId, pid);
+                    return pid;
+                }
+            }
             ProcessInstance pi = runtimeService.createProcessInstanceByKey(intakeProcessKey)
                     .processDefinitionTenantId(tenantId)
                     .businessKey(businessKey)

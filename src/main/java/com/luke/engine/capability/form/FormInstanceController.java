@@ -128,6 +128,7 @@ public class FormInstanceController {
         if (!FormInstanceStates.isOpen(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instance is not open for edits (state " + inst.getState() + ")");
         }
+        rejectIfExpired(inst);
         inst.setData(merge(inst.getData(), body.data()));
         inst.setState(FormInstanceStates.IN_PROGRESS);
         instances.save(inst);
@@ -141,10 +142,21 @@ public class FormInstanceController {
         if (!FormInstanceStates.isOpen(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instance cannot be submitted from state " + inst.getState());
         }
+        rejectIfExpired(inst);
         // Atomic: mark SUBMITTED + enqueue the process start in ONE transaction; the
         // outbox consumer starts the Camunda process off-thread (durable, no HTTP hop).
         submissions.submit(inst, body != null ? body.data() : null);
         return view(inst, schemaFor(tenantId, inst));
+    }
+
+    /** Reject (and record) an expired instance: an open-but-past-expiry form must not
+     *  accept edits or submissions (#54). Marks it EXPIRED so it leaves the open set. */
+    private void rejectIfExpired(FormInstance inst) {
+        if (inst.isExpired()) {
+            inst.setState(FormInstanceStates.EXPIRED);
+            instances.save(inst);
+            throw new ResponseStatusException(HttpStatus.GONE, "This form has expired.");
+        }
     }
 
     /**

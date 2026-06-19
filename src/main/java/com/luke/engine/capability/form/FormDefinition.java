@@ -10,6 +10,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 
 /**
@@ -33,6 +34,12 @@ public class FormDefinition {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
+
+    /** Optimistic-locking token (#57): concurrent draft saves / lock checkouts that
+     *  read-then-write the same row collide → OptimisticLockException → 409, instead of
+     *  a silent last-write-wins clobber. JPA manages it. */
+    @Version
+    private Long version;
 
     @Column(nullable = false)
     private String tenantId;

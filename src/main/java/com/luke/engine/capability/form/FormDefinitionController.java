@@ -36,6 +36,16 @@ public class FormDefinitionController {
     private final EmbedTokens embedTokens;
     private final com.luke.engine.tenant.UserDirectory userDirectory;
 
+    /** A concurrent edit (draft save / lock checkout) lost the optimistic-lock race
+     *  (#57) — tell the client to reload rather than silently clobbering. */
+    @org.springframework.web.bind.annotation.ExceptionHandler(
+            org.springframework.dao.OptimisticLockingFailureException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, Object> onConcurrentEdit() {
+        return Map.of("error", "Conflict",
+                "message", "This form was changed by someone else — reload and try again.");
+    }
+
     public FormDefinitionController(FormDefinitionRepository forms, FormVersionRepository versions,
                                     FormAuditEventRepository audit, EmbedTokens embedTokens,
                                     com.luke.engine.tenant.UserDirectory userDirectory) {
