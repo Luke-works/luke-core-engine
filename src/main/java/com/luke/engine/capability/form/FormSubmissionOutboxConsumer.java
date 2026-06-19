@@ -55,31 +55,36 @@ public class FormSubmissionOutboxConsumer {
             if (row.getFormDataJson() != null) vars.put("formData", row.getFormDataJson());
             if (row.getFormMetaJson() != null) vars.put("formMetaData", row.getFormMetaJson());
 
-            String pid = processService.start(row.getTenantId(), row.getBusinessKey(), vars);
+            // Camunda process business key: the human-readable SM-... key (fall back to
+            // the idempotency key for any row created before this field existed).
+            String businessKey = row.getProcessBusinessKey() != null
+                    ? row.getProcessBusinessKey() : row.getBusinessKey();
+            String pid = processService.start(row.getTenantId(), businessKey, vars);
 
             row.setStatus("PUBLISHED");
             row.setProcessInstanceId(pid);
             row.setPublishedAt(Instant.now());
             row.setErrorMessage(null);
             outbox.save(row);
-            recordOutcome(row.getFormInstanceId(), "STARTED", pid, null);
+            recordOutcome(row.getFormInstanceId(), "STARTED", pid, businessKey, null);
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             row.setStatus("FAILED");
             row.setErrorMessage(msg);
             outbox.save(row);
-            recordOutcome(row.getFormInstanceId(), "FAILED", null, msg);
+            recordOutcome(row.getFormInstanceId(), "FAILED", null, row.getProcessBusinessKey(), msg);
             log.warn("Outbox start failed for instance {} (tenant {}): {}",
                     row.getFormInstanceId(), row.getTenantId(), msg);
         }
     }
 
-    private void recordOutcome(String instanceId, String status, String pid, String error) {
+    private void recordOutcome(String instanceId, String status, String pid, String businessKey, String error) {
         instances.findById(instanceId).ifPresent(inst -> {
             Map<String, Object> ctx = new HashMap<>(inst.getContext() != null ? inst.getContext() : Map.of());
             ctx.put("processStartStatus", status);
             ctx.put("processStartAt", System.currentTimeMillis());
             if (pid != null) ctx.put("processInstanceId", pid);
+            if (businessKey != null) ctx.put("processBusinessKey", businessKey);
             if (error != null) ctx.put("processStartError", error); else ctx.remove("processStartError");
             inst.setContext(ctx);
             instances.save(inst);

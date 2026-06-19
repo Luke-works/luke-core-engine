@@ -2,6 +2,7 @@ package com.luke.engine.capability.form;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.luke.engine.form.FormProcessDeployer;
 import java.util.Map;
@@ -59,8 +60,12 @@ class FormSubmissionOutboxFlowTest {
         FormSubmissionOutbox published = outbox.findByBusinessKey(inst.getId()).orElseThrow();
         assertEquals("PUBLISHED", published.getStatus());
         assertNotNull(published.getProcessInstanceId());
+        // The Camunda business key is the human-readable SM-<7 alnum>-YYYYMMMDD key.
+        String bk = published.getProcessBusinessKey();
+        assertNotNull(bk);
+        assertTrue(bk.matches("SM-[A-Z0-9]{7}-\\d{4}[A-Z]{3}\\d{2}"), "business key format: " + bk);
         assertEquals(1, runtimeService.createProcessInstanceQuery()
-                .processInstanceBusinessKey(inst.getId()).count());
+                .processInstanceBusinessKey(bk).count());
         assertEquals("STARTED", instances.findById(inst.getId()).orElseThrow()
                 .getContext().get("processStartStatus"));
 
