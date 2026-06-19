@@ -11,4 +11,12 @@ public interface EmailMessageRepository extends JpaRepository<EmailMessage, Stri
     List<EmailMessage> findByTenantIdOrderByCreatedAtDesc(String tenantId);
 
     List<EmailMessage> findByTenantIdAndStatusOrderByCreatedAtDesc(String tenantId, String status);
+
+    // Paged variants (#52) — emails accrue monotonically per tenant, so the list is
+    // bounded server-side via the Pageable instead of loading the whole history.
+    org.springframework.data.domain.Page<EmailMessage> findByTenantId(
+            String tenantId, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<EmailMessage> findByTenantIdAndStatus(
+            String tenantId, String status, org.springframework.data.domain.Pageable pageable);
 }

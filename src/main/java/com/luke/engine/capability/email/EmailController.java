@@ -1,6 +1,10 @@
 package com.luke.engine.capability.email;
 
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,15 +57,31 @@ public class EmailController {
         return emails.sendTemplate(tenantId, userId, body);
     }
 
-    /** List this tenant's emails, newest first; optional {@code status} filter. */
+    private static final int MAX_PAGE = 200;
+    private static final int DEFAULT_PAGE = 50;
+
+    /** A bounded page of emails plus the full server-side total (#52). */
+    public record PagedEmails(List<EmailMessage> items, long total, int firstResult, int maxResults) {}
+
+    /**
+     * List this tenant's emails, newest first; optional {@code status} filter. Paged +
+     * size-capped server-side (#52) — emails accrue monotonically, so the whole history
+     * is never loaded at once. {@code firstResult}/{@code maxResults} are an offset/limit;
+     * page size is clamped to {@value #MAX_PAGE}.
+     */
     @GetMapping
-    public List<EmailMessage> list(@RequestHeader("X-Tenant-Id") String tenantId,
-                                   @RequestParam(required = false) String status) {
+    public PagedEmails list(@RequestHeader("X-Tenant-Id") String tenantId,
+                            @RequestParam(required = false) String status,
+                            @RequestParam(defaultValue = "0") int firstResult,
+                            @RequestParam(defaultValue = "" + DEFAULT_PAGE) int maxResults) {
         requireTenant(tenantId);
-        if (status != null && !status.isBlank()) {
-            return repository.findByTenantIdAndStatusOrderByCreatedAtDesc(tenantId, status);
-        }
-        return repository.findByTenantIdOrderByCreatedAtDesc(tenantId);
+        int size = Math.min(Math.max(1, maxResults), MAX_PAGE);
+        int offset = Math.max(0, firstResult);
+        Pageable pageable = PageRequest.of(offset / size, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<EmailMessage> result = (status != null && !status.isBlank())
+                ? repository.findByTenantIdAndStatus(tenantId, status, pageable)
+                : repository.findByTenantId(tenantId, pageable);
+        return new PagedEmails(result.getContent(), result.getTotalElements(), offset, size);
     }
 
     @GetMapping("/{id}")
