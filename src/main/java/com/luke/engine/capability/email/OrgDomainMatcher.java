@@ -46,6 +46,13 @@ public final class OrgDomainMatcher {
         return domain != null && FREE_PROVIDERS.contains(domain.trim().toLowerCase(Locale.ROOT));
     }
 
+    /** The free/personal mailbox providers — the single source of truth (#38), shared
+     *  with the client via {@code /api/public/meta/free-email-domains} and reused by
+     *  {@code PersonalEmail}. Immutable. */
+    public static Set<String> freeProviders() {
+        return FREE_PROVIDERS;  // Set.of(...) is already unmodifiable
+    }
+
     /** The registrable root label of a domain: acme.com → "acme", mail.acme.co.uk → "acme". */
     public static String domainRoot(String domain) {
         if (domain == null || domain.isBlank()) return "";
