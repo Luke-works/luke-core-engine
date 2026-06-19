@@ -47,8 +47,14 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
+        // Explicit allowlist, NOT "*": with allowCredentials(true) a wildcard header
+        // policy needlessly widens what a (possibly shared-host) origin can probe. Only
+        // the headers browser clients actually send. Identity/trust headers (X-User-Id,
+        // X-Internal-Key) are intentionally excluded — server-to-server only. (#33)
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Tenant-Id"));
         config.setAllowCredentials(true);
+        // NOTE: keep ALLOWED_ORIGINS to exact hosts in prod — do NOT use a shared
+        // wildcard like https://*.onrender.com (any onrender app's origin would match).
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

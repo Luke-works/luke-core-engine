@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.runtime.ProcessInstance;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,20 +40,43 @@ public class FormInboxController {
         this.runtimeService = runtimeService;
     }
 
-    @GetMapping
-    public List<Map<String, Object>> list(@RequestHeader("X-Tenant-Id") String tenantId) {
-        // pid → businessKey for the tenant (one query, avoids per-task lookups).
-        Map<String, String> businessKeys = new HashMap<>();
-        for (ProcessInstance pi : runtimeService.createProcessInstanceQuery().tenantIdIn(tenantId).list()) {
-            if (pi.getBusinessKey() != null) businessKeys.put(pi.getId(), pi.getBusinessKey());
-        }
+    /** Max page size — caps the previously unbounded query so one tenant can't load
+     *  its entire open-task set into memory in a single request (#23). */
+    private static final int MAX_PAGE = 200;
+    private static final int DEFAULT_PAGE = 50;
 
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Task t : taskService.createTaskQuery()
+    @GetMapping
+    public List<Map<String, Object>> list(
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestParam(defaultValue = "0") int firstResult,
+            @RequestParam(defaultValue = "" + DEFAULT_PAGE) int maxResults) {
+
+        int offset = Math.max(0, firstResult);
+        int limit = Math.min(Math.max(1, maxResults), MAX_PAGE);
+
+        // The inbox IS the open user tasks — paginate it (was an unbounded .list()).
+        List<Task> tasks = taskService.createTaskQuery()
                 .tenantIdIn(tenantId)
                 .active()
                 .orderByTaskCreateTime().desc()
-                .list()) {
+                .listPage(offset, limit);
+
+        // pid → businessKey ONLY for the tasks on this page (was: every PI in the
+        // tenant — also unbounded). Bounded by the page size.
+        Set<String> pids = tasks.stream()
+                .map(Task::getProcessInstanceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, String> businessKeys = new HashMap<>();
+        if (!pids.isEmpty()) {
+            for (ProcessInstance pi : runtimeService.createProcessInstanceQuery()
+                    .processInstanceIds(pids).list()) {
+                if (pi.getBusinessKey() != null) businessKeys.put(pi.getId(), pi.getBusinessKey());
+            }
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Task t : tasks) {
             Map<String, Object> m = new HashMap<>();
             m.put("taskId", t.getId());
             m.put("name", t.getName());
