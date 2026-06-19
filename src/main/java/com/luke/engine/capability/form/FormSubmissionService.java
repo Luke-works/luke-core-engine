@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class FormSubmissionService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
 
     private final FormInstanceRepository instances;
     private final FormSubmissionOutboxRepository outbox;
@@ -70,6 +72,7 @@ public class FormSubmissionService {
         row.setTenantId(inst.getTenantId());
         row.setBusinessKey(inst.getId());
         row.setFormInstanceId(inst.getId());
+        row.setProcessBusinessKey(newBusinessKey());
         row.setFormDataJson(json(inst.getData()));
         row.setFormMetaJson(metaJson(inst));
         row.setStatus("QUEUED");
@@ -91,6 +94,16 @@ public class FormSubmissionService {
         meta.put("tenantId", inst.getTenantId());
         meta.put("version", inst.getVersion());
         return json(meta);
+    }
+
+    /** Camunda process business key: {@code SM-<7 alnum>-YYYYMMMDD}, e.g. SM-A3K9X2M-2026JUN18. */
+    private static String newBusinessKey() {
+        StringBuilder sb = new StringBuilder("SM-");
+        for (int i = 0; i < 7; i++) sb.append(ALNUM.charAt(RNG.nextInt(ALNUM.length())));
+        String date = java.time.LocalDate.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMMdd", java.util.Locale.ENGLISH))
+                .toUpperCase(java.util.Locale.ENGLISH);
+        return sb.append('-').append(date).toString();
     }
 
     private static String json(Object o) {

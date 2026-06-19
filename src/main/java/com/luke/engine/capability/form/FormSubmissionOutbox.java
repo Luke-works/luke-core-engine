@@ -37,6 +37,11 @@ public class FormSubmissionOutbox {
     @Column(nullable = false)
     private String formInstanceId;
 
+    /** Human-readable Camunda process business key (SM-&lt;7 alnum&gt;-YYYYMMMDD),
+     *  generated once per submission. Distinct from {@code businessKey} above, which
+     *  is the outbox idempotency key (= the form instance id). */
+    private String processBusinessKey;
+
     @Column(columnDefinition = "text")
     private String formDataJson;
 
@@ -73,6 +78,9 @@ public class FormSubmissionOutbox {
 
     public String getFormInstanceId() { return formInstanceId; }
     public void setFormInstanceId(String formInstanceId) { this.formInstanceId = formInstanceId; }
+
+    public String getProcessBusinessKey() { return processBusinessKey; }
+    public void setProcessBusinessKey(String processBusinessKey) { this.processBusinessKey = processBusinessKey; }
 
     public String getFormDataJson() { return formDataJson; }
     public void setFormDataJson(String formDataJson) { this.formDataJson = formDataJson; }
