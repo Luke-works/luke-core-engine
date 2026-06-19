@@ -93,14 +93,30 @@ public class FormInstanceController {
         return view(inst, artifact.getSchema());
     }
 
+    /** Max page size — form instances grow with every submission, so the list is
+     *  bounded server-side (#52) and the client pages via firstResult/maxResults. */
+    private static final int MAX_PAGE = 200;
+    private static final int DEFAULT_PAGE = 50;
+
+    public record PagedInstances(List<FormInstance> items, long total, int firstResult, int maxResults) {}
+
     @GetMapping
-    public List<FormInstance> list(@RequestHeader("X-Tenant-Id") String tenantId,
-                                   @RequestParam(required = false) String state,
-                                   @RequestParam(required = false) String definitionCode) {
+    public PagedInstances list(@RequestHeader("X-Tenant-Id") String tenantId,
+                               @RequestParam(required = false) String state,
+                               @RequestParam(required = false) String definitionCode,
+                               @RequestParam(defaultValue = "0") int firstResult,
+                               @RequestParam(defaultValue = "" + DEFAULT_PAGE) int maxResults) {
         requireTenant(tenantId);
-        if (definitionCode != null) return instances.findByTenantIdAndDefinitionCodeOrderByCreatedAtDesc(tenantId, definitionCode);
-        if (state != null) return instances.findByTenantIdAndStateOrderByCreatedAtDesc(tenantId, state);
-        return instances.findByTenantIdOrderByCreatedAtDesc(tenantId);
+        int size = Math.min(Math.max(1, maxResults), MAX_PAGE);
+        int offset = Math.max(0, firstResult);
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                offset / size, size,
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+        org.springframework.data.domain.Page<FormInstance> result =
+                definitionCode != null ? instances.findByTenantIdAndDefinitionCode(tenantId, definitionCode, pageable)
+                        : state != null ? instances.findByTenantIdAndState(tenantId, state, pageable)
+                                : instances.findByTenantId(tenantId, pageable);
+        return new PagedInstances(result.getContent(), result.getTotalElements(), offset, size);
     }
 
     /** Full view incl. the resolved schema, for rendering. */
