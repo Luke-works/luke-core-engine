@@ -14,7 +14,11 @@ spring:
     driver-class-name: ${DB_DRIVER:org.h2.Driver}
   h2:
     console:
-      enabled: true
+      # SECURE BY DEFAULT (#34): the console is an UNAUTHENTICATED SQL shell (Spring
+      # Security permits all; engine auth filters only cover /engine-rest + /api). Off
+      # unless a local dev explicitly opts in. Already false in the postgres profile,
+      # and H2ConsoleGuard refuses to boot if it's ever enabled under that prod profile.
+      enabled: ${H2_CONSOLE_ENABLED:false}
       path: /h2-console
   jpa:
     open-in-view: false

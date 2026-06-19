@@ -45,10 +45,13 @@ public class OperatorAuthFilter {
         FilterRegistrationBean<Filter> reg = new FilterRegistrationBean<>();
         reg.setFilter(new Impl(user, password));
         // /api/tenants/**        : all methods (privileged subscription/grant admin).
+        // /api/users/**          : all methods — DELETE /api/users/{userId} purges a
+        //                          user's grants platform-wide; it was previously covered
+        //                          by NO auth filter (#50), so it's added here.
         // /api/capabilities(+/*)  : WRITES only — the GLOBAL catalog. GET stays public.
         //                           (Closes the backlog gap: catalog create/upsert/delete
         //                           previously had no auth filter at all.)
-        reg.addUrlPatterns("/api/tenants/*", "/api/capabilities", "/api/capabilities/*");
+        reg.addUrlPatterns("/api/tenants/*", "/api/users/*", "/api/capabilities", "/api/capabilities/*");
         reg.setName("operatorAuthFilter");
         reg.setOrder(0); // before the gateway/capability filters
         return reg;
