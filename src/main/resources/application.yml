@@ -145,6 +145,11 @@ management:
 
 # Logging
 logging:
+  # Tag every log line with the per-request correlation id (set by CorrelationIdFilter,
+  # MDC key 'correlationId') so a request can be traced across its log output. '-' when
+  # outside a request (startup/background).
+  pattern:
+    level: "%5p [cid:%X{correlationId:--}]"
   level:
     root: INFO
     com.luke: DEBUG
