@@ -13,6 +13,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import com.luke.engine.config.RestTemplates;
+import java.time.Duration;
 
 /**
  * Postmark <em>Account</em> API client — used to create a Server per tenant. This
@@ -30,7 +32,7 @@ public class PostmarkAccountClient {
     private static final Logger log = LoggerFactory.getLogger(PostmarkAccountClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final RestTemplate rest = new RestTemplate();
+    private final RestTemplate rest = RestTemplates.withTimeouts(Duration.ofSeconds(5), Duration.ofSeconds(15));
 
     @Value("${luke.email.postmark.base-url:https://api.postmarkapp.com}")
     private String baseUrl;

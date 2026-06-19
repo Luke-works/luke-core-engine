@@ -14,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import com.luke.engine.config.RestTemplates;
+import java.time.Duration;
 
 /**
  * Postmark <em>Templates</em> API client — upserts a stored template (the HTML/text
@@ -38,7 +40,7 @@ public class PostmarkTemplateClient {
     /** Postmark ErrorCode for "a template with this alias already exists" (POST). */
     private static final int ERR_TEMPLATE_ALIAS_EXISTS = 1105;
 
-    private final RestTemplate rest = new RestTemplate();
+    private final RestTemplate rest = RestTemplates.withTimeouts(Duration.ofSeconds(5), Duration.ofSeconds(15));
 
     @Value("${luke.email.postmark.base-url:https://api.postmarkapp.com}")
     private String baseUrl;

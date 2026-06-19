@@ -13,6 +13,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import com.luke.engine.config.RestTemplates;
+import java.time.Duration;
 
 /**
  * Thin Postmark transactional-email client. Posts to the Postmark Email API with
@@ -31,7 +33,7 @@ public class PostmarkClient {
     private static final Logger log = LoggerFactory.getLogger(PostmarkClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final RestTemplate rest = new RestTemplate();
+    private final RestTemplate rest = RestTemplates.withTimeouts(Duration.ofSeconds(5), Duration.ofSeconds(15));
 
     @Value("${luke.email.postmark.base-url:https://api.postmarkapp.com}")
     private String baseUrl;

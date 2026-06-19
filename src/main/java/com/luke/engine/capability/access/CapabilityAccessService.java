@@ -1,8 +1,11 @@
 package com.luke.engine.capability.access;
 
+import com.luke.engine.capability.capability.CapabilitySubscription;
 import com.luke.engine.capability.capability.CapabilitySubscriptionRepository;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 /**
@@ -53,9 +56,13 @@ public class CapabilityAccessService {
      * This is what the auth layer reads to tell the UI "what can I do".
      */
     public Map<String, String> effectiveCapabilities(String tenantId, String userId) {
+        // One query for the tenant's ACTIVE subscriptions, then a set lookup per grant —
+        // instead of a tenantHasCapability() DB hit per grant (the N+1, #51).
+        Set<String> activeCaps = subscriptions.findByTenantIdAndStatus(tenantId, SUBSCRIPTION_ACTIVE)
+                .stream().map(CapabilitySubscription::getCapabilityCode).collect(Collectors.toSet());
         Map<String, String> out = new LinkedHashMap<>();
         for (CapabilityGrant g : grants.findByTenantIdAndUserId(tenantId, userId)) {
-            if (tenantHasCapability(tenantId, g.getCapabilityCode())) {
+            if (activeCaps.contains(g.getCapabilityCode())) {
                 out.put(g.getCapabilityCode(), g.getLevel());
             }
         }
