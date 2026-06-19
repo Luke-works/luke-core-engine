@@ -26,7 +26,8 @@ public class AccessWebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("FORMS"))
                 .addPathPatterns("/api/form-definitions/**", "/api/form-instances/**");
         registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("EMAIL"))
-                .addPathPatterns("/api/emails/**", "/api/email-servers/**", "/api/email-verification/**");
+                .addPathPatterns("/api/emails/**", "/api/email-servers/**", "/api/email-verification/**",
+                        "/api/email-templates/**");
         // Secrets are internal-only for now (served via /api/internal/secrets behind the
         // shared-secret filter). When the tenant-facing /api/secrets API is re-opened,
         // re-add a SECRETS interceptor here.
