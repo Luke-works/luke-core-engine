@@ -23,10 +23,16 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
+      # H2 / local dev / tests: Hibernate creates the schema (no Postgres, no Flyway).
+      # The postgres profile flips this to `none` and lets Flyway own the luke_* tables (#24).
       ddl-auto: update
     properties:
       hibernate:
         format_sql: false
+  flyway:
+    # Disabled here so the H2/test profile keeps using ddl-auto (the V1 baseline is
+    # Postgres DDL). Enabled only in application-postgres.yml (#24).
+    enabled: false
 
 # CIBSeven / Camunda Engine Configuration
 camunda:
@@ -127,6 +133,13 @@ luke:
       code-length: ${EMAIL_VERIFICATION_CODE_LENGTH:6}
       ttl-seconds: ${EMAIL_VERIFICATION_TTL_SECONDS:600}
       max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+    otp:
+      # Postmark template alias for the one-time-passcode email (published to the
+      # platform server on boot by OtpTemplateInstaller). Sent by alias; falls back
+      # to an inline render of the same template if the stored one is missing.
+      template-alias: ${OTP_TEMPLATE_ALIAS:luke-otp}
+      # Brand/product name merged into the OTP email ({{product_name}}).
+      product-name: ${EMAIL_PRODUCT_NAME:Lukeflow}
   secrets:
     # AES-256-GCM master keys for the encrypted secret store.
     active-key-id: ${LUKE_SECRETS_ACTIVE_KEY_ID:dev}

@@ -37,11 +37,34 @@ spring:
   # This is the JPA counterpart of Camunda's schema-name fix below, and mirrors what
   # luke-capability-engine did with default_schema before the merge.
   jpa:
+    hibernate:
+      # Flyway owns the luke_* schema in Postgres (#24); Hibernate must NOT auto-mutate
+      # it. `none` (not `validate`) is deliberate: validate would crash-loop dev/qa on
+      # boot if any existing column had drifted from the mapping under the old
+      # ddl-auto:update regime. Flyway is the single source of truth going forward;
+      # all future luke_* DDL ships as a new V__ migration, not an implicit alter.
+      ddl-auto: none
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:public}
         hbm2ddl:
           create_namespaces: true
+
+  # Flyway manages ONLY the custom luke_* tables (classpath:db/migration). Camunda
+  # keeps managing its own ACT_* tables via camunda.bpm.database.schema-update below.
+  flyway:
+    enabled: true
+    # Existing dev/qa/prod schemas (built by the old ddl-auto:update) are non-empty
+    # with no Flyway history: baseline-on-migrate stamps them at V1 and SKIPS V1, so
+    # nothing is recreated. A fresh/empty schema instead runs V1 to create the tables.
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "luke_* baseline (pre-Flyway state)"
+    # Put flyway_schema_history in (and migrate) THIS env's schema, matching the
+    # per-env shared-Postgres isolation used by Hibernate/Camunda above.
+    schemas: ${DB_SCHEMA:public}
+    default-schema: ${DB_SCHEMA:public}
+    create-schemas: true
 
 # CIBSeven schema isolation (PostgreSQL, shared instance).
 #
