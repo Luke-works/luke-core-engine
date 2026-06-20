@@ -5,7 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,11 +17,12 @@ import org.springframework.stereotype.Component;
  * {@code …-change-me} value when their env var is unset — which would let anyone
  * who reads the (public) source forge embed tokens or decrypt stored tenant secrets.
  *
- * <p>Enforcement is OPT-IN via {@code luke.security.require-strong-keys=true}
- * (default false). It is NOT keyed off the prod profile like the admin-password /
- * H2 guards because dev/qa does not yet set these keys post-merge — a
- * profile-based fail-fast would crash that environment on deploy. PROD must set
- * real keys AND set this flag; until then it logs a loud warning.
+ * <p>Enforcement is fail-fast when EITHER the dedicated {@code prod} profile is active
+ * ({@link StrictProfile}) OR the opt-in {@code luke.security.require-strong-keys=true}
+ * flag is set. It is deliberately NOT keyed off the {@code postgres} profile like the
+ * admin-password / H2 guards, because dev/qa run {@code postgres} without these
+ * {@code sync:false} keys — a postgres-based fail-fast would crash them. PROD runs
+ * {@code postgres,prod} with real keys set; until then it logs a loud warning.
  */
 @Component
 public class InsecureKeyGuard {
@@ -32,10 +35,18 @@ public class InsecureKeyGuard {
     private final String devSecretsKey;
     private final boolean requireStrong;
 
+    @Autowired
     public InsecureKeyGuard(
             @Value("${luke.embed.hmac-secret:}") String embedSecret,
             @Value("${luke.secrets.keys.dev:}") String devSecretsKey,
-            @Value("${luke.security.require-strong-keys:false}") boolean requireStrong) {
+            @Value("${luke.security.require-strong-keys:false}") boolean requireStrong,
+            Environment environment) {
+        // The prod profile forces strictness even if the opt-in flag is left unset.
+        this(embedSecret, devSecretsKey, requireStrong || StrictProfile.isActive(environment));
+    }
+
+    /** Test-friendly constructor: the effective strict flag is already resolved. */
+    InsecureKeyGuard(String embedSecret, String devSecretsKey, boolean requireStrong) {
         this.embedSecret = embedSecret;
         this.devSecretsKey = devSecretsKey;
         this.requireStrong = requireStrong;
@@ -52,9 +63,9 @@ public class InsecureKeyGuard {
         if (requireStrong) {
             throw new IllegalStateException(
                     "Refusing to start: insecure dev-default cryptographic key(s) in use: " + insecure
-                    + ". Set strong random values before deploying.");
+                    + ". Set strong random values before deploying (the 'prod' profile enforces this).");
         }
-        log.warn("INSECURE dev-default key(s) in use: {} — acceptable for local dev only. Set real values and "
-                + "luke.security.require-strong-keys=true in production.", insecure);
+        log.warn("INSECURE dev-default key(s) in use: {} — acceptable for local dev only. Set real values; the "
+                + "'prod' profile (or luke.security.require-strong-keys=true) then enforces this at startup.", insecure);
     }
 }

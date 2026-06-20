@@ -6,7 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -21,10 +23,12 @@ import org.springframework.util.StringUtils;
  * </ul>
  * (The third internal layer already fails CLOSED via #41.)
  *
- * <p>Enforcement is OPT-IN via {@code luke.auth.require-strong-auth=true} (default
- * false) rather than keyed off the prod profile, because dev/qa does not currently
- * set the operator credential — a profile-based fail-fast would crash it. PROD
- * configures both layers AND sets this flag; otherwise the gaps are logged loudly.
+ * <p>Enforcement is fail-fast when EITHER the dedicated {@code prod} profile is active
+ * ({@link StrictProfile}) OR the opt-in {@code luke.auth.require-strong-auth=true} flag
+ * is set. It is deliberately NOT keyed off the {@code postgres} profile, because dev/qa
+ * run {@code postgres} without the operator credential — a postgres-based fail-fast would
+ * crash them. PROD runs {@code postgres,prod} once both layers are configured; otherwise
+ * the gaps are logged loudly.
  */
 @Component
 public class AuthHardeningGuard {
@@ -35,10 +39,21 @@ public class AuthHardeningGuard {
     private final boolean operatorConfigured;
     private final boolean requireStrongAuth;
 
+    @Autowired
     public AuthHardeningGuard(
             GatewayTokenVerifier gatewayVerifier,
             @Value("${luke.auth.operator.user:}") String operatorUser,
-            @Value("${luke.auth.require-strong-auth:false}") boolean requireStrongAuth) {
+            @Value("${luke.auth.require-strong-auth:false}") boolean requireStrongAuth,
+            Environment environment) {
+        // The prod profile forces strictness even if the opt-in flag is left unset.
+        this(gatewayVerifier, operatorUser, requireStrongAuth || StrictProfile.isActive(environment));
+    }
+
+    /** Test-friendly constructor: the effective strict flag is already resolved. */
+    AuthHardeningGuard(
+            GatewayTokenVerifier gatewayVerifier,
+            String operatorUser,
+            boolean requireStrongAuth) {
         this.gatewayEnabled = gatewayVerifier.isEnabled();
         this.operatorConfigured = StringUtils.hasText(operatorUser);
         this.requireStrongAuth = requireStrongAuth;
@@ -53,10 +68,10 @@ public class AuthHardeningGuard {
         if (requireStrongAuth) {
             throw new IllegalStateException(
                     "Refusing to start: auth layer(s) fail OPEN: " + open
-                    + ". Configure them, or unset luke.auth.require-strong-auth for local dev.");
+                    + ". Configure them, or drop the 'prod' profile / luke.auth.require-strong-auth for local dev.");
         }
-        log.warn("Auth layer(s) currently FAIL OPEN (local-dev posture): {}. Configure them and set "
-                + "luke.auth.require-strong-auth=true in production.", open);
+        log.warn("Auth layer(s) currently FAIL OPEN (local-dev posture): {}. Configure them; the 'prod' profile "
+                + "(or luke.auth.require-strong-auth=true) then enforces this at startup.", open);
     }
 
     /** Which configurable auth layers are in their fail-open (pass-through) state. */

@@ -11,7 +11,13 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      # Spring profile activates application-postgres.yml overrides
+      # Spring profile activates application-postgres.yml overrides.
+      # dev/qa run "postgres" only. PROD: once every sync:false secret below is set
+      # (LUKE_INTERNAL_SHARED_SECRET, LUKE_SECRETS_KEYS_V1, real LUKE_EMBED_HMAC_SECRET,
+      # CAPABILITY_OPERATOR_USER/PASSWORD, gateway JWKS), switch this to "postgres,prod"
+      # to make AuthHardeningGuard (#56) + InsecureKeyGuard (#58) refuse to boot if any
+      # auth layer still fails open or a dev-default key is in use. Do NOT add ",prod"
+      # before those secrets exist — the service will (intentionally) fail to start.
       - key: SPRING_PROFILES_ACTIVE
         value: postgres
 
