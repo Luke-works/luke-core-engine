@@ -1,8 +1,17 @@
 server:
   # Render injects PORT at runtime; 8080 is the local default
   port: ${PORT:8080}
+  # Graceful shutdown (#44): on SIGTERM (Render redeploy/scale-down) stop accepting new
+  # connections and let in-flight HTTP requests finish before the JVM exits, instead of
+  # cutting them off mid-flight. Bounded by spring.lifecycle.timeout-per-shutdown-phase.
+  shutdown: graceful
 
 spring:
+  # Upper bound on each shutdown phase: web server drains in-flight requests, then the
+  # context closes (which stops the Camunda job executor — it finishes/releases acquired
+  # jobs). 30s comfortably covers normal requests without hanging a deploy.
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   application:
     name: luke-core-engine
   # Default: H2 in-memory database (no setup needed)
@@ -172,6 +181,12 @@ management:
   endpoint:
     health:
       show-details: always
+      # Expose liveness/readiness groups (#44). During graceful shutdown Spring flips
+      # readiness to OUT_OF_SERVICE so the platform stops routing traffic while in-flight
+      # requests drain. Render's healthCheckPath can be pointed at /actuator/health/readiness
+      # as part of the readiness/liveness split (#36).
+      probes:
+        enabled: true
 
 # Logging
 logging:
