@@ -181,12 +181,19 @@ management:
   endpoint:
     health:
       show-details: always
-      # Expose liveness/readiness groups (#44). During graceful shutdown Spring flips
-      # readiness to OUT_OF_SERVICE so the platform stops routing traffic while in-flight
-      # requests drain. Render's healthCheckPath can be pointed at /actuator/health/readiness
-      # as part of the readiness/liveness split (#36).
+      # Expose liveness/readiness groups (#44). Render's healthCheckPath points at
+      # /actuator/health/readiness (#36).
       probes:
         enabled: true
+      # Readiness (#36): include the datasource so an instance with a down/unreachable
+      # DB reports NOT ready (same DB-sensitivity as the old aggregate check, plus drain
+      # semantics). During graceful shutdown readinessState flips OUT_OF_SERVICE → the
+      # readiness probe goes DOWN → the platform stops routing while requests drain.
+      # Liveness stays the default (livenessState only) so a transient DB blip restarts
+      # nothing — it only fails readiness, not liveness.
+      group:
+        readiness:
+          include: readinessState,db
 
 # Logging
 logging:

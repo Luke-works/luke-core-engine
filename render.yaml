@@ -9,7 +9,10 @@ services:
     region: ohio             # closest US region to DFW; alternatives: virginia, oregon
     branch: main
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /actuator/health
+    # Readiness probe (#36): goes DOWN during graceful shutdown (drain) and when the
+    # DB is unreachable, so Render stops routing to an instance that isn't ready.
+    # Liveness is /actuator/health/liveness (process up). Aggregate: /actuator/health.
+    healthCheckPath: /actuator/health/readiness
     envVars:
       # Spring profile activates application-postgres.yml overrides.
       # dev/qa run "postgres" only. PROD: once every sync:false secret below is set
