@@ -71,8 +71,20 @@ final class OtpEmailTemplate {
                               <td align="left" style="vertical-align:middle;">
                                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-block;vertical-align:middle;">
                                   <tr>
-                                    <td width="28" height="28" align="center" valign="middle" style="width:28px;height:28px;background-color:#465FFF;border-radius:7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-align:center;line-height:28px;">L</td>
-                                    <td class="brand" style="padding-left:10px;vertical-align:middle;font-size:19px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">{{product_name}}</td>
+                                    <td valign="middle" style="vertical-align:middle;">
+                                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="48" style="width:48px;background-color:#465FFF;border-radius:8px;">
+                                        <tr>
+                                          <td style="padding:6px 7px 5px 7px;">
+                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                                              <tr><td align="left" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:8px;line-height:9px;font-weight:700;color:#ffffff;">71</td></tr>
+                                              <tr><td align="center" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;line-height:24px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;padding-top:1px;">Lu</td></tr>
+                                              <tr><td align="center" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:6px;line-height:8px;font-weight:600;color:#ffffff;letter-spacing:0.2px;padding-top:1px;">Lutetium</td></tr>
+                                            </table>
+                                          </td>
+                                        </tr>
+                                      </table>
+                                    </td>
+                                    <td class="brand" style="padding-left:12px;vertical-align:middle;font-size:19px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">{{product_name}}</td>
                                   </tr>
                                 </table>
                               </td>
