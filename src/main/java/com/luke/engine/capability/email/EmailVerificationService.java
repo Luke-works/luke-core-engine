@@ -5,7 +5,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -55,6 +54,14 @@ public class EmailVerificationService {
 
     @Value("${luke.email.postmark.message-stream:outbound}")
     private String messageStream;
+
+    /** Postmark alias of the published OTP template (see {@link OtpTemplateInstaller}). */
+    @Value("${luke.email.otp.template-alias:" + OtpEmailTemplate.DEFAULT_ALIAS + "}")
+    private String templateAlias;
+
+    /** Product/brand name merged into the OTP email. */
+    @Value("${luke.email.otp.product-name:Lukeflow}")
+    private String productName;
 
     public EmailVerificationService(EmailVerificationRepository verifications,
                                     EmailServerService servers,
@@ -186,17 +193,40 @@ public class EmailVerificationService {
     /* ── helpers ────────────────────────────────────────────── */
 
     private void sendCode(String email, String orgName, String code) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("From", platformFrom);
-        body.put("To", email);
-        body.put("Subject", "Your Lukeflow verification code: " + code);
-        body.put("TextBody", "Hi,\n\nYour verification code for " + orgName + " is: " + code
-                + "\n\nIt expires in " + (ttlSeconds / 60) + " minutes. If you didn't request this, ignore this email.\n");
-        body.put("MessageStream", messageStream);
-        PostmarkClient.SendResult res = postmark.send(platformToken, body);
-        if (!res.ok()) {
+        Map<String, String> model = Map.of(
+                "code", code,
+                "org_name", orgName,
+                "expiry_minutes", String.valueOf(ttlSeconds / 60),
+                "product_name", productName);
+
+        // Preferred path: send the stored Postmark template by alias (published by
+        // OtpTemplateInstaller). Postmark fills the {{var}} fields from TemplateModel.
+        Map<String, Object> templated = PostmarkClient.body();
+        PostmarkClient.put(templated, "From", platformFrom);
+        PostmarkClient.put(templated, "To", email);
+        PostmarkClient.put(templated, "TemplateAlias", templateAlias);
+        templated.put("TemplateModel", model);
+        PostmarkClient.put(templated, "MessageStream", messageStream);
+
+        PostmarkClient.SendResult res = postmark.sendTemplate(platformToken, templated);
+        if (res.ok()) return;
+
+        // Fallback: the stored template may be missing (token added after boot, alias
+        // deleted, publish failed). Render the same template inline so OTP still goes
+        // out. A genuine delivery failure (bad token/sender) surfaces as a 502.
+        log.warn("OTP template send failed ({}); falling back to an inline send", res.message());
+        Map<String, Object> inline = PostmarkClient.body();
+        PostmarkClient.put(inline, "From", platformFrom);
+        PostmarkClient.put(inline, "To", email);
+        PostmarkClient.put(inline, "Subject", OtpEmailTemplate.render(OtpEmailTemplate.SUBJECT, model, false));
+        PostmarkClient.put(inline, "HtmlBody", OtpEmailTemplate.render(OtpEmailTemplate.HTML, model, true));
+        PostmarkClient.put(inline, "TextBody", OtpEmailTemplate.render(OtpEmailTemplate.TEXT, model, false));
+        PostmarkClient.put(inline, "MessageStream", messageStream);
+
+        PostmarkClient.SendResult fallback = postmark.send(platformToken, inline);
+        if (!fallback.ok()) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Could not send the verification email: " + res.message());
+                    "Could not send the verification email: " + fallback.message());
         }
     }
 
