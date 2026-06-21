@@ -50,6 +50,7 @@ final class OtpEmailTemplate {
                   .panel{background:#0d0f13 !important;border-color:#2a3039 !important;}
                   .code{color:#f5f7fa !important;}
                   .rule{background:#262b34 !important;}
+                  .brand{color:#f5f7fa !important;}
                 }
                 a{text-decoration:none;}
               </style>
@@ -68,7 +69,12 @@ final class OtpEmailTemplate {
                           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                             <tr>
                               <td align="left" style="vertical-align:middle;">
-                                <span style="font-size:19px;font-weight:700;color:#4f46e5;letter-spacing:-0.3px;">{{product_name}}</span>
+                                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-block;vertical-align:middle;">
+                                  <tr>
+                                    <td width="28" height="28" align="center" valign="middle" style="width:28px;height:28px;background-color:#465FFF;border-radius:7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;color:#ffffff;text-align:center;line-height:28px;">L</td>
+                                    <td class="brand" style="padding-left:10px;vertical-align:middle;font-size:19px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">{{product_name}}</td>
+                                  </tr>
+                                </table>
                               </td>
                               <td align="right" style="vertical-align:middle;">
                                 <span class="muted" style="font-size:11px;font-weight:700;color:#98a2b3;text-transform:uppercase;letter-spacing:1.2px;">Account security</span>
