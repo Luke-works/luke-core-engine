@@ -48,6 +48,44 @@ public class PostmarkTemplateClient {
     /** Result of an upsert: the Postmark template id and the alias it lives under. */
     public record UpsertResult(Long templateId, String alias) {}
 
+    /** Whether {@link #createIfAbsent} created the template or found it already present. */
+    public enum InstallOutcome { CREATED, ALREADY_EXISTS }
+
+    /** Outcome of a create-only install. {@code templateId} is null when ALREADY_EXISTS. */
+    public record InstallResult(InstallOutcome outcome, Long templateId, String alias) {}
+
+    /**
+     * Create the template under {@code alias} only if it doesn't already exist —
+     * never overwrites an existing one (unlike {@link #upsert}). Lets Postmark stay
+     * the source of truth for a hand-maintained template while still seeding a fresh
+     * server. Returns ALREADY_EXISTS (a no-op) when the alias is taken; throws on any
+     * other Postmark/HTTP error.
+     */
+    public InstallResult createIfAbsent(String serverToken, String alias, String name,
+                                        String subject, String htmlBody, String textBody) {
+        if (serverToken == null || serverToken.isBlank()) {
+            throw new IllegalStateException("No Postmark server token available for this publish");
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        put(body, "Name", name);
+        put(body, "Alias", alias);
+        put(body, "Subject", subject);
+        put(body, "HtmlBody", htmlBody);
+        put(body, "TextBody", textBody);
+        body.put("TemplateType", "Standard");
+
+        try {
+            UpsertResult created = parse(exchange(HttpMethod.POST, "/templates", serverToken, body), alias);
+            return new InstallResult(InstallOutcome.CREATED, created.templateId(), created.alias());
+        } catch (HttpStatusCodeException e) {
+            if (aliasAlreadyExists(e)) {
+                return new InstallResult(InstallOutcome.ALREADY_EXISTS, null, alias);
+            }
+            throw asError(e);
+        }
+    }
+
     /**
      * Create (or update, if the alias already exists) a stored Postmark template under
      * {@code alias} with the given compiled bodies. Returns the Postmark template id +
