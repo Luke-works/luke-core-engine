@@ -71,8 +71,8 @@ final class OtpEmailTemplate {
                               <td align="left" style="vertical-align:middle;">
                                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-block;vertical-align:middle;">
                                   <tr>
-                                    <td valign="middle" style="background-color:#465FFF;border-radius:7px;padding:3px 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;line-height:24px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;vertical-align:middle;">Lu</td>
-                                    <td class="brand" valign="middle" style="padding-left:3px;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;line-height:24px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;">keflow</td>
+                                    <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;background-color:#465FFF;border-radius:9px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;line-height:40px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;text-align:center;">Lu</td>
+                                    <td class="brand" valign="middle" style="padding-left:9px;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:21px;line-height:24px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;">keflow</td>
                                   </tr>
                                 </table>
                               </td>
