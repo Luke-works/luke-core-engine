@@ -20,7 +20,7 @@ First response when the engine is degraded or erroring.
 | `act_id_user`/`relation does not exist` | schema/migration race or gap | [bad-deploy-rollback.md](bad-deploy-rollback.md) → schema section |
 | 401/403 storms on `/api/**` | auth misconfig (gateway/operator) | Verify `sync:false` secrets are set; check `prod` profile guards (#56) |
 | Postmark/email failures | upstream down / token | Email send is inline (#59) — check Postmark status + `POSTMARK_*` |
-| Slow queries / disk near full | history unbounded (#29) | Confirm cleanup window ran; check `ACT_HI_*` size; storage alert |
+| Slow queries / disk near full | history is RETAINED by policy and grows (#29) | This is expected — expand DB storage (do NOT enable cleanup); check `ACT_HI_*` size + storage trend |
 
 ## 3. Logs
 

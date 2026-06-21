@@ -63,28 +63,27 @@ camunda:
       enabled: true
     # history-level DECISION (#29): kept at `full`. The form-intake trace UI
     # (ProcessTraceController) reads historic *variable* values, which `audit`/`activity`
-    # do not retain — so `full` is required, not gratuitous. Unbounded growth is instead
-    # controlled by the cleanup window below + the 180-day TTL.
+    # do not retain — and full history is wanted for audit/compliance.
     history-level: full
     default-serialization-format: application/json
     auto-deployment-enabled: false
     generic-properties:
       properties:
-        # Retention: 180 days. Justified — long enough for form-submission review,
-        # audit lookback, and incident investigation, while bounding ACT_HI_* growth
-        # well under the basic-256mb / 1GB Postgres plan.
-        historyTimeToLive: P180D
+        # RETENTION POLICY (#29): history is RETAINED, not deleted. Business/audit
+        # requirement — we keep the full process + form-submission history indefinitely
+        # and scale STORAGE to hold it (see docs/runbooks/scaling-and-ha.md), rather than
+        # purging old data via a cleanup job.
+        #
+        # No historyCleanupBatchWindow* is configured, so Camunda's history cleanup job
+        # never runs and nothing is auto-deleted. historyTimeToLive is intentionally
+        # UNSET (no default TTL → no instance is ever eligible for removal → data is
+        # retained indefinitely). If a regulatory retention *limit* is ever required, add
+        # a cleanup window + TTL then.
+        #
+        # enforceHistoryTimeToLive=false: process definitions may deploy WITHOUT declaring
+        # a TTL (we don't want one). This must stay explicit — the engine default would
+        # otherwise reject TTL-less deployments and break process deployment.
         enforceHistoryTimeToLive: false
-        # History cleanup (#29): WITHOUT a batch window Camunda's cleanup job never runs,
-        # so historyTimeToLive is never enforced and ACT_HI_* grows until the disk fills.
-        # Run it nightly 02:00–04:00 (server TZ). removalTimeBased is the performant
-        # default strategy: instances get removal_time = endTime + TTL and are purged
-        # after it. (History rows written BEFORE this change have a null removal_time and
-        # aren't auto-purged; a one-time backfill can set them if needed — negligible on
-        # the current small dataset.)
-        historyCleanupStrategy: removalTimeBased
-        historyCleanupBatchWindowStartTime: "02:00"
-        historyCleanupBatchWindowEndTime: "04:00"
         # Colon (:) is allowed so namespaced ids like Clerk consumer users
         # (clerk:<sub>) pass CIBSeven's resource-id validation. Without it,
         # creating user 'clerk:user_…' fails: "is not a valid resource identifier".
