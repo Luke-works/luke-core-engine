@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -322,6 +323,7 @@ public class FormDefinitionController {
 
     @DeleteMapping("/{id}/purge")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional // #62: versions + audit + form deletes are atomic (no orphaned child rows).
     public void purge(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         FormDefinition form = forms.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> notFound("Unknown form: " + id));

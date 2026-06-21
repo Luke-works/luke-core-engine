@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -86,6 +87,10 @@ public class EmailVerificationService {
      * Begin verification: validate the email + name↔domain match, mint an OTP, mail
      * it, and supersede any earlier pending challenge for this tenant.
      */
+    // #62: supersede-pending + save-new-challenge are atomic (a rollback restores the
+    // prior pending codes; no half-applied state where old codes are expired but no new
+    // one exists). The OTP send happens last, so a send failure rolls the writes back too.
+    @Transactional
     public VerificationView start(String tenantId, String orgName, String email) {
         if (isBlank(orgName)) throw bad("orgName is required");
         if (isBlank(email) || !OrgDomainMatcher.looksLikeEmail(email)) {

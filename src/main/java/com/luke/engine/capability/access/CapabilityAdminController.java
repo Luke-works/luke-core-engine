@@ -2,6 +2,7 @@ package com.luke.engine.capability.access;
 
 import com.luke.engine.capability.capability.CapabilitySubscriptionRepository;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +33,7 @@ public class CapabilityAdminController {
 
     /** Wipe everything tied to a deleted tenant: its subscriptions and every grant under it. */
     @DeleteMapping("/tenants/{tenantId}")
+    @Transactional // #62: grants + subscriptions deletes are one atomic unit (all-or-nothing).
     public ResponseEntity<Void> purgeTenant(@PathVariable String tenantId) {
         grants.deleteAll(grants.findByTenantId(tenantId));
         subscriptions.deleteAll(subscriptions.findByTenantId(tenantId));
@@ -40,6 +42,7 @@ public class CapabilityAdminController {
 
     /** Wipe a deleted user's grants in every tenant they belonged to. */
     @DeleteMapping("/users/{userId}")
+    @Transactional // #62: the batch grant delete is atomic (no partially-purged user).
     public ResponseEntity<Void> purgeUser(@PathVariable String userId) {
         grants.deleteAll(grants.findByUserId(userId));
         return ResponseEntity.noContent().build();
