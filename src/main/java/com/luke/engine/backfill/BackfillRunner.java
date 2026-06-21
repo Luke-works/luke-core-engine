@@ -1,5 +1,6 @@
 package com.luke.engine.backfill;
 
+import com.luke.engine.config.BootCoordinator;
 import java.util.Comparator;
 import java.util.List;
 import org.slf4j.Logger;
@@ -25,9 +26,11 @@ public class BackfillRunner {
     private static final Logger log = LoggerFactory.getLogger(BackfillRunner.class);
 
     private final List<Backfill> backfills;
+    private final BootCoordinator bootCoordinator;
 
-    public BackfillRunner(List<Backfill> backfills) {
+    public BackfillRunner(List<Backfill> backfills, BootCoordinator bootCoordinator) {
         this.backfills = backfills;
+        this.bootCoordinator = bootCoordinator;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -35,6 +38,11 @@ public class BackfillRunner {
         if (backfills.isEmpty()) {
             return;
         }
+        // #40: serialize the whole backfill batch across instances (idempotent writes).
+        bootCoordinator.runExclusive("backfills", this::runAllExclusive);
+    }
+
+    private void runAllExclusive() {
         log.info("Running {} backfill(s)…", backfills.size());
         backfills.stream()
                 .sorted(Comparator.comparingInt(Backfill::order))

@@ -12,18 +12,18 @@ Current capacity posture and the path to multi-instance HA.
 
 ## HA blockers (must clear before running >1 instance)
 
-| Blocker | Issue | Why it breaks multi-instance |
-|---------|-------|------------------------------|
-| Uncoordinated boot initializers/backfills | #40 | Each instance runs seeders/backfills on boot → races/dupes |
-| In-memory per-instance rate limiters | #55 (embed), agents #27 | Limits apply per instance, not globally |
-| Tenant context correctness on pooled/async threads | #21 | Must hold under concurrency across instances |
+| Blocker | Issue | Status |
+|---------|-------|--------|
+| Uncoordinated boot initializers/backfills | #40 | ✅ Resolved — each boot writer runs under a `BootCoordinator` Postgres advisory lock (serialized across instances; no-op on H2). |
+| In-memory per-instance rate limiters | #55 (embed), agents #27 | ⬜ Open — limits apply per instance, not globally |
+| Tenant context correctness on pooled/async threads | #21 | ⬜ Open — must hold under concurrency across instances |
 
 Camunda's job executor IS cluster-safe (jobs are locked per-row in the DB), so multiple
 engines can share the one database for job execution once the above are resolved.
 
 ## Path to multi-instance
 
-1. Make boot initializers idempotent + leader-gated or migration-driven (#40).
+1. ~~Make boot initializers safe across instances~~ — done (#40, advisory-lock serialized).
 2. Move rate-limit state to a shared store (e.g. Postgres/Redis) (#55, agents #27).
 3. Confirm graceful shutdown drains correctly under load (#44, done) so rolling deploys
    don't drop work.

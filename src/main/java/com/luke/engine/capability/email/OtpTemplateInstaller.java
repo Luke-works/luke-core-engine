@@ -1,5 +1,6 @@
 package com.luke.engine.capability.email;
 
+import com.luke.engine.config.BootCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +27,7 @@ class OtpTemplateInstaller implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(OtpTemplateInstaller.class);
 
     private final PostmarkTemplateClient templateClient;
+    private final BootCoordinator bootCoordinator;
 
     /** Platform/fallback Postmark server token — the server OTP mail is sent from. */
     @Value("${luke.email.postmark.server-token:}")
@@ -34,12 +36,19 @@ class OtpTemplateInstaller implements ApplicationRunner {
     @Value("${luke.email.otp.template-alias:" + OtpEmailTemplate.DEFAULT_ALIAS + "}")
     private String alias;
 
-    OtpTemplateInstaller(PostmarkTemplateClient templateClient) {
+    OtpTemplateInstaller(PostmarkTemplateClient templateClient, BootCoordinator bootCoordinator) {
         this.templateClient = templateClient;
+        this.bootCoordinator = bootCoordinator;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        // #40: serialize across instances so simultaneous boots don't double-create the
+        // Postmark template (createIfAbsent is idempotent, but this avoids racing API calls).
+        bootCoordinator.runExclusive("otp-template-install", this::install);
+    }
+
+    private void install() {
         if (platformToken == null || platformToken.isBlank()) {
             log.info("OTP template not published — no platform Postmark server token configured "
                     + "(set POSTMARK_SERVER_TOKEN). Verification will use the inline fallback.");

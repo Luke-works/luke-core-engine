@@ -48,9 +48,13 @@ public class RoleAuthorizationInitializer {
     private final IdentityService identityService;
     private final AuthorizationService authorizationService;
 
-    public RoleAuthorizationInitializer(IdentityService identityService, AuthorizationService authorizationService) {
+    private final BootCoordinator bootCoordinator;
+
+    public RoleAuthorizationInitializer(IdentityService identityService,
+            AuthorizationService authorizationService, BootCoordinator bootCoordinator) {
         this.identityService = identityService;
         this.authorizationService = authorizationService;
+        this.bootCoordinator = bootCoordinator;
     }
 
     /** read = permissions kept in the Read-Only tier; write = added in the Read & Write tier. */
@@ -60,6 +64,11 @@ public class RoleAuthorizationInitializer {
 
     @EventListener(ApplicationReadyEvent.class)
     public void ensureRoles() {
+        // #40: serialize across instances so RBAC seeding doesn't race on first boot.
+        bootCoordinator.runExclusive("rbac-roles", this::ensureRolesExclusive);
+    }
+
+    private void ensureRolesExclusive() {
         for (RoleDef role : roleDefinitions()) {
             // Read & Write tier
             ensureGroup(role.id(), role.name(), ROLE_TYPE);

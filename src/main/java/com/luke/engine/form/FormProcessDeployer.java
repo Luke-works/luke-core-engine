@@ -1,5 +1,6 @@
 package com.luke.engine.form;
 
+import com.luke.engine.config.BootCoordinator;
 import org.cibseven.bpm.engine.IdentityService;
 import org.cibseven.bpm.engine.RepositoryService;
 import org.cibseven.bpm.engine.identity.Tenant;
@@ -28,10 +29,13 @@ public class FormProcessDeployer {
 
     private final RepositoryService repositoryService;
     private final IdentityService identityService;
+    private final BootCoordinator bootCoordinator;
 
-    public FormProcessDeployer(RepositoryService repositoryService, IdentityService identityService) {
+    public FormProcessDeployer(RepositoryService repositoryService, IdentityService identityService,
+            BootCoordinator bootCoordinator) {
         this.repositoryService = repositoryService;
         this.identityService = identityService;
+        this.bootCoordinator = bootCoordinator;
     }
 
     /** Deploy the form-intake process for a single tenant (no-op if unchanged). */
@@ -54,6 +58,12 @@ public class FormProcessDeployer {
     /** On startup, backfill the process for every existing tenant. */
     @EventListener(ApplicationReadyEvent.class)
     public void backfillExistingTenants() {
+        // #40: serialize the boot backfill across instances so simultaneous deploys for the
+        // same tenant don't race (duplicate filtering + the lock make it a clean no-op).
+        bootCoordinator.runExclusive("form-intake-backfill", this::backfillExistingTenantsExclusive);
+    }
+
+    private void backfillExistingTenantsExclusive() {
         try {
             for (Tenant t : identityService.createTenantQuery().list()) {
                 deployFor(t.getId());
