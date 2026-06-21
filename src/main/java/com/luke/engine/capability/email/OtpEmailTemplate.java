@@ -50,7 +50,6 @@ final class OtpEmailTemplate {
                   .panel{background:#0d0f13 !important;border-color:#2a3039 !important;}
                   .code{color:#f5f7fa !important;}
                   .rule{background:#262b34 !important;}
-                  .brand{color:#f5f7fa !important;}
                 }
                 a{text-decoration:none;}
               </style>
@@ -69,12 +68,7 @@ final class OtpEmailTemplate {
                           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                             <tr>
                               <td align="left" style="vertical-align:middle;">
-                                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-block;vertical-align:middle;">
-                                  <tr>
-                                    <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;background-color:#465FFF;border-radius:9px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;line-height:40px;font-weight:700;color:#ffffff;letter-spacing:-0.5px;text-align:center;">Lu</td>
-                                    <td class="brand" valign="middle" style="padding-left:9px;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:21px;line-height:24px;font-weight:700;color:#1D2939;letter-spacing:-0.3px;">keflow</td>
-                                  </tr>
-                                </table>
+                                <span style="font-size:19px;font-weight:700;color:#4f46e5;letter-spacing:-0.3px;">{{product_name}}</span>
                               </td>
                               <td align="right" style="vertical-align:middle;">
                                 <span class="muted" style="font-size:11px;font-weight:700;color:#98a2b3;text-transform:uppercase;letter-spacing:1.2px;">Account security</span>
