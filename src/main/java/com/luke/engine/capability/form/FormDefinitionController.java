@@ -59,7 +59,7 @@ public class FormDefinitionController {
 
     /* ── request bodies ─────────────────────────────────────── */
     public record CreateForm(String name, String description) {}
-    public record MetaPatch(String name, String description) {}
+    public record MetaPatch(String name, String description, String allowedEmbedOrigins) {}
     public record DraftBody(String schema) {}
     public record CheckInBody(String schema, Boolean publish) {}
 
@@ -121,7 +121,11 @@ public class FormDefinitionController {
         if (form.getPublishedVersion() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Publish the form before embedding it");
         }
-        return Map.of("token", embedTokens.sign(tenantId, form.getCode()), "code", form.getCode());
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("token", embedTokens.sign(tenantId, form.getCode()));
+        out.put("code", form.getCode());
+        out.put("allowedEmbedOrigins", form.getAllowedEmbedOrigins()); // null = any site (public default)
+        return out;
     }
 
     @PatchMapping("/{id}")
@@ -131,6 +135,17 @@ public class FormDefinitionController {
         FormDefinition form = load(tenantId, id);
         if (body.name() != null && !body.name().isBlank()) form.setName(body.name().trim());
         if (body.description() != null) form.setDescription(body.description());
+        // Sanitize the embed allowlist to well-formed origins before storing (empty string clears it
+        // back to the public default). Route B M2 — drives the embed surface's frame-ancestors.
+        // FAIL CLOSED: a non-blank value with no valid origin is a config mistake — reject it rather
+        // than store null and silently make the form framable by any site (review finding).
+        if (body.allowedEmbedOrigins() != null) {
+            if (FrameAncestors.isAllInvalid(body.allowedEmbedOrigins())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "No valid embed origins found. Use full origins like https://example.com (one per line).");
+            }
+            form.setAllowedEmbedOrigins(FrameAncestors.normalizeList(body.allowedEmbedOrigins()));
+        }
         form.setUpdatedBy(userId);
         return forms.save(form);
     }

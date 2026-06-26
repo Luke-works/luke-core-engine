@@ -64,6 +64,12 @@ public class FormDefinition {
     @Column(columnDefinition = "text")
     private String draftSchema;
 
+    /** Per-form allowlist of web origins permitted to embed the published form, enforced as the CSP
+     *  {@code frame-ancestors} directive on the public embed surface (Route B M2). Comma-separated
+     *  origins; null/empty = any site may embed (public default). Sanitized via {@link FrameAncestors}. */
+    @Column(columnDefinition = "text")
+    private String allowedEmbedOrigins;
+
     /** Soft-delete marker (trash); null = live. */
     private LocalDateTime deletedAt;
 
@@ -120,6 +126,9 @@ public class FormDefinition {
 
     public String getDraftSchema() { return draftSchema; }
     public void setDraftSchema(String draftSchema) { this.draftSchema = draftSchema; }
+
+    public String getAllowedEmbedOrigins() { return allowedEmbedOrigins; }
+    public void setAllowedEmbedOrigins(String allowedEmbedOrigins) { this.allowedEmbedOrigins = allowedEmbedOrigins; }
 
     public LocalDateTime getDeletedAt() { return deletedAt; }
     public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }

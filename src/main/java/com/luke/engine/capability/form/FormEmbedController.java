@@ -59,6 +59,7 @@ public class FormEmbedController {
         out.put("title", form.getName());
         out.put("version", v);
         out.put("schema", schema);
+        out.put("allowedEmbedOrigins", form.getAllowedEmbedOrigins()); // null = any site (public default)
         return out;
     }
 
