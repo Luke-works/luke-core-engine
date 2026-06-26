@@ -71,13 +71,19 @@ public class FormEmbedController {
         FormDefinition form = publishedForm(ref);
         int v = form.getPublishedVersion();
 
+        // Server-side backstop (M3): the public submit endpoint cannot trust the client. Validate +
+        // clean against the published schema — strip unknown fields, enforce required, bound size,
+        // strip control chars — before anything is persisted or a process is started.
+        String schema = versions.findByFormIdAndVersion(form.getId(), v).map(FormVersion::getSchema).orElse(null);
+        Map<String, Object> cleaned = SubmissionValidator.clean(schema, body != null ? body.data() : null);
+
         FormInstance inst = new FormInstance();
         inst.setTenantId(ref.tenantId());
         inst.setToken(uniqueToken());
         inst.setDefinitionCode(form.getCode());
         inst.setVersion(v);
         inst.setState(FormInstanceStates.SUBMITTED);
-        inst.setData(body != null ? body.data() : Map.of());
+        inst.setData(cleaned);
         inst.setContext(new HashMap<>(Map.of("source", "embed")));
         inst.setSubmittedAt(LocalDateTime.now());
 
