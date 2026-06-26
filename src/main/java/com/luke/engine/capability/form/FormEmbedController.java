@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -65,9 +66,20 @@ public class FormEmbedController {
 
     /** Inbound webhook: record a submission as a SUBMITTED instance. */
     @PostMapping("/{token}/submit")
-    public Map<String, Object> submit(@PathVariable String token, @RequestBody(required = false) SubmitBody body) {
+    public Map<String, Object> submit(@PathVariable String token,
+                                      @RequestBody(required = false) SubmitBody body,
+                                      HttpServletRequest request) {
+        // Per-IP cap first (M5): bounds ALL submit traffic from one source across every token.
+        rateLimit("ip:" + clientIp(request), MAX_PER_IP_PER_MIN);
         EmbedTokens.EmbedRef ref = resolve(token);
-        rateLimit(token);
+
+        // Bot trap (M5): real users never fill the hidden honeypot field. Drop silently — return a
+        // success shape so spammers don't learn — checked on the RAW body before validation strips it.
+        if (Honeypot.tripped(body != null ? body.data() : null)) {
+            return Map.of("ok", true, "instanceId", "", "processStatus", "DROPPED");
+        }
+
+        rateLimit("t:" + token, MAX_PER_TOKEN_PER_MIN);
         FormDefinition form = publishedForm(ref);
         int v = form.getPublishedVersion();
 
@@ -127,24 +139,36 @@ public class FormEmbedController {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, msg);
     }
 
-    // ── Minimal abuse guard: fixed 1-minute window per token ─────────────────
-    private static final int MAX_PER_MINUTE = 20;
+    // ── Abuse guards (M5): fixed 1-minute windows, keyed per token AND per client IP ─────────
+    private static final int MAX_PER_TOKEN_PER_MIN = 20;
+    private static final int MAX_PER_IP_PER_MIN = 40;
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
-    private void rateLimit(String token) {
+    private void rateLimit(String key, int max) {
         long minute = System.currentTimeMillis() / 60_000L;
-        Window w = windows.compute(token, (k, cur) ->
+        Window w = windows.compute(key, (k, cur) ->
                 (cur == null || cur.minute != minute) ? new Window(minute) : cur);
-        if (w.count.incrementAndGet() > MAX_PER_MINUTE) {
+        if (w.count.incrementAndGet() > max) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many submissions, try again shortly.");
         }
-        // Bound growth by evicting only STALE windows (from earlier minutes), never
-        // the current minute's counters. Clearing the whole map (the old behavior)
-        // reset every token's counter at once — a global rate-limit bypass any
-        // attacker could trigger by flooding fresh tokens past the threshold.
-        if (windows.size() > 10_000) {
+        // Bound growth by evicting only STALE windows (from earlier minutes), never the current
+        // minute's counters. Clearing the whole map would reset every counter at once — a global
+        // rate-limit bypass an attacker could trigger by flooding fresh keys past the threshold.
+        if (windows.size() > 50_000) {
             windows.values().removeIf(win -> win.minute != minute);
         }
+    }
+
+    /** Best-effort client IP for rate-limiting: the left-most X-Forwarded-For hop (set by the
+     *  gateway/edge), then X-Real-IP, then the socket address. Not used for authz — spoofing it only
+     *  changes which bucket the caller rate-limits themselves into. */
+    private static String clientIp(HttpServletRequest req) {
+        String xff = req.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
+        String real = req.getHeader("X-Real-IP");
+        if (real != null && !real.isBlank()) return real.trim();
+        String remote = req.getRemoteAddr();
+        return (remote == null || remote.isBlank()) ? "unknown" : remote;
     }
 
     private static final class Window {
