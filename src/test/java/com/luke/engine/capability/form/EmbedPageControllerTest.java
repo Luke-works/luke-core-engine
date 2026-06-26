@@ -39,7 +39,7 @@ class EmbedPageControllerTest {
 
     @Test
     void restrictedFormEmitsItsAllowlistAsFrameAncestorsAndBootsTheBundle() throws Exception {
-        String token = tokens.sign("t1", "FM-1");
+        String token = tokens.sign("t1", "FM-1", 0);
         when(forms.findByTenantIdAndCode("t1", "FM-1"))
                 .thenReturn(Optional.of(form("t1", "FM-1", "https://acme.com,https://*.acme.com")));
         mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
@@ -51,7 +51,7 @@ class EmbedPageControllerTest {
 
     @Test
     void unrestrictedFormIsPublic() throws Exception {
-        String token = tokens.sign("t1", "FM-2");
+        String token = tokens.sign("t1", "FM-2", 0);
         when(forms.findByTenantIdAndCode("t1", "FM-2")).thenReturn(Optional.of(form("t1", "FM-2", null)));
         mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
@@ -67,8 +67,17 @@ class EmbedPageControllerTest {
 
     @Test
     void unknownOrDeletedFormIsNotFound() throws Exception {
-        String token = tokens.sign("t1", "FM-GONE");
+        String token = tokens.sign("t1", "FM-GONE", 0);
         when(forms.findByTenantIdAndCode("t1", "FM-GONE")).thenReturn(Optional.empty());
+        mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void revokedTokenIsNotFound() throws Exception {
+        String token = tokens.sign("t1", "FM-R", 0); // minted at key version 0
+        FormDefinition f = form("t1", "FM-R", null);
+        f.setEmbedKeyVersion(1); // form's embed key was rotated → the v0 token is dead
+        when(forms.findByTenantIdAndCode("t1", "FM-R")).thenReturn(Optional.of(f));
         mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML)).andExpect(status().isNotFound());
     }
 }

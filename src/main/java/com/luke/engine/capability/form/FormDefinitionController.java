@@ -118,11 +118,36 @@ public class FormDefinitionController {
     @GetMapping("/{id}/embed-token")
     public Map<String, Object> embedToken(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         FormDefinition form = load(tenantId, id);
+        requirePublished(form);
+        return embedTokenResponse(tenantId, form);
+    }
+
+    /**
+     * Revoke every embed token previously issued for this form by bumping its embed-key version, and
+     * return a fresh token at the new version (Route B M4). Old tokens then fail the version check on
+     * the public embed surface (404). Use when a token leaks or a partner's access ends.
+     */
+    @PostMapping("/{id}/embed-token/rotate")
+    public Map<String, Object> rotateEmbedToken(@RequestHeader("X-Tenant-Id") String tenantId,
+                                                @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                @PathVariable String id) {
+        FormDefinition form = load(tenantId, id);
+        requirePublished(form);
+        form.setEmbedKeyVersion(form.getEmbedKeyVersion() + 1);
+        form.setUpdatedBy(userId);
+        forms.save(form);
+        return embedTokenResponse(tenantId, form);
+    }
+
+    private void requirePublished(FormDefinition form) {
         if (form.getPublishedVersion() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Publish the form before embedding it");
         }
+    }
+
+    private Map<String, Object> embedTokenResponse(String tenantId, FormDefinition form) {
         Map<String, Object> out = new java.util.HashMap<>();
-        out.put("token", embedTokens.sign(tenantId, form.getCode()));
+        out.put("token", embedTokens.sign(tenantId, form.getCode(), form.getEmbedKeyVersion()));
         out.put("code", form.getCode());
         out.put("allowedEmbedOrigins", form.getAllowedEmbedOrigins()); // null = any site (public default)
         return out;

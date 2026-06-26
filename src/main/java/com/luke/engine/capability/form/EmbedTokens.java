@@ -35,17 +35,22 @@ public class EmbedTokens {
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
     }
 
-    /** The tenant + form a verified token resolves to. */
-    public record EmbedRef(String tenantId, String code) {}
+    /** The tenant + form (+ embed-key version) a verified token resolves to. */
+    public record EmbedRef(String tenantId, String code, int keyVersion) {}
 
-    /** Mint an opaque, signed token for a tenant's form code. */
-    public String sign(String tenantId, String code) {
-        String payload = B64.encodeToString((tenantId + "|" + code).getBytes(StandardCharsets.UTF_8));
+    /**
+     * Mint an opaque, signed token for a tenant's form code at a given embed-key version. The version
+     * is signed into the token so revocation = bumping the form's version (old tokens then fail the
+     * version check downstream). See {@link #verify}.
+     */
+    public String sign(String tenantId, String code, int keyVersion) {
+        String payload = B64.encodeToString((tenantId + "|" + code + "|" + keyVersion).getBytes(StandardCharsets.UTF_8));
         String body = garbage(4 + RNG.nextInt(5)) + "~" + payload + "~" + garbage(4 + RNG.nextInt(5));
         return body + "." + hmac(body);
     }
 
-    /** Verify a token and decode its tenant/code. Throws on tamper/format error. */
+    /** Verify a token and decode its tenant/code/version. Throws on tamper/format error. A legacy
+     *  token minted before versioning (no version segment) decodes as version 0. */
     public EmbedRef verify(String token) {
         if (token == null || token.isBlank()) throw new IllegalArgumentException("missing token");
         int dot = token.lastIndexOf('.');
@@ -58,9 +63,17 @@ public class EmbedTokens {
         String[] parts = body.split("~");
         if (parts.length != 3) throw new IllegalArgumentException("bad token body");
         String decoded = new String(B64D.decode(parts[1]), StandardCharsets.UTF_8);
-        int bar = decoded.indexOf('|');
-        if (bar <= 0 || bar == decoded.length() - 1) throw new IllegalArgumentException("bad payload");
-        return new EmbedRef(decoded.substring(0, bar), decoded.substring(bar + 1));
+        String[] f = decoded.split("\\|", -1);
+        if (f.length < 2 || f[0].isBlank() || f[1].isBlank()) throw new IllegalArgumentException("bad payload");
+        int version = 0;
+        if (f.length >= 3) {
+            try {
+                version = Integer.parseInt(f[2]);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("bad payload");
+            }
+        }
+        return new EmbedRef(f[0], f[1], version);
     }
 
     private static String garbage(int n) {

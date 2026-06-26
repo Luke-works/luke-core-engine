@@ -70,6 +70,12 @@ public class FormDefinition {
     @Column(columnDefinition = "text")
     private String allowedEmbedOrigins;
 
+    /** Embed-key version for revocation (Route B M4): the signed embed token carries this value;
+     *  bumping it invalidates every previously-issued token for this form (they fail the version check
+     *  on the public embed surface). Starts at 0. */
+    @Column(nullable = false)
+    private int embedKeyVersion = 0;
+
     /** Soft-delete marker (trash); null = live. */
     private LocalDateTime deletedAt;
 
@@ -129,6 +135,9 @@ public class FormDefinition {
 
     public String getAllowedEmbedOrigins() { return allowedEmbedOrigins; }
     public void setAllowedEmbedOrigins(String allowedEmbedOrigins) { this.allowedEmbedOrigins = allowedEmbedOrigins; }
+
+    public int getEmbedKeyVersion() { return embedKeyVersion; }
+    public void setEmbedKeyVersion(int embedKeyVersion) { this.embedKeyVersion = embedKeyVersion; }
 
     public LocalDateTime getDeletedAt() { return deletedAt; }
     public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }

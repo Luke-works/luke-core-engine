@@ -44,6 +44,7 @@ public class EmbedPageController {
                 .filter(f -> f.getDeletedAt() == null)
                 .orElse(null);
         if (form == null) return notFound();
+        if (ref.keyVersion() != form.getEmbedKeyVersion()) return notFound(); // revoked token (M4)
 
         // The authoritative clickjacking control: only these origins may frame this form (empty
         // allowlist → "*", the public default). Junk in the allowlist was already dropped at write time.

@@ -110,6 +110,10 @@ public class FormEmbedController {
         if (form.getPublishedVersion() == null) {
             throw notFound("This form is not published.");
         }
+        // Revocation (M4): a token minted before the form's embed key was rotated is dead.
+        if (ref.keyVersion() != form.getEmbedKeyVersion()) {
+            throw notFound("Unknown or invalid form link.");
+        }
         return form;
     }
 
