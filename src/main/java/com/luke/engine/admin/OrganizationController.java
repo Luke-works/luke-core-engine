@@ -138,6 +138,7 @@ public class OrganizationController {
         //    verification routes are EMAIL-guarded); actually sending still requires the
         //    org to pass verification, which provisions its Postmark server.
         grantCapability(tenantId, userId, "FORMS");
+        grantCapability(tenantId, userId, "SIGNATURES");
         // EMAIL is a company-sending capability — skip it for owners who signed up with
         // a personal email (they can't verify a business sender). They can still be
         // granted it later from a company address.

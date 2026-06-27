@@ -35,6 +35,7 @@ public class CapabilitySeed implements ApplicationRunner {
         seed(new Capability("SLA", "SLA Management", "Service level targets and breach tracking.", "Timer", "/sla", "ACTIVE", "PREMIUM"));
         seed(new Capability("FORMS", "Forms", "Build and manage forms.", "ListChecks", "/forms", "ACTIVE", "STANDARD"));
         seed(new Capability("EMAIL", "Email", "Send transactional email via Postmark.", "Mail", "/emails", "ACTIVE", "STANDARD"));
+        seed(new Capability("SIGNATURES", "Signatures", "Send documents for signature.", "PenLine", "/signatures", "ACTIVE", "STANDARD"));
         // SECRETS is internal-only for now — used by services via /api/internal/secrets,
         // not offered to tenants. Re-add a seed here when the tenant API is opened.
     }
