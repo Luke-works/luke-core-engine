@@ -42,6 +42,12 @@ public class FormVersion {
     @Column(nullable = false, updatable = false)
     private LocalDateTime checkedInAt = LocalDateTime.now();
 
+    /** When this version passed its self-test ("signed off"), and by whom. Null = not yet
+     *  signed off. Publishing this version is gated on {@code signedOffAt} being set — the
+     *  "tested" guarantee for the immutable artifact a consumer will resolve. */
+    private LocalDateTime signedOffAt;
+    private String signedOffBy;
+
     public FormVersion() {}
 
     public FormVersion(String formId, int version, String schema, String checkedInBy) {
@@ -67,4 +73,10 @@ public class FormVersion {
     public void setCheckedInBy(String checkedInBy) { this.checkedInBy = checkedInBy; }
 
     public LocalDateTime getCheckedInAt() { return checkedInAt; }
+
+    public LocalDateTime getSignedOffAt() { return signedOffAt; }
+    public void setSignedOffAt(LocalDateTime signedOffAt) { this.signedOffAt = signedOffAt; }
+
+    public String getSignedOffBy() { return signedOffBy; }
+    public void setSignedOffBy(String signedOffBy) { this.signedOffBy = signedOffBy; }
 }

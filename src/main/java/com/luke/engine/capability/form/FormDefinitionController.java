@@ -229,7 +229,12 @@ public class FormDefinitionController {
 
     /* ── versioning ─────────────────────────────────────────── */
 
-    /** Check in (compile) the draft as a new immutable version. First check-in auto-publishes; pass publish=true to publish a later one. */
+    /**
+     * Check in (compile) the draft as a new immutable version. This is a SNAPSHOT only — it
+     * never publishes (publishing is a separate, sign-off-gated step) and deliberately accepts
+     * a schema with validation errors / work-in-progress. The {@code publish} body field is
+     * ignored on purpose; promote a version via {@code POST /versions/{v}/publish}.
+     */
     @PostMapping("/{id}/versions")
     @ResponseStatus(HttpStatus.CREATED)
     public FormVersion checkIn(@RequestHeader("X-Tenant-Id") String tenantId,
@@ -243,19 +248,15 @@ public class FormDefinitionController {
         int next = versions.findTopByFormIdOrderByVersionDesc(id).map(v -> v.getVersion() + 1).orElse(1);
         FormVersion artifact = versions.save(new FormVersion(id, next, schema, userId));
 
-        boolean firstPublish = form.getPublishedVersion() == null;
-        boolean publish = firstPublish || Boolean.TRUE.equals(body != null ? body.publish() : null);
+        // Snapshot the draft to match the new version and release the edit lock. Status is left
+        // untouched: a DRAFT stays DRAFT (publish is the deliberate go-live), and an already
+        // PUBLISHED form keeps its currently-live version until a newer one is explicitly published.
         form.setDraftSchema(schema);
-        if (publish) {
-            form.setPublishedVersion(next);
-            if (!"RETIRED".equals(form.getStatus())) form.setStatus("PUBLISHED");
-        }
         form.setLockedBy(null); // checking in releases the edit lock
         form.setLockedAt(null);
         form.setUpdatedBy(userId);
         forms.save(form);
         record(form, userId, "checked_in", "v" + next);
-        if (publish) record(form, userId, "published", "v" + next);
         return artifact;
     }
 
@@ -272,12 +273,17 @@ public class FormDefinitionController {
         return version(form, v);
     }
 
+    /** Promote a checked-in version to live. Gated: the version must be SIGNED OFF (tested) first. */
     @PostMapping("/{id}/versions/{v}/publish")
     public FormDefinition publish(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id, @PathVariable int v) {
         FormDefinition form = load(tenantId, id);
-        version(form, v); // 404 if missing
+        FormVersion target = version(form, v); // 404 if missing
+        if (target.getSignedOffAt() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "v" + v + " hasn't been signed off — test and sign it off before publishing");
+        }
         form.setPublishedVersion(v);
         if (!"RETIRED".equals(form.getStatus())) form.setStatus("PUBLISHED");
         form.setUpdatedBy(userId);
@@ -325,16 +331,29 @@ public class FormDefinitionController {
         return saved;
     }
 
-    /** Record that the form passed its self-test ("Test the form" sign-off). */
+    /**
+     * Sign off the LATEST checked-in version — records it passed its self-test. Publishing that
+     * version is gated on this. The "tested" stamp lives on the immutable version (so it can't go
+     * stale when the draft is edited) and is mirrored onto the definition for the builder's badge.
+     * 422 if the form has no versions yet — check in before signing off.
+     */
     @PostMapping("/{id}/sign-off")
     public FormDefinition signOff(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id) {
         FormDefinition form = load(tenantId, id);
-        form.setLastTestedAt(java.time.LocalDateTime.now());
+        FormVersion latest = versions.findTopByFormIdOrderByVersionDesc(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Check in a version before signing off"));
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        latest.setSignedOffAt(now);
+        latest.setSignedOffBy(userId);
+        versions.save(latest);
+        // Mirror onto the definition for the builder's "Tested" badge + activity feed.
+        form.setLastTestedAt(now);
         form.setLastTestedBy(userId);
         FormDefinition saved = forms.save(form);
-        record(saved, userId, "tested", "Form passed its self-test");
+        record(saved, userId, "tested", "Signed off v" + latest.getVersion());
         return saved;
     }
 
