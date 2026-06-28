@@ -42,6 +42,13 @@ spring:
     # Disabled here so the H2/test profile keeps using ddl-auto (the V1 baseline is
     # Postgres DDL). Enabled only in application-postgres.yml (#24).
     enabled: false
+  servlet:
+    # Signature/document uploads (merged from luke-signature-engine). PDF source
+    # documents are bounded here; the signature capability also enforces its own
+    # per-request guards (PNG size, %PDF- magic bytes) in the controllers.
+    multipart:
+      max-file-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
+      max-request-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
 
 # CIBSeven / Camunda Engine Configuration
 camunda:
@@ -100,6 +107,14 @@ luke:
   forms:
     # BPMN process key started for each form submission (deployed per tenant).
     intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
+  signatures:
+    # BPMN process key for the signature ceremony (deployed per tenant). The
+    # SignatureProcessOutboxConsumer starts it on campaign launch and correlates the
+    # SignatureClosure message when the instance reaches a terminal state.
+    ceremony-process-key: ${LUKE_SIGNATURES_CEREMONY_PROCESS_KEY:SignatureCeremonyProcess}
+    # HA: run the outbox poller on exactly ONE node — set false on the others.
+    outbox-enabled: ${LUKE_SIGNATURES_OUTBOX_ENABLED:true}
+    outbox-poll-ms: ${LUKE_SIGNATURES_OUTBOX_POLL_MS:2000}
   internal:
     # Shared secret for server-to-server calls into /api/internal/** (e.g.
     # capability-engine starting a process). MUST match capability-engine's
@@ -170,6 +185,40 @@ luke:
     active-key-id: ${LUKE_SECRETS_ACTIVE_KEY_ID:dev}
     keys:
       dev: ${LUKE_SECRETS_KEY_DEV:dev-secrets-master-key-change-me}
+
+  # ── Merged from luke-signature-engine (SIG-M) ──────────────────────────────
+  # E-signature capability. PAdES sealing needs an org PKCS#12 keystore
+  # (LUKE_SIGN_KEYSTORE_*) at runtime; the service boots WITHOUT it (only sealing
+  # requires it). Signed PDFs live in the DocumentStore (NOT the DB): local FS in
+  # dev, S3-compatible (R2/B2/MinIO-endpoint) in prod — set LUKE_DOCSTORE_PROVIDER=s3.
+  sign:
+    # Base URL the public per-recipient signing links point at (consumer-ui /sign/:token).
+    public-base-url: ${SIGN_PUBLIC_BASE_URL:http://localhost:5173}
+    # Retention window for signed documents (~7 years).
+    retention-days: ${LUKE_SIGN_RETENTION_DAYS:2555}
+    # PAdES signature dictionary metadata.
+    reason: ${LUKE_SIGN_REASON:Signed via Luke e-signature}
+    location: ${LUKE_SIGN_LOCATION:}
+    trust:
+      # self = US ESIGN/UETA (org cert + free RFC-3161 TSA); qtsp = EU eIDAS (post-V1).
+      mode: ${LUKE_SIGN_TRUST_MODE:self}
+      tsa-enabled: ${LUKE_SIGN_TSA_ENABLED:true}
+      tsa-url: ${LUKE_SIGN_TSA_URL:http://timestamp.digicert.com}
+      keystore-base64: ${LUKE_SIGN_KEYSTORE_BASE64:}
+      keystore-password: ${LUKE_SIGN_KEYSTORE_PASSWORD:}
+      key-alias: ${LUKE_SIGN_KEY_ALIAS:}
+    # CSV of IP-risk classes to hard-block (e.g. TOR,DATACENTER). Empty = flag-only,
+    # never blocks (corporate VPNs / iCloud Private Relay are legit signers).
+    block-ip-risk: ${LUKE_SIGN_BLOCK_IP_RISK:}
+  docstore:
+    # local (dev, file FS) | s3 (AWS/Cloudflare R2/Backblaze B2/MinIO-endpoint).
+    provider: ${LUKE_DOCSTORE_PROVIDER:local}
+    local-dir: ${LUKE_DOCSTORE_LOCAL_DIR:./luke-data/docstore}
+    bucket: ${LUKE_DOCSTORE_BUCKET:}
+    region: ${LUKE_DOCSTORE_REGION:}
+    endpoint: ${LUKE_DOCSTORE_ENDPOINT:}
+    access-key: ${LUKE_DOCSTORE_ACCESS_KEY:}
+    secret-key: ${LUKE_DOCSTORE_SECRET_KEY:}
 
 # Actuator
 management:

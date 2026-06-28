@@ -52,6 +52,15 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.capability.access.CapabilityGrant.class,
         com.luke.engine.capability.access.AccessRequest.class,
         com.luke.engine.capability.secrets.Secret.class,
+        // Signatures capability (merged from luke-signature-engine, SIG-M) → V6 migration.
+        com.luke.engine.capability.signature.SignatureDefinition.class,
+        com.luke.engine.capability.signature.SignatureVersion.class,
+        com.luke.engine.capability.signature.SignatureDefinitionAuditEvent.class,
+        com.luke.engine.capability.signature.SignatureInstance.class,
+        com.luke.engine.capability.signature.SignatureRecipient.class,
+        com.luke.engine.capability.signature.SignatureProcessOutbox.class,
+        com.luke.engine.capability.signature.SignatureRequest.class,
+        com.luke.engine.capability.signature.SignatureAuditEvent.class,
     };
 
     @Test
@@ -90,10 +99,15 @@ class SchemaBaselineGeneratorTest {
             String ddl = Files.readString(out.toPath());
 
             // Guard: every table the entities produce must be present in the committed
-            // Flyway baseline. If someone adds an @Entity without adding it here AND to a
+            // Flyway migrations. If someone adds an @Entity without adding it here AND to a
             // migration, this fails — preventing the silent "table never created" gap.
-            String baseline = Files.readString(
-                    new File("src/main/resources/db/migration/V1__baseline_luke_tables.sql").toPath());
+            // Read ALL migrations (V1 baseline + later adds like V6 signatures), not just V1.
+            File migrationsDir = new File("src/main/resources/db/migration");
+            StringBuilder baselineSb = new StringBuilder();
+            for (File f : migrationsDir.listFiles((d, n) -> n.endsWith(".sql"))) {
+                baselineSb.append(Files.readString(f.toPath())).append('\n');
+            }
+            String baseline = baselineSb.toString();
             Matcher m = Pattern.compile("create table (?:if not exists )?(\\w+)").matcher(ddl);
             int tables = 0;
             while (m.find()) {

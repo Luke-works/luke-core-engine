@@ -36,6 +36,10 @@
         <groovy.version>4.0.24</groovy.version>
         <graaljs.version>24.1.1</graaljs.version>
         <jython.version>2.7.3</jython.version>
+        <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
+        <pdfbox.version>3.0.3</pdfbox.version>
+        <bouncycastle.version>1.78.1</bouncycastle.version>
+        <awssdk.version>2.25.60</awssdk.version>
     </properties>
 
     <!-- ============================================================= -->
@@ -47,6 +51,14 @@
                 <groupId>org.cibseven.bpm</groupId>
                 <artifactId>cibseven-bom</artifactId>
                 <version>${cibseven.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- AWS SDK BOM — manages the s3 client version (signatures DocumentStore) -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -179,6 +191,27 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
+        <!-- ========================================================= -->
+        <!-- Signatures capability (merged from luke-signature-engine) -->
+        <!-- Permissive licenses only: PDFBox (Apache-2.0), Bouncy-    -->
+        <!-- Castle bcpkix (MIT), AWS SDK s3 (Apache-2.0). NEVER iText -->
+        <!-- (AGPL). Visual stamp + PAdES seal + S3-compatible store.  -->
+        <!-- ========================================================= -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>${bouncycastle.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
         </dependency>
 
         <!-- Database: H2 (default) + PostgreSQL (optional via postgres profile) -->
