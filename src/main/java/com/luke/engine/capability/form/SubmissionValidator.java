@@ -63,7 +63,14 @@ public final class SubmissionValidator {
 
         List<String> missing = new ArrayList<>();
         for (Map<String, Object> f : fields) {
-            if (Boolean.TRUE.equals(f.get("required")) && isBlank(out.get(String.valueOf(f.get("key"))))) {
+            // Skip required-enforcement for conditionally-controlled fields (hidden / disabled /
+            // conditional / computed / show-hide-require logic). The server can't evaluate those
+            // rules, so a missing value isn't necessarily an error — the field may legitimately be
+            // hidden. The client renderer enforces required only when the field is actually visible;
+            // this backstop only hard-enforces UNCONDITIONALLY-required fields. (Fixes a 400 on
+            // embed submit for forms with a required-but-conditionally-hidden field.)
+            if (Boolean.TRUE.equals(f.get("required")) && !Boolean.TRUE.equals(f.get("conditional"))
+                    && isBlank(out.get(String.valueOf(f.get("key"))))) {
                 missing.add(String.valueOf(f.get("key")));
             }
         }

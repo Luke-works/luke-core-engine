@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Stateless helpers for form codes, instance tokens, and deriving the
@@ -49,9 +50,17 @@ public final class FormSupport {
 
     /**
      * Flatten a coltorapps schema string into the field→variable contract:
-     * {@code [{key, type, required}]}. Best-effort — any entity carrying a
+     * {@code [{key, type, required, conditional}]}. Best-effort — any entity carrying a
      * {@code key} attribute is treated as an input field. Returns an empty list
      * for blank/unparseable schemas rather than throwing.
+     *
+     * <p>{@code conditional} is true when the server can't safely hard-enforce {@code required}:
+     * the field is statically hidden or disabled, has a literal/custom conditional, a computed
+     * value, show/hide/require/optional/enable/disable logic, OR is {@code persistent:false} (the
+     * renderer omits non-persistent fields from the submission entirely). Callers that enforce
+     * {@code required} (e.g. the public-submit backstop) must NOT hard-enforce it for such fields:
+     * the value may legitimately never arrive, so its absence is not an error — the client renderer
+     * enforces required only when the field is actually shown and submitted.
      */
     public static List<Map<String, Object>> extractFields(String schema) {
         List<Map<String, Object>> fields = new ArrayList<>();
@@ -67,12 +76,38 @@ public final class FormSupport {
                 field.put("key", keyNode.asText());
                 field.put("type", mapType(entity.path("type").asText("")));
                 field.put("required", attrs.path("required").asBoolean(false));
+                field.put("conditional", isConditionallyControlled(attrs));
                 fields.add(field);
             });
         } catch (Exception ignored) {
             // best-effort: a malformed draft just yields no contract
         }
         return fields;
+    }
+
+    /** Field actions (in {@code logic[]}) that make a field's visibility / editability / required
+     *  state dynamic, so the server can't know whether it was shown / must be filled. */
+    private static final Set<String> DYNAMIC_ACTIONS =
+            Set.of("show", "hide", "require", "optional", "enable", "disable", "setValue");
+
+    /** Whether the field's presence/requiredness is conditional (see {@link #extractFields}). */
+    private static boolean isConditionallyControlled(JsonNode attrs) {
+        if (attrs.path("hidden").asBoolean(false)) return true;   // statically hidden — never shown
+        if (attrs.path("disabled").asBoolean(false)) return true; // statically disabled — user can't fill
+        // persistent:false → the renderer deliberately omits this field from the submission payload
+        // (form-core collect() skips it), so it can NEVER arrive — hard-requiring it always 400s.
+        if (!attrs.path("persistent").asBoolean(true)) return true;
+        if (!attrs.path("customConditional").asText("").isBlank()) return true; // visibility expression
+        if (!attrs.path("calculateValue").asText("").isBlank()) return true;    // computed/derived value
+        JsonNode cond = attrs.path("conditional");
+        if (cond.isObject() && cond.size() > 0) return true;      // literal conditional visibility
+        JsonNode logic = attrs.path("logic");
+        if (logic.isArray()) {
+            for (JsonNode rule : logic) {
+                if (DYNAMIC_ACTIONS.contains(rule.path("action").asText(""))) return true;
+            }
+        }
+        return false;
     }
 
     /** Map a builder field type to the engine variable type used at runtime. */

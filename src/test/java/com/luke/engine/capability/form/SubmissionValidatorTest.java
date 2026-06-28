@@ -47,6 +47,52 @@ class SubmissionValidatorTest {
     }
 
     @Test
+    void skipsRequiredForHiddenOrConditionalFields() {
+        // A required field that is hidden / conditionally hidden / computed must NOT 400 when
+        // omitted — the server can't evaluate visibility rules and the field may legitimately not
+        // be shown (this was the embed-submit 400 in tenants whose form had such a field).
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"text","attributes":{"key":"name","required":true}},
+                  "e2":{"type":"email","attributes":{"key":"email","required":true,"hidden":true}},
+                  "e3":{"type":"text","attributes":{"key":"ref","required":true,"customConditional":"name == 'x'"}},
+                  "e4":{"type":"text","attributes":{"key":"city","required":true,"conditional":{"when":"name","eq":"y"}}},
+                  "e5":{"type":"text","attributes":{"key":"zip","required":true,"logic":[{"when":"name == 'z'","action":"hide"}]}}
+                }}""";
+        // Only the unconditional required field (name) is supplied; the conditional/hidden ones omitted.
+        Map<String, Object> out = SubmissionValidator.clean(schema, map("name", "Ada"));
+        assertThat(out).containsOnlyKeys("name");
+    }
+
+    @Test
+    void skipsRequiredForNonPersistentField() {
+        // Mirrors the real embed-submit 400: a REQUIRED field with persistent:false. The renderer's
+        // collect() deliberately omits non-persistent fields from the payload, so the value never
+        // arrives — the backstop must not flag it missing (this is exactly why one tenant's embed
+        // submitted fine while another's, whose required field was persistent:false, always 400'd).
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"textField","attributes":{"key":"Text","required":true,"persistent":false}},
+                  "e2":{"type":"textarea","attributes":{"key":"textArea"}}
+                }}""";
+        Map<String, Object> out = SubmissionValidator.clean(schema, map("textArea", "hello"));
+        assertThat(out).containsOnlyKeys("textArea"); // no 400, "Text" not required of the payload
+    }
+
+    @Test
+    void stillEnforcesUnconditionalRequiredAlongsideConditionalFields() {
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"text","attributes":{"key":"name","required":true}},
+                  "e2":{"type":"email","attributes":{"key":"email","required":true,"hidden":true}}
+                }}""";
+        // name (unconditionally required) is still enforced even though a hidden required field exists.
+        assertThatThrownBy(() -> SubmissionValidator.clean(schema, map("email", "a@b.com")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("name");
+    }
+
+    @Test
     void stripsControlCharactersButKeepsSpacesAndTabs() {
         Map<String, Object> out = SubmissionValidator.clean(
                 SCHEMA, map("fullName", "Ada" + NUL + " " + BEL + "Lovelace", "notes", "keep" + TAB + "this"));
