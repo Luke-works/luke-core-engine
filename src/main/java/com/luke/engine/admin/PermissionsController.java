@@ -75,8 +75,14 @@ public class PermissionsController {
         }
 
         List<Group> groups = identityService.createGroupQuery().groupMember(userId).list();
-        List<String> tenants = identityService.createTenantQuery().userMember(userId).list()
-                .stream().map(Tenant::getId).toList();
+        List<Tenant> tenantList = identityService.createTenantQuery().userMember(userId).list();
+        List<String> tenants = tenantList.stream().map(Tenant::getId).toList();
+        // id → display name, so the UI can label the tenant switcher with the org's name
+        // (the id itself is an opaque code). Falls back to the id if a tenant has no name.
+        Map<String, String> tenantNames = new LinkedHashMap<>();
+        for (Tenant t : tenantList) {
+            tenantNames.put(t.getId(), t.getName() != null && !t.getName().isBlank() ? t.getName() : t.getId());
+        }
 
         boolean operator = groups.stream().anyMatch(g -> CAMUNDA_ADMIN_GROUP.equals(g.getId()))
                 || tenants.contains(parentClusterId);
@@ -109,6 +115,7 @@ public class PermissionsController {
         body.put("operator", operator);
         body.put("tenantAdmin", tenantAdmin);
         body.put("tenants", tenants);
+        body.put("tenantNames", tenantNames);
         body.put("roles", roles);
         body.put("candidateGroups", candidateGroups);
         body.put("groups", rawGroups);
