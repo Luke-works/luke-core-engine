@@ -43,17 +43,20 @@ public class OrganizationController {
     private final IdentityService identityService;
     private final GatewayJwtAuthenticator gatewayAuth;
     private final com.luke.engine.form.FormProcessDeployer formProcessDeployer;
+    private final com.luke.engine.capability.signature.SignatureProcessDeployer signatureProcessDeployer;
     // In-process capability data store (was server-to-server HTTP via the proxy + operator cred).
     private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
     private final com.luke.engine.capability.access.CapabilityGrantController grants;
 
     public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
                                  com.luke.engine.form.FormProcessDeployer formProcessDeployer,
+                                 com.luke.engine.capability.signature.SignatureProcessDeployer signatureProcessDeployer,
                                  com.luke.engine.capability.capability.SubscriptionController subscriptions,
                                  com.luke.engine.capability.access.CapabilityGrantController grants) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
         this.formProcessDeployer = formProcessDeployer;
+        this.signatureProcessDeployer = signatureProcessDeployer;
         this.subscriptions = subscriptions;
         this.grants = grants;
     }
@@ -126,8 +129,10 @@ public class OrganizationController {
             log.warn("Could not auto-provision admin '{}' into tenant '{}': {}", adminUserId, tenantId, e.getMessage());
         }
 
-        // Give the new tenant its own copy of the form-intake process (best-effort).
+        // Give the new tenant its own copy of the form-intake + signature-ceremony processes
+        // (best-effort; each deploy is idempotent via duplicate filtering).
         formProcessDeployer.deployFor(tenantId);
+        signatureProcessDeployer.deployFor(tenantId);
 
         // 4. Give the new org its default capabilities so the owner can use them:
         //    subscribe the tenant, then grant the owner read-write. Effective access

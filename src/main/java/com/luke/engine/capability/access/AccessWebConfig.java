@@ -28,6 +28,13 @@ public class AccessWebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("EMAIL"))
                 .addPathPatterns("/api/emails/**", "/api/email-servers/**", "/api/email-verification/**",
                         "/api/email-templates/**");
+        // Signatures (merged from luke-signature-engine). The authed design-time +
+        // runtime APIs are capability-guarded; the public per-recipient signing routes
+        // (/api/public/sign/**, /api/public/sign-instance/**) are token-authenticated by
+        // design and intentionally NOT listed here.
+        registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("SIGNATURES"))
+                .addPathPatterns("/api/signature-definitions/**", "/api/signature-instances/**",
+                        "/api/signatures/**");
         // Secrets are internal-only for now (served via /api/internal/secrets behind the
         // shared-secret filter). When the tenant-facing /api/secrets API is re-opened,
         // re-add a SECRETS interceptor here.
