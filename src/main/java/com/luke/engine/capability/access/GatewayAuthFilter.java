@@ -37,6 +37,10 @@ public class GatewayAuthFilter {
         reg.setFilter(new Impl(verifier));
         reg.addUrlPatterns("/api/form-definitions/*", "/api/form-instances/*", "/api/emails/*",
                 "/api/email-servers/*", "/api/email-verification/*", "/api/email-templates/*",
+                // Signatures (merged from luke-signature-engine): same authed routes the
+                // CapabilityAccessInterceptor guards — must inject the verified X-User-Id here
+                // too. The public token-signing routes (/api/public/sign*) are NOT listed.
+                "/api/signature-definitions/*", "/api/signature-instances/*", "/api/signatures/*",
                 "/api/my-capabilities",
                 "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*");
         reg.setName("gatewayAuthFilter");
