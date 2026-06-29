@@ -55,12 +55,12 @@ spring:
   flyway:
     enabled: true
     # The schema is ALWAYS non-empty here because Camunda's ACT_* tables share it, so
-    # baseline-on-migrate stamps a baseline on first run regardless of whether the luke_*
-    # tables exist. Baseline at 0 (not 1) so V1 — which CREATEs the luke_* tables — actually
-    # RUNS: it's fully idempotent (every statement is "… if not exists"), so it's a no-op on a
-    # schema that already has the tables (old ddl-auto dev/prod) and creates them on one that
-    # doesn't (a Camunda-only schema, e.g. a fresh qa). Baseline 1 SKIPPED V1, which left such a
-    # schema without luke_form_definitions and broke V2's ALTER.
+    # baseline-on-migrate stamps a baseline on first run regardless of whether the luke_* tables
+    # exist. Baseline at 0 (not 1) so V1 — which CREATEs the luke_* tables — runs on a schema with
+    # no Flyway history yet. For a schema ALREADY baselined past V1 with no luke_* tables (a
+    # Camunda-only schema whose first boot baselined at 1, e.g. an early qa), Flyway won't re-run V1
+    # — so db/migration/beforeMigrate.sql (an idempotent copy of V1) recreates the baseline tables
+    # before V2+ run. Between the two, any environment self-heals on deploy with no manual DB reset.
     baseline-on-migrate: true
     baseline-version: 0
     baseline-description: "pre-luke_* baseline (Camunda-only state)"
