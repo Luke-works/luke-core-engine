@@ -21,7 +21,7 @@ class GeocodeMinionTest {
                         Map.of("id", "postcode.1", "text", "NW1 6XE"),
                         Map.of("id", "place.2", "text", "London"),
                         Map.of("id", "region.3", "text", "England"),
-                        Map.of("id", "country.4", "text", "United Kingdom")));
+                        Map.of("id", "country.4", "text", "United Kingdom", "short_code", "gb")));
     }
 
     @Test
@@ -38,6 +38,7 @@ class GeocodeMinionTest {
         assertThat(addr.get("region")).isEqualTo("England");
         assertThat(addr.get("postalCode")).isEqualTo("NW1 6XE");
         assertThat(addr.get("country")).isEqualTo("United Kingdom");
+        assertThat(addr.get("countryCode")).isEqualTo("GB"); // from Mapbox short_code, upper-cased
         assertThat(addr.get("lat")).isEqualTo(51.5237);
         assertThat(addr.get("lng")).isEqualTo(-0.1582);
     }

@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,7 +104,13 @@ public class GeocodeMinion implements Minion {
                     if (id.startsWith("place")) putIf(address, "city", text);
                     else if (id.startsWith("region")) putIf(address, "region", text);
                     else if (id.startsWith("postcode")) putIf(address, "postalCode", text);
-                    else if (id.startsWith("country")) putIf(address, "country", text);
+                    else if (id.startsWith("country")) {
+                        putIf(address, "country", text);
+                        // Mapbox gives the ISO alpha-2 code as `short_code` — drives country-aware
+                        // labels/validation in the renderer (more reliable than the display name).
+                        String code = str(cm.get("short_code"));
+                        if (!code.isEmpty()) address.put("countryCode", code.toUpperCase(Locale.ROOT));
+                    }
                 }
             }
             // center = [lng, lat]
