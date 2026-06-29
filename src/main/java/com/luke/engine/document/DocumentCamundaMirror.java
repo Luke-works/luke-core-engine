@@ -1,6 +1,7 @@
 package com.luke.engine.document;
 
 import java.util.List;
+import java.util.Objects;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.task.Task;
 import org.slf4j.Logger;
@@ -50,6 +51,12 @@ public class DocumentCamundaMirror {
         if (!StringUtils.hasText(formInstanceId) || !StringUtils.hasText(processInstanceId)) return 0;
         int n = 0;
         try {
+            // Hang process-level (fill-time) attachments on the active task so they surface in a
+            // task-centric UI (Camunda /task/{id}/attachment only returns task-scoped rows). The active
+            // user task at start is the review task; null if the process isn't waiting on one yet.
+            String activeTaskId = taskService.createTaskQuery().processInstanceId(processInstanceId).active()
+                    .list().stream().map(Task::getId).filter(Objects::nonNull).findFirst().orElse(null);
+
             List<Document> rows = repo.findByTenantIdAndCapabilityAndOwnerEntityIdOrderByCreatedAtDesc(
                     tenantId, FORMS_CAPABILITY, formInstanceId);
             for (Document d : rows) {
@@ -58,7 +65,7 @@ public class DocumentCamundaMirror {
                     d.setProcessInstanceId(processInstanceId);
                     repo.save(d);
                 }
-                link.attach(d);   // best-effort inside; PROCESS-classified (taskId null on fill uploads)
+                link.attach(d, activeTaskId);   // best-effort; PROCESS-classified (taskId null on fill uploads)
                 n++;
             }
         } catch (RuntimeException e) {

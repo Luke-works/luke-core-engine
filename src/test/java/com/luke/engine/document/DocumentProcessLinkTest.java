@@ -63,6 +63,20 @@ class DocumentProcessLinkTest {
     }
 
     @Test
+    void processLevelDocIsHungOnActiveTaskButStaysProcessClassified() {
+        RuntimeService runtime = Mockito.mock(RuntimeService.class);
+        TaskService tasks = Mockito.mock(TaskService.class);
+        DocumentProcessLink link = new DocumentProcessLink(runtime, tasks);
+
+        // A fill-time doc (no taskId of its own) placed on the active review task for visibility.
+        link.attach(doc("doc_4", "PID-4", null), "review-task");
+
+        // Hung on the task (so /task/{id}/attachment returns it) but typed PROCESS (classification).
+        verify(tasks).createAttachment(eq("luke-process-attachment"), eq("review-task"), eq("PID-4"),
+                eq("w9.pdf"), eq("FORM_ATTACHMENT"), eq("/api/documents/doc_4/content"));
+    }
+
+    @Test
     void noInstanceNoMirror() {
         RuntimeService runtime = Mockito.mock(RuntimeService.class);
         TaskService tasks = Mockito.mock(TaskService.class);

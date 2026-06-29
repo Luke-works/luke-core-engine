@@ -43,11 +43,22 @@ public class DocumentProcessLink {
         return "/api/documents/" + docId + "/content";
     }
 
+    /** Mirror with no explicit task placement (task-scoped docs hang on their own task). */
+    public void attach(Document doc) {
+        attach(doc, null);
+    }
+
     /**
      * Link {@code doc} into its Camunda instance as references only. Best-effort: Camunda errors (e.g. a
      * completed/unknown instance) are swallowed — the document row is already the source of truth.
+     *
+     * <p>{@code placementTaskId} is where the attachment is HUNG in Camunda for visibility — Camunda's
+     * REST {@code /task/{id}/attachment} (e.g. the Tasklist UI) only returns task-scoped attachments, so a
+     * process-level document (no taskId of its own) is placed on the active task to surface there. The
+     * CLASSIFICATION (attachment type) still reflects the document's own taskId: a doc with no taskId is a
+     * {@code luke-process-attachment} even when hung on a task for display.
      */
-    public void attach(Document doc) {
+    public void attach(Document doc, String placementTaskId) {
         if (doc == null || !StringUtils.hasText(doc.getProcessInstanceId())) {
             return;   // not bound to a running instance (Flow-A before start) — nothing to mirror yet
         }
@@ -61,12 +72,15 @@ public class DocumentProcessLink {
                     docId, doc.getProcessInstanceId(), e.toString());
         }
         boolean taskScoped = StringUtils.hasText(doc.getTaskId());
+        // Where to hang it: the doc's own task if it has one, else the caller-supplied active task (so it
+        // shows in a task-centric UI). Null → process-level only (visible via process APIs, not /task/..).
+        String camundaTaskId = taskScoped ? doc.getTaskId() : placementTaskId;
         try {
             // URL-mode attachment ONLY — never the InputStream overload (that would write a blob). The
             // attachment type carries the TASK/PROCESS classification; description keeps the doc kind.
             taskService.createAttachment(
                     taskScoped ? TYPE_TASK_ATTACHMENT : TYPE_PROCESS_ATTACHMENT,
-                    taskScoped ? doc.getTaskId() : null,
+                    camundaTaskId,
                     doc.getProcessInstanceId(),
                     doc.getFilename(),
                     doc.getKind(),

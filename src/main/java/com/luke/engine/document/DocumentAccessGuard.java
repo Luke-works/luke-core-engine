@@ -18,6 +18,15 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class DocumentAccessGuard {
 
+    /**
+     * FORMS submission documents are gated by the FORMS capability ALONE — not additionally by the
+     * DOC-4 task/process candidate-group context. Rationale: the Form Inbox already exposes every
+     * tenant submission to anyone with FORMS access, so attachments follow the same boundary (a FORMS
+     * reviewer sees the submission's files; an admin reviewing an embed submission with no candidate
+     * group still can). Other capabilities (SIGNATURES, EMAIL, …) keep the strict context check.
+     */
+    private static final String FORMS_CAPABILITY = "FORMS";
+
     private final CapabilityAccessService capabilities;
     private final TaskAccessResolver taskAccess;
 
@@ -32,7 +41,10 @@ public class DocumentAccessGuard {
         if (!capabilities.isAllowed(tenantId, userId, capability, true)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "no access to capability " + capability);
         }
-        if (!taskAccess.canUpload(tenantId, userId, processRef, processInstanceId, taskId)) {
+        // FORMS: capability(write) suffices (so an inbox reviewer can "Attach to this task" without
+        // being a Camunda candidate). Other capabilities still require task/process upload context.
+        if (!FORMS_CAPABILITY.equals(capability)
+                && !taskAccess.canUpload(tenantId, userId, processRef, processInstanceId, taskId)) {
             throw notFound();
         }
     }
@@ -52,7 +64,7 @@ public class DocumentAccessGuard {
         return doc != null
                 && doc.getTenantId().equals(tenantId)
                 && capabilities.isAllowed(tenantId, userId, doc.getCapability(), false)
-                && taskAccess.canAccess(tenantId, userId, doc);
+                && contextAllows(tenantId, userId, doc);
     }
 
     private void check(String tenantId, String userId, Document doc, boolean needWrite) {
@@ -62,9 +74,16 @@ public class DocumentAccessGuard {
         if (!capabilities.isAllowed(tenantId, userId, doc.getCapability(), needWrite)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "no access to capability " + doc.getCapability());
         }
-        if (!taskAccess.canAccess(tenantId, userId, doc)) {
+        if (!contextAllows(tenantId, userId, doc)) {
             throw notFound();                                   // outside the task/process — no leak
         }
+    }
+
+    /** The DOC-4 context layer, with the FORMS carve-out: FORMS docs pass on the capability gate alone;
+     *  everything else must satisfy the task/process candidate-group check. */
+    private boolean contextAllows(String tenantId, String userId, Document doc) {
+        return FORMS_CAPABILITY.equals(doc.getCapability())
+                || taskAccess.canAccess(tenantId, userId, doc);
     }
 
     private static ResponseStatusException notFound() {
