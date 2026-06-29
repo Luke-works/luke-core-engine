@@ -219,6 +219,17 @@ luke:
     endpoint: ${LUKE_DOCSTORE_ENDPOINT:}
     access-key: ${LUKE_DOCSTORE_ACCESS_KEY:}
     secret-key: ${LUKE_DOCSTORE_SECRET_KEY:}
+    # Per-capability retention (DOC-5). days=0 → no retention. SIGNATURES get a legal window
+    # under COMPLIANCE Object Lock (immutable until expiry); everything else GOVERNANCE.
+    retention:
+      default-days: ${LUKE_DOC_RETENTION_DAYS:0}
+      signatures-days: ${LUKE_DOC_RETENTION_DAYS_SIGNATURES:2555}
+    # Retention purge job (DOC-5). Disabled in dev/qa; enable in prod. Keep dry-run=true first to
+    # log what WOULD be purged. Core marks rows DELETED only — S3 bytes are reclaimed by lifecycle.
+    purge:
+      enabled: ${LUKE_DOC_PURGE_ENABLED:false}
+      dry-run: ${LUKE_DOC_PURGE_DRY_RUN:true}
+      interval-ms: ${LUKE_DOC_PURGE_INTERVAL_MS:86400000}
 
 # Actuator
 management:

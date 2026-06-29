@@ -35,8 +35,10 @@ public class SignatureInstanceService {
     private final SignatureVersionRepository versions;
     private final DocumentStore documentStore;
     private final SignatureProvider signatureProvider;
+    private final com.luke.engine.document.DocumentService documents;
     private final ObjectMapper mapper;
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SignatureInstanceService.class);
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     public SignatureInstanceService(SignatureInstanceRepository instances,
@@ -46,6 +48,7 @@ public class SignatureInstanceService {
                                     SignatureVersionRepository versions,
                                     DocumentStore documentStore,
                                     SignatureProvider signatureProvider,
+                                    com.luke.engine.document.DocumentService documents,
                                     ObjectMapper mapper) {
         this.instances = instances;
         this.recipients = recipients;
@@ -54,6 +57,7 @@ public class SignatureInstanceService {
         this.versions = versions;
         this.documentStore = documentStore;
         this.signatureProvider = signatureProvider;
+        this.documents = documents;
         this.mapper = mapper;
     }
 
@@ -313,9 +317,33 @@ public class SignatureInstanceService {
             inst.setSignedSha256(SignatureSupport.sha256Hex(sealed));
             inst.setSealStatus("SEALED");
             inst.setSealError(null);
+            registerSealedDoc(inst, key, (long) sealed.length);  // DOC-7 registry mirror (isolated; never fails the seal)
         } catch (Exception e) {
             inst.setSealStatus("FAILED");
             inst.setSealError(e.getMessage());
+        }
+    }
+
+    /**
+     * DOC-7: surface the sealed envelope in the shared document index, best-effort + fully isolated
+     * (its own REQUIRES_NEW tx, errors swallowed) so a registry hiccup can never flip the seal to FAILED.
+     */
+    private void registerSealedDoc(SignatureInstance inst, String storageKey, long sizeBytes) {
+        try {
+            String processRef = inst.getBusinessKey() != null ? inst.getBusinessKey() : inst.getToken();
+            documents.registerStored(new com.luke.engine.document.DocumentRegistration(
+                    inst.getTenantId(),
+                    processRef,                    // case-file folder = the campaign businessKey/token
+                    inst.getProcessInstanceId(),
+                    null,
+                    com.luke.engine.document.Document.KIND_SIGNATURE_ATTACHMENT,
+                    "SIGNATURES",
+                    inst.getId(),                  // ownerEntityId = signatureInstanceId
+                    storageKey, "signed.pdf", "application/pdf",
+                    sizeBytes, inst.getSignedSha256(),
+                    null, null, null));
+        } catch (RuntimeException e) {
+            log.debug("Document registry mirror failed for signature instance {}: {}", inst.getId(), e.toString());
         }
     }
 

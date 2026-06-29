@@ -25,6 +25,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class SignatureService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SignatureService.class);
+
     private final SignatureRequestRepository requests;
     private final SignatureAuditEventRepository audits;
     private final AuditService auditService;
@@ -32,6 +34,7 @@ public class SignatureService {
     private final SignatureProvider signatureProvider;
     private final SignerVerification signerVerification;
     private final IpReputationProvider ipReputation;
+    private final com.luke.engine.document.DocumentService documents;
 
     private final long retentionDays;
     private final String publicBaseUrl;
@@ -45,6 +48,7 @@ public class SignatureService {
                             SignatureProvider signatureProvider,
                             SignerVerification signerVerification,
                             IpReputationProvider ipReputation,
+                            com.luke.engine.document.DocumentService documents,
                             PlatformTransactionManager txManager,
                             @Value("${luke.sign.retention-days:2555}") long retentionDays,
                             @Value("${luke.sign.public-base-url:http://localhost:5173}") String publicBaseUrl,
@@ -56,10 +60,36 @@ public class SignatureService {
         this.signatureProvider = signatureProvider;
         this.signerVerification = signerVerification;
         this.ipReputation = ipReputation;
+        this.documents = documents;
         this.txTemplate = new TransactionTemplate(txManager);
         this.retentionDays = retentionDays;
         this.publicBaseUrl = stripTrailingSlash(publicBaseUrl);
         this.blockedRisks = parseRisks(blockIpRiskCsv);
+    }
+
+    /**
+     * DOC-7: surface a signature PDF in the shared document index, best-effort. Runs in its own
+     * transaction (REQUIRES_NEW) and is fully swallowed on error — the signature flow is the source of
+     * truth and must never fail because the registry mirror did.
+     */
+    private void registerSignatureDoc(SignatureRequest req, String storageKey, String filename,
+                                      Long sizeBytes, String sha256) {
+        try {
+            documents.registerStored(new com.luke.engine.document.DocumentRegistration(
+                    req.getTenantId(),
+                    req.getCode(),                 // processRef = the stable signature code (case-file folder)
+                    null, null,
+                    com.luke.engine.document.Document.KIND_SIGNATURE_ATTACHMENT,
+                    "SIGNATURES",
+                    req.getId(),                   // ownerEntityId = signatureRequestId
+                    storageKey, filename, "application/pdf",
+                    sizeBytes, sha256,
+                    req.getRetainUntil(),
+                    req.getCreatedBy(), null));
+        } catch (RuntimeException e) {
+            log.debug("Document registry mirror failed for signature {} ({}): {}",
+                    req.getId(), filename, e.toString());
+        }
     }
 
     // ── Authenticated (tenant-scoped) ──────────────────────────────────────────────
@@ -95,6 +125,7 @@ public class SignatureService {
         req.setSourceObjectKey(key);
         req = requests.save(req);
 
+        registerSignatureDoc(req, key, "source.pdf", req.getSizeBytes(), req.getSourceSha256());
         auditService.record(req, Action.CREATED, userId, http);
         return req;
     }
@@ -224,6 +255,7 @@ public class SignatureService {
             req.setSignedAt(LocalDateTime.now());
             req.setStatus(Status.COMPLETED);
             requests.save(req);
+            registerSignatureDoc(req, signedKey, "signed.pdf", (long) sealed.length, req.getSignedSha256());
         });
     }
 
