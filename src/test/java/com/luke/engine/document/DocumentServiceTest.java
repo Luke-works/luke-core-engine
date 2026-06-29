@@ -61,8 +61,12 @@ class DocumentServiceTest {
 
         svc.finalizeUpload(T, a.docId(), new FinalizeRequest(1234L, "deadbeef"));
         var audit = svc.attachmentAudit(T, "FORMS", "f9");
-        assertThat(audit).containsOnlyKeys(a.docId());
-        assertThat(audit.get(a.docId())).containsExactly("w9.pdf", "sha256:deadbeef", "1234");
+        assertThat(audit).hasSize(1);
+        assertThat(audit.get(0))
+                .containsEntry("documentId", a.docId())
+                .containsEntry("documentName", "w9.pdf")
+                .containsEntry("sha256", "sha256:deadbeef")
+                .containsEntry("size", "1234");   // size is in BYTES
 
         // wrong owner / missing owner → empty (no throw)
         assertThat(svc.attachmentAudit(T, "FORMS", "other")).isEmpty();

@@ -1,5 +1,7 @@
 package com.luke.engine.form;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -10,8 +12,11 @@ import java.util.stream.Collectors;
 import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.runtime.ProcessInstance;
+import org.cibseven.bpm.engine.runtime.VariableInstance;
 import org.cibseven.bpm.engine.task.Task;
 import org.cibseven.bpm.engine.task.TaskQuery;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +37,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/form-inbox")
 public class FormInboxController {
+
+    private static final Logger log = LoggerFactory.getLogger(FormInboxController.class);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final TaskService taskService;
     private final RuntimeService runtimeService;
@@ -84,10 +92,26 @@ public class FormInboxController {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         Map<String, String> businessKeys = new HashMap<>();
+        // pid → FormInstance id. The Camunda business key is the human-readable SM-... key, NOT the
+        // FormInstance id (the submission the UI loads + the case file documents are keyed by), so we
+        // read the real id from the formMetaData process variable. Best-effort: falls back to the
+        // business key if the variable is missing/unreadable.
+        Map<String, String> formInstanceIds = new HashMap<>();
         if (!pids.isEmpty()) {
             for (ProcessInstance pi : runtimeService.createProcessInstanceQuery()
                     .processInstanceIds(pids).list()) {
                 if (pi.getBusinessKey() != null) businessKeys.put(pi.getId(), pi.getBusinessKey());
+            }
+            try {
+                for (VariableInstance v : runtimeService.createVariableInstanceQuery()
+                        .processInstanceIdIn(pids.toArray(new String[0]))
+                        .variableName("formMetaData")
+                        .list()) {
+                    String fid = instanceIdFromMeta(v.getValue());
+                    if (fid != null) formInstanceIds.put(v.getProcessInstanceId(), fid);
+                }
+            } catch (RuntimeException e) {
+                log.debug("Inbox: could not resolve formMetaData instanceIds (using business keys): {}", e.toString());
             }
         }
 
@@ -100,8 +124,10 @@ public class FormInboxController {
             m.put("assignee", t.getAssignee());
             m.put("processInstanceId", t.getProcessInstanceId());
             m.put("processDefinitionKey", stripVersion(t.getProcessDefinitionId()));
-            // The submission this task is about (FormInstance id).
-            m.put("instanceId", businessKeys.get(t.getProcessInstanceId()));
+            String pid = t.getProcessInstanceId();
+            // The submission this task is about (FormInstance id), preferring the variable-resolved id.
+            m.put("instanceId", formInstanceIds.getOrDefault(pid, businessKeys.get(pid)));
+            m.put("businessKey", businessKeys.get(pid)); // the human-readable SM-... key (display/trace)
             out.add(m);
         }
         return new PagedInbox(out, total, offset, limit);
@@ -135,6 +161,18 @@ public class FormInboxController {
         }
         taskService.complete(taskId);
         return Map.of("ok", true, "taskId", taskId);
+    }
+
+    /** Extract {@code instanceId} from the formMetaData variable (a Spin JSON node or a JSON string —
+     *  both render JSON via toString()). Mirrors FormInstanceWriteBackDelegate. */
+    private static String instanceIdFromMeta(Object formMetaData) {
+        if (formMetaData == null) return null;
+        try {
+            JsonNode n = MAPPER.readTree(formMetaData.toString());
+            return n.hasNonNull("instanceId") ? n.get("instanceId").asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String stripVersion(String processDefinitionId) {

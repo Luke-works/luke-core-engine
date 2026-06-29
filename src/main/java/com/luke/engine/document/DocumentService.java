@@ -8,6 +8,7 @@ import com.luke.engine.document.DocumentDtos.FinalizeRequest;
 import com.luke.engine.document.DocumentDtos.ResolveResponse;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -200,19 +201,22 @@ public class DocumentService {
 
     /**
      * Audit snapshot of an entity's READY attachments for embedding in {@code formMetaData} (or any
-     * audit record): {@code docId -> [filename, "sha256:"+hash, sizeBytes]}. Ordered newest-first.
-     * Read-only; never throws on a missing entity (returns an empty map).
+     * audit record): a list of {@code {documentId, documentName, sha256, size}} objects, newest-first.
+     * {@code size} is the object size in BYTES (a string, to keep the JSON stable across large values).
+     * Read-only; never throws on a missing entity (returns an empty list).
      */
     @Transactional(readOnly = true)
-    public Map<String, List<String>> attachmentAudit(String tenantId, String capability, String ownerEntityId) {
-        Map<String, List<String>> out = new LinkedHashMap<>();
+    public List<Map<String, String>> attachmentAudit(String tenantId, String capability, String ownerEntityId) {
+        List<Map<String, String>> out = new ArrayList<>();
         if (!StringUtils.hasText(ownerEntityId)) return out;
         for (Document d : repo.findByTenantIdAndCapabilityAndOwnerEntityIdOrderByCreatedAtDesc(tenantId, capability, ownerEntityId)) {
             if (!Document.STATUS_READY.equals(d.getStatus())) continue;   // skip PENDING/QUARANTINED/DELETED
-            out.put(d.getId(), List.of(
-                    d.getFilename() != null ? d.getFilename() : "file",
-                    "sha256:" + (d.getSha256() != null ? d.getSha256() : ""),
-                    String.valueOf(d.getSizeBytes() != null ? d.getSizeBytes() : 0L)));
+            Map<String, String> entry = new LinkedHashMap<>();
+            entry.put("documentId", d.getId());
+            entry.put("documentName", d.getFilename() != null ? d.getFilename() : "file");
+            entry.put("sha256", "sha256:" + (d.getSha256() != null ? d.getSha256() : ""));
+            entry.put("size", String.valueOf(d.getSizeBytes() != null ? d.getSizeBytes() : 0L)); // bytes
+            out.add(entry);
         }
         return out;
     }
