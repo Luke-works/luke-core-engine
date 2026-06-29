@@ -209,6 +209,92 @@ public class DocumentService {
         return d.getStorageKey();
     }
 
+    // ── anonymous (embed-token-scoped) flow ──────────────────────────────────────
+    // No session user / capability / candidate-group gate: the caller proved (upstream) a valid embed
+    // token for a published form in this tenant, so the tenant + processRef ARE the scope. Used only by
+    // EmbedDocumentService behind the public document broker.
+
+    /** Authorize an anonymous upload → PENDING row + storage key (tenant comes from the verified token). */
+    @Transactional
+    public AuthorizeResponse authorizeAnonymous(String tenantId, String capability, String kind,
+                                                String processRef, String filename, String contentType) {
+        require("processRef", processRef);
+        require("filename", filename);
+        require("contentType", contentType);
+        validateSegment(processRef);
+
+        Document d = new Document();
+        d.setId(UUID.randomUUID().toString());
+        d.setTenantId(tenantId);
+        d.setProcessRef(processRef);
+        d.setKind(kind != null ? kind : Document.KIND_FORM_ATTACHMENT);
+        d.setCapability(capability);
+        d.setFilename(filename);
+        d.setContentType(contentType);
+        d.setStatus(Document.STATUS_PENDING);
+        d.setCreatedBy(null);                  // anonymous embed respondent
+        d.setCreatedByName(null);
+        LocalDateTime retainUntil = retention.resolveRetainUntil(capability, null);
+        d.setRetainUntil(retainUntil);
+        d.setStorageKey(processRef + "/" + d.getId() + "-" + slug(filename));
+        repo.save(d);
+
+        Long retainMs = retainUntil == null ? null : retainUntil.toInstant(ZoneOffset.UTC).toEpochMilli();
+        return new AuthorizeResponse(d.getId(), d.getStorageKey(), retainMs,
+                retention.lockMode(capability, retainUntil));
+    }
+
+    /** Active (non-deleted) attachment count for a (tenant, processRef) — the per-session abuse cap. */
+    @Transactional(readOnly = true)
+    public long countActiveAnonymous(String tenantId, String processRef) {
+        return repo.findByTenantIdAndProcessRef(tenantId, processRef).stream()
+                .filter(d -> !Document.STATUS_DELETED.equals(d.getStatus()))
+                .count();
+    }
+
+    /** List a (tenant, processRef) case file — no per-user filtering (token+processRef is the scope). */
+    @Transactional(readOnly = true)
+    public List<DocumentDto> listAnonymous(String tenantId, String processRef) {
+        return repo.findByTenantIdAndProcessRefOrderByCreatedAtDesc(tenantId, processRef).stream()
+                .filter(d -> !Document.STATUS_DELETED.equals(d.getStatus()))
+                .map(DocumentDto::of)
+                .toList();
+    }
+
+    /** Soft-delete an anonymous upload, scoped to its (tenant, processRef); returns the storage key. */
+    @Transactional
+    public String deleteAnonymous(String tenantId, String processRef, String docId) {
+        Document d = repo.findByIdAndTenantId(docId, tenantId).orElseThrow(DocumentService::notFound);
+        if (!processRef.equals(d.getProcessRef())) {
+            throw notFound();                   // doc isn't in this session's case file
+        }
+        if (d.getRetainUntil() != null && d.getRetainUntil().isAfter(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.LOCKED, "document under retention");
+        }
+        d.setStatus(Document.STATUS_DELETED);
+        d.setDeletedAt(LocalDateTime.now());
+        repo.save(d);
+        return d.getStorageKey();
+    }
+
+    /** On embed submit: bind a session's uploads to the created form instance (ownerEntityId + processInstanceId). */
+    @Transactional
+    public int linkToInstance(String tenantId, String processRef, String instanceId) {
+        List<Document> rows = repo.findByTenantIdAndProcessRef(tenantId, processRef);
+        int linked = 0;
+        for (Document d : rows) {
+            if (!instanceId.equals(d.getOwnerEntityId())) {
+                d.setOwnerEntityId(instanceId);
+                d.setProcessInstanceId(instanceId);   // the form instance is the process anchor for an embed submission
+                linked++;
+            }
+        }
+        if (linked > 0) {
+            repo.saveAll(rows);
+        }
+        return linked;
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────
     private static void require(String field, String value) {
         if (!StringUtils.hasText(value)) {

@@ -36,6 +36,21 @@ final class DocumentDtos {
     /** process-started (Flow-A backfill, DOC-9): stamp processInstanceId onto a processRef's rows. */
     record LinkProcessRequest(String processRef, String processInstanceId) {}
 
+    // ── public (embed-token) flow: the token carries the (unforgeable) tenant; no identity headers ──
+    record PublicAuthorizeRequest(String token, String processRef, String filename, String contentType) {}
+
+    record PublicFinalizeRequest(String token, Long sizeBytes, String sha256) {}
+
+    record PublicLinkRequest(String token, String processRef, String instanceId) {}
+
+    /** Public authorize response: like {@link AuthorizeResponse} but ALSO carries the token-derived
+     *  tenantId, since the proxy (which has no session tenant on this path) needs it to build the S3 key. */
+    record PublicAuthorizeResponse(String docId, String tenantId, String storageKey,
+                                   Long retainUntilMs, String objectLockMode) {}
+
+    /** Public delete result: the proxy needs the tenantId too to drop the right physical object. */
+    record PublicDropResult(String tenantId, String storageKey) {}
+
     /** resolve (download): core returns just what the proxy needs to stream the bytes back. */
     record ResolveResponse(String docId, String storageKey, String contentType, String filename, String status) {}
 

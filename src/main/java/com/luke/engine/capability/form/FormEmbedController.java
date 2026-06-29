@@ -28,17 +28,14 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/public/embed")
 public class FormEmbedController {
 
-    private final EmbedTokens embedTokens;
-    private final FormDefinitionRepository forms;
+    private final EmbedFormResolver resolver;
     private final FormVersionRepository versions;
     private final FormInstanceRepository instances;
     private final FormSubmissionService submissions;
 
-    public FormEmbedController(EmbedTokens embedTokens, FormDefinitionRepository forms,
-                               FormVersionRepository versions, FormInstanceRepository instances,
-                               FormSubmissionService submissions) {
-        this.embedTokens = embedTokens;
-        this.forms = forms;
+    public FormEmbedController(EmbedFormResolver resolver, FormVersionRepository versions,
+                               FormInstanceRepository instances, FormSubmissionService submissions) {
+        this.resolver = resolver;
         this.versions = versions;
         this.instances = instances;
         this.submissions = submissions;
@@ -49,8 +46,7 @@ public class FormEmbedController {
     /** Public render: resolve the token to the form's published schema. */
     @GetMapping("/{token}")
     public Map<String, Object> render(@PathVariable String token) {
-        EmbedTokens.EmbedRef ref = resolve(token);
-        FormDefinition form = publishedForm(ref);
+        FormDefinition form = resolver.resolve(token).form();
         int v = form.getPublishedVersion();
         String schema = versions.findByFormIdAndVersion(form.getId(), v)
                 .map(FormVersion::getSchema)
@@ -71,7 +67,7 @@ public class FormEmbedController {
                                       HttpServletRequest request) {
         // Per-IP cap first (M5): bounds ALL submit traffic from one source across every token.
         rateLimit("ip:" + clientIp(request), MAX_PER_IP_PER_MIN);
-        EmbedTokens.EmbedRef ref = resolve(token);
+        EmbedFormResolver.Resolved r = resolver.resolve(token);
 
         // Bot trap (M5): real users never fill the hidden honeypot field. Drop silently — return a
         // success shape so spammers don't learn — checked on the RAW body before validation strips it.
@@ -80,7 +76,7 @@ public class FormEmbedController {
         }
 
         rateLimit("t:" + token, MAX_PER_TOKEN_PER_MIN);
-        FormDefinition form = publishedForm(ref);
+        FormDefinition form = r.form();
         int v = form.getPublishedVersion();
 
         // Server-side backstop (M3): the public submit endpoint cannot trust the client. Validate +
@@ -90,7 +86,7 @@ public class FormEmbedController {
         Map<String, Object> cleaned = SubmissionValidator.clean(schema, body != null ? body.data() : null);
 
         FormInstance inst = new FormInstance();
-        inst.setTenantId(ref.tenantId());
+        inst.setTenantId(r.tenantId());
         inst.setToken(uniqueToken());
         inst.setDefinitionCode(form.getCode());
         inst.setVersion(v);
@@ -106,28 +102,6 @@ public class FormEmbedController {
     }
 
     /* ── helpers ────────────────────────────────────────────── */
-
-    private EmbedTokens.EmbedRef resolve(String token) {
-        try {
-            return embedTokens.verify(token);
-        } catch (IllegalArgumentException e) {
-            throw notFound("Unknown or invalid form link."); // don't leak token validity
-        }
-    }
-
-    private FormDefinition publishedForm(EmbedTokens.EmbedRef ref) {
-        FormDefinition form = forms.findByTenantIdAndCode(ref.tenantId(), ref.code())
-                .filter(f -> f.getDeletedAt() == null)
-                .orElseThrow(() -> notFound("This form is no longer available."));
-        if (form.getPublishedVersion() == null) {
-            throw notFound("This form is not published.");
-        }
-        // Revocation (M4): a token minted before the form's embed key was rotated is dead.
-        if (ref.keyVersion() != form.getEmbedKeyVersion()) {
-            throw notFound("Unknown or invalid form link.");
-        }
-        return form;
-    }
 
     private String uniqueToken() {
         String token = FormSupport.generateToken();
