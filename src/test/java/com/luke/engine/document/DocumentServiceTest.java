@@ -77,8 +77,9 @@ class DocumentServiceTest {
 
         assertThat(svc.list(T, U, "proc-A", null, null, null)).hasSize(1);
 
-        String key = svc.delete(T, U, auth.docId());
-        assertThat(key).isEqualTo(auth.storageKey());
+        var drop = svc.delete(T, U, auth.docId());
+        assertThat(drop.storageKey()).isEqualTo(auth.storageKey());
+        assertThat(drop.hardDelete()).isTrue();   // never under retention → purge every S3 version
         assertThat(repo.findByIdAndTenantId(auth.docId(), T).orElseThrow().getStatus())
                 .isEqualTo(Document.STATUS_DELETED);
         // deleted no longer listed

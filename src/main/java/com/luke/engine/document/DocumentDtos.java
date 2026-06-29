@@ -48,8 +48,14 @@ final class DocumentDtos {
     record PublicAuthorizeResponse(String docId, String tenantId, String storageKey,
                                    Long retainUntilMs, String objectLockMode) {}
 
-    /** Public delete result: the proxy needs the tenantId too to drop the right physical object. */
-    record PublicDropResult(String tenantId, String storageKey) {}
+    /** Authenticated delete result: the storage key to drop, plus whether the proxy should HARD-delete
+     *  (purge every S3 version) rather than add a delete marker. True when the doc was never under
+     *  retention — a removed attachment is then gone immediately, not retained as a noncurrent version. */
+    record DropResult(String storageKey, boolean hardDelete) {}
+
+    /** Public delete result: like {@link DropResult} but also carries the (token-derived) tenantId the
+     *  proxy needs to address the right physical object. */
+    record PublicDropResult(String tenantId, String storageKey, boolean hardDelete) {}
 
     /** resolve (download): core returns just what the proxy needs to stream the bytes back. */
     record ResolveResponse(String docId, String storageKey, String contentType, String filename, String status) {}

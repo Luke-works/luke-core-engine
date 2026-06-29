@@ -95,14 +95,15 @@ public class InternalDocumentController {
         return docs.list(tenantId, userId, processRef, taskId, capability, ownerEntityId);
     }
 
-    /** Soft-delete (gated + retention-checked) → { storageKey } so the proxy drops the S3 object. */
+    /** Soft-delete (gated + retention-checked) → { storageKey, hardDelete } so the proxy drops the S3 object. */
     @DeleteMapping("/{docId}")
     @ResponseStatus(HttpStatus.OK)
-    public Map<String, String> delete(@RequestHeader("X-Tenant-Id") String tenantId,
+    public Map<String, Object> delete(@RequestHeader("X-Tenant-Id") String tenantId,
                                       @RequestHeader(value = "X-User-Id", required = false) String userId,
                                       @PathVariable String docId) {
         requireTenant(tenantId);
-        return Map.of("storageKey", docs.delete(tenantId, userId, docId));
+        DocumentDtos.DropResult drop = docs.delete(tenantId, userId, docId);
+        return Map.of("storageKey", drop.storageKey(), "hardDelete", drop.hardDelete());
     }
 
     private static void requireTenant(String tenantId) {

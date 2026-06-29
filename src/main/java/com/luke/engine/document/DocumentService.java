@@ -3,6 +3,7 @@ package com.luke.engine.document;
 import com.luke.engine.document.DocumentDtos.AuthorizeRequest;
 import com.luke.engine.document.DocumentDtos.AuthorizeResponse;
 import com.luke.engine.document.DocumentDtos.DocumentDto;
+import com.luke.engine.document.DocumentDtos.DropResult;
 import com.luke.engine.document.DocumentDtos.FinalizeRequest;
 import com.luke.engine.document.DocumentDtos.ResolveResponse;
 import java.time.LocalDateTime;
@@ -195,18 +196,20 @@ public class DocumentService {
                 .toList();
     }
 
-    /** Soft-delete (gated + retention-checked); returns the storage key so the proxy can drop the bytes. */
+    /** Soft-delete (gated + retention-checked); returns the storage key + a hard-delete signal so the
+     *  proxy can drop the bytes (purging every S3 version when the doc was never under retention). */
     @Transactional
-    public String delete(String tenantId, String userId, String docId) {
+    public DropResult delete(String tenantId, String userId, String docId) {
         Document d = repo.findByIdAndTenantId(docId, tenantId).orElseThrow(() -> notFound());
         guard.requireWrite(tenantId, userId, d);
         if (d.getRetainUntil() != null && d.getRetainUntil().isAfter(LocalDateTime.now())) {
             throw new ResponseStatusException(HttpStatus.LOCKED, "document under retention until " + d.getRetainUntil());
         }
+        boolean hardDelete = d.getRetainUntil() == null;   // never-retained → erase immediately, no version kept
         d.setStatus(Document.STATUS_DELETED);
         d.setDeletedAt(LocalDateTime.now());
         repo.save(d);
-        return d.getStorageKey();
+        return new DropResult(d.getStorageKey(), hardDelete);
     }
 
     // ── anonymous (embed-token-scoped) flow ──────────────────────────────────────
@@ -261,9 +264,11 @@ public class DocumentService {
                 .toList();
     }
 
-    /** Soft-delete an anonymous upload, scoped to its (tenant, processRef); returns the storage key. */
+    /** Soft-delete an anonymous upload, scoped to its (tenant, processRef); returns the storage key +
+     *  hard-delete signal. Form attachments are never under retention, so a removed-before-submit file
+     *  is purged from S3 immediately (every version), not kept as a noncurrent version. */
     @Transactional
-    public String deleteAnonymous(String tenantId, String processRef, String docId) {
+    public DropResult deleteAnonymous(String tenantId, String processRef, String docId) {
         Document d = repo.findByIdAndTenantId(docId, tenantId).orElseThrow(DocumentService::notFound);
         if (!processRef.equals(d.getProcessRef())) {
             throw notFound();                   // doc isn't in this session's case file
@@ -271,10 +276,11 @@ public class DocumentService {
         if (d.getRetainUntil() != null && d.getRetainUntil().isAfter(LocalDateTime.now())) {
             throw new ResponseStatusException(HttpStatus.LOCKED, "document under retention");
         }
+        boolean hardDelete = d.getRetainUntil() == null;
         d.setStatus(Document.STATUS_DELETED);
         d.setDeletedAt(LocalDateTime.now());
         repo.save(d);
-        return d.getStorageKey();
+        return new DropResult(d.getStorageKey(), hardDelete);
     }
 
     /** On embed submit: bind a session's uploads to the created form instance (ownerEntityId + processInstanceId). */

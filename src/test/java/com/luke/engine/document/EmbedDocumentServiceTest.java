@@ -70,6 +70,7 @@ class EmbedDocumentServiceTest {
         var drop = embed.delete(TOKEN, REF, auth.docId());
         assertThat(drop.tenantId()).isEqualTo(TENANT);
         assertThat(drop.storageKey()).isEqualTo(auth.storageKey());
+        assertThat(drop.hardDelete()).isTrue();   // form attachments are never retained → erase immediately
         assertThat(embed.list(TOKEN, REF)).isEmpty();
     }
 

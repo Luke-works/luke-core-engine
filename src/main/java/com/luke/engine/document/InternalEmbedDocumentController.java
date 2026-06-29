@@ -53,13 +53,13 @@ public class InternalEmbedDocumentController {
         return embed.list(token, processRef);
     }
 
-    /** Remove one attachment before submit → { storageKey } so the proxy drops the bytes. */
+    /** Remove one attachment before submit → { tenantId, storageKey, hardDelete } so the proxy drops the bytes. */
     @DeleteMapping("/{docId}")
-    public Map<String, String> delete(@PathVariable String docId,
+    public Map<String, Object> delete(@PathVariable String docId,
                                       @RequestParam String token,
                                       @RequestParam String processRef) {
         PublicDropResult r = embed.delete(token, processRef, docId);
-        return Map.of("tenantId", r.tenantId(), "storageKey", r.storageKey());
+        return Map.of("tenantId", r.tenantId(), "storageKey", r.storageKey(), "hardDelete", r.hardDelete());
     }
 
     /** Bind a session's uploads to the form instance created at submit → { linked }. */

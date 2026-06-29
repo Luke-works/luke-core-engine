@@ -65,11 +65,12 @@ public class EmbedDocumentService {
         return documents.listAnonymous(tenantId, processRef);
     }
 
-    /** Remove one attachment before submit (token tenant + processRef); returns tenant + key to drop. */
+    /** Remove one attachment before submit (token tenant + processRef); returns tenant + key + the
+     *  hard-delete signal so the proxy purges the bytes from S3 immediately (not a noncurrent version). */
     public PublicDropResult delete(String token, String processRef, String docId) {
         String tenantId = resolver.resolveTenant(token);
-        String key = documents.deleteAnonymous(tenantId, processRef, docId);
-        return new PublicDropResult(tenantId, key);
+        DocumentDtos.DropResult drop = documents.deleteAnonymous(tenantId, processRef, docId);
+        return new PublicDropResult(tenantId, drop.storageKey(), drop.hardDelete());
     }
 
     /** Bind this session's uploads to the form instance created at submit. */
