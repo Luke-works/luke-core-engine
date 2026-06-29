@@ -32,9 +32,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class InternalDocumentController {
 
     private final DocumentService docs;
+    private final DocumentCamundaMirror mirror;
 
-    public InternalDocumentController(DocumentService docs) {
+    public InternalDocumentController(DocumentService docs, DocumentCamundaMirror mirror) {
         this.docs = docs;
+        this.mirror = mirror;
     }
 
     /** Authorize an upload → { docId, storageKey }. The proxy then streams bytes to that key. */
@@ -53,7 +55,10 @@ public class InternalDocumentController {
                                       @PathVariable String docId,
                                       @RequestBody FinalizeRequest body) {
         requireTenant(tenantId);
-        return docs.finalizeUpload(tenantId, docId, body);
+        DocumentDto dto = docs.finalizeUpload(tenantId, docId, body);
+        // If this was attached to a live task, surface it in Camunda as a TASK attachment (best-effort).
+        if (dto.taskId() != null) mirror.mirrorTaskAttachment(tenantId, docId);
+        return dto;
     }
 
     /** Flow-A backfill (DOC-9): stamp processInstanceId onto every row for processRef → { linked }. */

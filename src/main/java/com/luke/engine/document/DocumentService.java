@@ -8,7 +8,9 @@ import com.luke.engine.document.DocumentDtos.FinalizeRequest;
 import com.luke.engine.document.DocumentDtos.ResolveResponse;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -194,6 +196,25 @@ public class DocumentService {
                 .filter(d -> guard.mayRead(tenantId, userId, d))
                 .map(DocumentDto::of)
                 .toList();
+    }
+
+    /**
+     * Audit snapshot of an entity's READY attachments for embedding in {@code formMetaData} (or any
+     * audit record): {@code docId -> [filename, "sha256:"+hash, sizeBytes]}. Ordered newest-first.
+     * Read-only; never throws on a missing entity (returns an empty map).
+     */
+    @Transactional(readOnly = true)
+    public Map<String, List<String>> attachmentAudit(String tenantId, String capability, String ownerEntityId) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        if (!StringUtils.hasText(ownerEntityId)) return out;
+        for (Document d : repo.findByTenantIdAndCapabilityAndOwnerEntityIdOrderByCreatedAtDesc(tenantId, capability, ownerEntityId)) {
+            if (!Document.STATUS_READY.equals(d.getStatus())) continue;   // skip PENDING/QUARANTINED/DELETED
+            out.put(d.getId(), List.of(
+                    d.getFilename() != null ? d.getFilename() : "file",
+                    "sha256:" + (d.getSha256() != null ? d.getSha256() : ""),
+                    String.valueOf(d.getSizeBytes() != null ? d.getSizeBytes() : 0L)));
+        }
+        return out;
     }
 
     /** Soft-delete (gated + retention-checked); returns the storage key + a hard-delete signal so the

@@ -41,7 +41,10 @@ public class FormEmbedController {
         this.submissions = submissions;
     }
 
-    public record SubmitBody(Map<String, Object> data) {}
+    /** {@code attachmentRef} is the client-minted high-entropy processRef the browser uploaded
+     *  attachments under (Flow-A); on submit we bind them to the created instance so they're captured
+     *  in the {@code formMetaData} snapshot. Optional (absent → no attachments). */
+    public record SubmitBody(Map<String, Object> data, String attachmentRef) {}
 
     /** Public render: resolve the token to the form's published schema. */
     @GetMapping("/{token}")
@@ -96,8 +99,9 @@ public class FormEmbedController {
         inst.setSubmittedAt(LocalDateTime.now());
 
         // Persist the submission + enqueue the process start in ONE transaction
-        // (durable, no HTTP hop). The outbox consumer starts the process off-thread.
-        submissions.submit(inst, null);
+        // (durable, no HTTP hop). The outbox consumer starts the process off-thread. Passing the
+        // attachmentRef binds this session's uploads to the instance BEFORE the formMetaData snapshot.
+        submissions.submit(inst, null, body != null ? body.attachmentRef() : null);
         return Map.of("ok", true, "instanceId", inst.getId(), "processStatus", "QUEUED");
     }
 

@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.document.DocumentCamundaMirror;
 import com.luke.engine.form.InternalProcessService;
 import java.time.Instant;
 import java.util.HashMap;
@@ -28,16 +29,19 @@ public class FormSubmissionOutboxConsumer {
     private final FormSubmissionOutboxRepository outbox;
     private final FormInstanceRepository instances;
     private final InternalProcessService processService;
+    private final DocumentCamundaMirror documentMirror;
 
     @Value("${luke.forms.outbox-enabled:true}")
     private boolean enabled;
 
     public FormSubmissionOutboxConsumer(FormSubmissionOutboxRepository outbox,
                                         FormInstanceRepository instances,
-                                        InternalProcessService processService) {
+                                        InternalProcessService processService,
+                                        DocumentCamundaMirror documentMirror) {
         this.outbox = outbox;
         this.instances = instances;
         this.processService = processService;
+        this.documentMirror = documentMirror;
     }
 
     @Scheduled(fixedDelayString = "${luke.forms.outbox-poll-ms:2000}")
@@ -67,6 +71,9 @@ public class FormSubmissionOutboxConsumer {
             row.setErrorMessage(null);
             outbox.save(row);
             recordOutcome(row.getFormInstanceId(), "STARTED", pid, businessKey, null);
+            // Mirror the form's attachments into Camunda now that the real process instance exists
+            // (best-effort; the document table is the source of truth).
+            documentMirror.mirrorFormProcess(row.getTenantId(), row.getFormInstanceId(), pid);
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             row.setStatus("FAILED");

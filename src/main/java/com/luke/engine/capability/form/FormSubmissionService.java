@@ -1,12 +1,14 @@
 package com.luke.engine.capability.form;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.luke.engine.document.DocumentService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * Durable submit→process bridge. Marks a form instance SUBMITTED and enqueues its
@@ -23,12 +25,17 @@ public class FormSubmissionService {
     private static final String ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
 
+    private static final String FORMS_CAPABILITY = "FORMS";
+
     private final FormInstanceRepository instances;
     private final FormSubmissionOutboxRepository outbox;
+    private final DocumentService documents;
 
-    public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox) {
+    public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
+                                 DocumentService documents) {
         this.instances = instances;
         this.outbox = outbox;
+        this.documents = documents;
     }
 
     /**
@@ -37,11 +44,28 @@ public class FormSubmissionService {
      */
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge) {
+        submit(inst, dataToMerge, null);
+    }
+
+    /**
+     * As {@link #submit(FormInstance, Map)}, but first binds attachments uploaded under
+     * {@code attachmentSourceRef} (the embed flow's client-minted processRef, distinct from the new
+     * instance id) to this instance — so the {@code formMetaData} attachment snapshot built at enqueue
+     * sees them. Authenticated submits pass {@code null} (their docs already carry the instance id).
+     */
+    @Transactional
+    public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef) {
         if (dataToMerge != null) inst.setData(merge(inst.getData(), dataToMerge));
         inst.setState(FormInstanceStates.SUBMITTED);
         if (inst.getSubmittedAt() == null) inst.setSubmittedAt(LocalDateTime.now());
         markQueued(inst);
         instances.save(inst);          // assigns the id for a new (embed) instance
+        if (StringUtils.hasText(attachmentSourceRef) && !attachmentSourceRef.equals(inst.getId())) {
+            // Best-effort: a registry hiccup must never block the submission itself.
+            try {
+                documents.linkToInstance(inst.getTenantId(), attachmentSourceRef, inst.getId());
+            } catch (RuntimeException ignored) { /* snapshot just omits them */ }
+        }
         enqueue(inst);
     }
 
@@ -93,6 +117,9 @@ public class FormSubmissionService {
         meta.put("formCode", inst.getDefinitionCode());
         meta.put("tenantId", inst.getTenantId());
         meta.put("version", inst.getVersion());
+        // Audit snapshot of what was attached at submission: docId -> [filename, "sha256:"+hash, size].
+        // Immutable once written (snapshot semantics); a later add/remove does not rewrite formMetaData.
+        meta.put("attachments", documents.attachmentAudit(inst.getTenantId(), FORMS_CAPABILITY, inst.getId()));
         return json(meta);
     }
 

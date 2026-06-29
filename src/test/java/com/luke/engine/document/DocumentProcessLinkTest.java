@@ -43,8 +43,8 @@ class DocumentProcessLinkTest {
         String url = "/api/documents/doc_1/content";
         // process variable carries the reference, not bytes
         verify(runtime).setVariable("PID-1", "document:doc_1", url);
-        // URL-mode attachment against the task (TASK_ID_ + PROC_INST_ID_)
-        verify(tasks).createAttachment("luke-document", "task-9", "PID-1", "w9.pdf", "FORM_ATTACHMENT", url);
+        // URL-mode attachment against the task (TASK_ID_ + PROC_INST_ID_), TASK-classified type
+        verify(tasks).createAttachment("luke-task-attachment", "task-9", "PID-1", "w9.pdf", "FORM_ATTACHMENT", url);
         // the InputStream overload (blob) is NEVER used
         verify(tasks, never()).createAttachment(any(), any(), any(), any(), any(), any(InputStream.class));
     }
@@ -57,7 +57,8 @@ class DocumentProcessLinkTest {
 
         link.attach(doc("doc_2", "PID-2", null));
 
-        verify(tasks).createAttachment(eq("luke-document"), isNull(), eq("PID-2"),
+        // PROCESS-classified type, null task (case-level)
+        verify(tasks).createAttachment(eq("luke-process-attachment"), isNull(), eq("PID-2"),
                 eq("w9.pdf"), eq("FORM_ATTACHMENT"), eq("/api/documents/doc_2/content"));
     }
 

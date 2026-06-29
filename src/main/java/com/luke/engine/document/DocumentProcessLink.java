@@ -25,7 +25,10 @@ import org.springframework.util.StringUtils;
 public class DocumentProcessLink {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentProcessLink.class);
-    private static final String ATTACHMENT_TYPE = "luke-document";
+    // Attachment "type" doubles as the classification surfaced in Tasklist/Cockpit: a document bound to a
+    // task (TASK_ID_ set) is a task attachment; one bound only to the instance is a process attachment.
+    static final String TYPE_TASK_ATTACHMENT = "luke-task-attachment";
+    static final String TYPE_PROCESS_ATTACHMENT = "luke-process-attachment";
 
     private final RuntimeService runtimeService;
     private final TaskService taskService;
@@ -57,10 +60,13 @@ public class DocumentProcessLink {
             log.debug("setVariable for document {} on instance {} failed (ignored): {}",
                     docId, doc.getProcessInstanceId(), e.toString());
         }
+        boolean taskScoped = StringUtils.hasText(doc.getTaskId());
         try {
-            // URL-mode attachment ONLY — never the InputStream overload (that would write a blob).
-            taskService.createAttachment(ATTACHMENT_TYPE,
-                    StringUtils.hasText(doc.getTaskId()) ? doc.getTaskId() : null,
+            // URL-mode attachment ONLY — never the InputStream overload (that would write a blob). The
+            // attachment type carries the TASK/PROCESS classification; description keeps the doc kind.
+            taskService.createAttachment(
+                    taskScoped ? TYPE_TASK_ATTACHMENT : TYPE_PROCESS_ATTACHMENT,
+                    taskScoped ? doc.getTaskId() : null,
                     doc.getProcessInstanceId(),
                     doc.getFilename(),
                     doc.getKind(),

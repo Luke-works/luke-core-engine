@@ -53,6 +53,23 @@ class DocumentServiceTest {
     }
 
     @Test
+    void attachmentAuditSnapshotsReadyDocsAsDocIdToFilenameShaSize() {
+        when(capabilities.isAllowed(T, U, "FORMS", true)).thenReturn(true);
+        AuthorizeResponse a = svc.authorize(T, U, "User One", formW9());      // ownerEntityId "f9"
+        // PENDING is excluded from the audit until finalized READY.
+        assertThat(svc.attachmentAudit(T, "FORMS", "f9")).isEmpty();
+
+        svc.finalizeUpload(T, a.docId(), new FinalizeRequest(1234L, "deadbeef"));
+        var audit = svc.attachmentAudit(T, "FORMS", "f9");
+        assertThat(audit).containsOnlyKeys(a.docId());
+        assertThat(audit.get(a.docId())).containsExactly("w9.pdf", "sha256:deadbeef", "1234");
+
+        // wrong owner / missing owner → empty (no throw)
+        assertThat(svc.attachmentAudit(T, "FORMS", "other")).isEmpty();
+        assertThat(svc.attachmentAudit(T, "FORMS", null)).isEmpty();
+    }
+
+    @Test
     void fullUploadLifecycle() {
         when(capabilities.isAllowed(T, U, "FORMS", true)).thenReturn(true);
         when(capabilities.isAllowed(T, U, "FORMS", false)).thenReturn(true);
