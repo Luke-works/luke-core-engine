@@ -90,18 +90,6 @@ services:
       - key: LUKE_EMBED_HMAC_SECRET
         generateValue: true
 
-      # ── Phone / Voice (Vapi) capability ─────────────────────────────────────
-      # Global fallback Vapi PRIVATE key (per-tenant keys override via the secret store).
-      - key: VAPI_API_KEY
-        sync: false
-      # Shared secret Vapi echoes in X-Vapi-Secret on every webhook; set the same value
-      # on your Vapi assistant/phone-number server config so webhooks verify.
-      - key: VAPI_WEBHOOK_SECRET
-        sync: false
-      # In prod, reject unsigned/mismatched Vapi webhooks once VAPI_WEBHOOK_SECRET is set.
-      - key: VAPI_WEBHOOK_REQUIRE_SECRET
-        value: "true"
-
 databases:
   - name: luke-camunda-db
     plan: basic-256mb        # 256MB RAM, 1GB storage, $7/mo (replaces legacy 'starter')

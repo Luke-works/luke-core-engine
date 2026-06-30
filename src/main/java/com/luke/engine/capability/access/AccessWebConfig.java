@@ -35,12 +35,6 @@ public class AccessWebConfig implements WebMvcConfigurer {
         registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("SIGNATURES"))
                 .addPathPatterns("/api/signature-definitions/**", "/api/signature-instances/**",
                         "/api/signatures/**");
-        // Phone / Voice (Vapi). The authed tenant APIs are capability-guarded; the public Vapi
-        // webhook (/api/public/phone/**) is shared-secret-authenticated by design and intentionally
-        // NOT listed here, and the internal outbound endpoint (/api/internal/phone-calls) sits behind
-        // the shared-secret InternalAuthFilter.
-        registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("PHONE"))
-                .addPathPatterns("/api/phone-calls/**", "/api/phone-numbers/**", "/api/phone-settings/**");
         // Secrets are internal-only for now (served via /api/internal/secrets behind the
         // shared-secret filter). When the tenant-facing /api/secrets API is re-opened,
         // re-add a SECRETS interceptor here.
