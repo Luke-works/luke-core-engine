@@ -33,7 +33,7 @@ class GeocodeMinionTest {
         assertThat(s.get("id")).isEqualTo("address.123");
         assertThat(s.get("label")).isEqualTo("221B Baker Street, London NW1 6XE, United Kingdom");
         Map<String, Object> addr = (Map<String, Object>) s.get("address");
-        assertThat(addr.get("line1")).isEqualTo("221B Baker Street");
+        assertThat(addr.get("streetAddress")).isEqualTo("221B Baker Street");
         assertThat(addr.get("city")).isEqualTo("London");
         assertThat(addr.get("region")).isEqualTo("England");
         assertThat(addr.get("postalCode")).isEqualTo("NW1 6XE");
@@ -48,7 +48,7 @@ class GeocodeMinionTest {
         assertThat(GeocodeMinion.mapFeatures(null)).isEmpty();
         assertThat(GeocodeMinion.mapFeatures(Map.of())).isEmpty();
         assertThat(GeocodeMinion.mapFeatures(Map.of("features", "nope"))).isEmpty();
-        // A feature with no place_name falls back to line1 for its label; a label-less, line1-less one is dropped.
+        // A feature with no place_name falls back to streetAddress for its label; a label-less, streetAddress-less one is dropped.
         List<Map<String, Object>> out = GeocodeMinion.mapFeatures(Map.of("features", List.of(
                 Map.of("text", "Main St", "address", "10"),
                 Map.of("center", List.of(1, 2)))));

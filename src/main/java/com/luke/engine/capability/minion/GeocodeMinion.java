@@ -20,7 +20,7 @@ import org.springframework.web.client.RestTemplate;
  * The {@code geocode} minion — a generic ADDRESS-AUTOCOMPLETE provider backed by Mapbox. As the user
  * types in an address field, this queries Mapbox's geocoding API SERVER-SIDE (the access token is a
  * server secret, never sent to the browser) and adapts each result into the normalized shape the
- * renderer expects: {@code { results: [ { id, label, address: { line1, city, region, postalCode,
+ * renderer expects: {@code { results: [ { id, label, address: { streetAddress, city, region, postalCode,
  * country, lat, lng } } ] } }.
  *
  * <p>Provider-agnostic by design: swapping Mapbox for Google/Loqate/etc. is a new minion class
@@ -97,8 +97,8 @@ public class GeocodeMinion implements Minion {
             Map<String, Object> address = new LinkedHashMap<>();
             String street = str(feat.get("text"));
             String number = str(feat.get("address"));
-            String line1 = number.isEmpty() ? street : (number + " " + street).trim();
-            putIf(address, "line1", line1);
+            String streetAddress = number.isEmpty() ? street : (number + " " + street).trim();
+            putIf(address, "streetAddress", streetAddress);
             // The structured parts come from Mapbox's `context` chain, keyed by id PREFIX.
             if (feat.get("context") instanceof List<?> ctx) {
                 for (Object c : ctx) {
@@ -126,7 +126,7 @@ public class GeocodeMinion implements Minion {
                 if (lat != null) address.put("lat", lat);
             }
             String label = str(feat.get("place_name"));
-            if (label.isEmpty()) label = line1;
+            if (label.isEmpty()) label = streetAddress;
             if (label.isEmpty()) continue; // unusable without a label
             Map<String, Object> suggestion = new LinkedHashMap<>();
             String id = str(feat.get("id"));
