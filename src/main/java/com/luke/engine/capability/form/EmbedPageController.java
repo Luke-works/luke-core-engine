@@ -78,6 +78,9 @@ public class EmbedPageController {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Form</title>
+            <!-- Suppress the browser's default /favicon.ico request: that origin is the auth gateway,
+                 which 401s non-allowlisted paths (and an iframe shows no favicon anyway). -->
+            <link rel="icon" href="data:,">
             <link rel="stylesheet" href="/embed-assets/embed.css">
             </head>
             <body>
@@ -89,7 +92,7 @@ public class EmbedPageController {
 
     private static final String NOT_FOUND_HTML = """
             <!DOCTYPE html>
-            <html lang="en"><head><meta charset="UTF-8"><title>Form unavailable</title></head>
+            <html lang="en"><head><meta charset="UTF-8"><title>Form unavailable</title><link rel="icon" href="data:,"></head>
             <body style="font:14px system-ui;padding:2rem;text-align:center;color:#64748b">
             This form link is invalid or no longer available.
             </body></html>

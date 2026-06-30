@@ -122,6 +122,25 @@ luke:
     # HA: run the outbox poller on exactly ONE node — set false on the others.
     outbox-enabled: ${LUKE_SIGNATURES_OUTBOX_ENABLED:true}
     outbox-poll-ms: ${LUKE_SIGNATURES_OUTBOX_POLL_MS:2000}
+  phone:
+    # Vapi.ai (https://vapi.ai) phone integration — inbound + outbound voice calls.
+    vapi:
+      base-url: ${VAPI_BASE_URL:https://api.vapi.ai}
+      # Global fallback Vapi PRIVATE key (dev / single-account). Per-tenant keys are stored
+      # encrypted in the secret store and take precedence (see VapiCredentials).
+      api-key: ${VAPI_API_KEY:}
+      # Shared secret Vapi echoes back in X-Vapi-Secret on every webhook; we verify it.
+      webhook-secret: ${VAPI_WEBHOOK_SECRET:}
+      # Default-lenient: when no webhook-secret is set, webhooks are accepted (dev). Set true in
+      # prod (the prod profile should pin this on) to reject unsigned/mismatched webhooks.
+      webhook-require-secret: ${VAPI_WEBHOOK_REQUIRE_SECRET:false}
+    # BPMN process key started for each call (deployed per tenant). The
+    # PhoneCallProcessOutboxConsumer starts it when a call begins and correlates the
+    # PhoneCallEnded message when the call reaches a terminal status.
+    call-process-key: ${LUKE_PHONE_CALL_PROCESS_KEY:PhoneCallProcess}
+    # HA: run the outbox poller on exactly ONE node — set false on the others.
+    outbox-enabled: ${LUKE_PHONE_OUTBOX_ENABLED:true}
+    outbox-poll-ms: ${LUKE_PHONE_OUTBOX_POLL_MS:2000}
   internal:
     # Shared secret for server-to-server calls into /api/internal/** (e.g.
     # capability-engine starting a process). MUST match capability-engine's
