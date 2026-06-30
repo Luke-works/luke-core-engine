@@ -1,6 +1,7 @@
 package com.luke.engine.capability.minion;
 
 import com.luke.engine.config.RestTemplates;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -67,10 +68,14 @@ public class GeocodeMinion implements Minion {
         }
         try {
             String encoded = URLEncoder.encode(q, StandardCharsets.UTF_8).replace("+", "%20");
-            String url = MAPBOX_BASE + encoded + ".json?access_token=" + mapboxToken
-                    + "&autocomplete=true&types=address&limit=5";
-            Map<?, ?> body = http.getForObject(url, Map.class);
-            return Map.of("results", mapFeatures(body));
+            // Build a URI and pass THAT (not a String) — RestTemplate re-encodes a String URL, which would
+            // turn our %20 into %2520 and make Mapbox search for the literal "…%20…" → zero matches.
+            URI uri = URI.create(MAPBOX_BASE + encoded + ".json?access_token=" + mapboxToken
+                    + "&autocomplete=true&types=address&limit=5");
+            Map<?, ?> body = http.getForObject(uri, Map.class);
+            List<Map<String, Object>> results = mapFeatures(body);
+            log.debug("geocode '{}' → {} result(s)", q, results.size());
+            return Map.of("results", results);
         } catch (RuntimeException e) {
             // Never fail the user's keystroke — degrade to no suggestions and log.
             log.warn("geocode lookup failed: {}", e.toString());
