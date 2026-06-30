@@ -107,6 +107,13 @@ luke:
   forms:
     # BPMN process key started for each form submission (deployed per tenant).
     intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
+    # Global kill-switch for the "Save submission as Attachment" PDF render (per-form opt-in still
+    # required via the schema's settings.saveSubmissionAsPdf). Off-by-default per-form, on globally.
+    submission-pdf-enabled: ${LUKE_FORMS_SUBMISSION_PDF_ENABLED:true}
+  render:
+    # luke-file-proxy base URL for the internal headless-Chromium render endpoint. UNSET → submission
+    # PDFs are skipped (the feature no-ops) rather than failing submissions.
+    base-url: ${LUKE_RENDER_URL:}
   signatures:
     # BPMN process key for the signature ceremony (deployed per tenant). The
     # SignatureProcessOutboxConsumer starts it on campaign launch and correlates the

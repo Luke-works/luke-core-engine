@@ -30,6 +30,7 @@ public class FormSubmissionOutboxConsumer {
     private final FormInstanceRepository instances;
     private final InternalProcessService processService;
     private final DocumentCamundaMirror documentMirror;
+    private final FormSubmissionPdfService submissionPdf;
 
     @Value("${luke.forms.outbox-enabled:true}")
     private boolean enabled;
@@ -37,11 +38,13 @@ public class FormSubmissionOutboxConsumer {
     public FormSubmissionOutboxConsumer(FormSubmissionOutboxRepository outbox,
                                         FormInstanceRepository instances,
                                         InternalProcessService processService,
-                                        DocumentCamundaMirror documentMirror) {
+                                        DocumentCamundaMirror documentMirror,
+                                        FormSubmissionPdfService submissionPdf) {
         this.outbox = outbox;
         this.instances = instances;
         this.processService = processService;
         this.documentMirror = documentMirror;
+        this.submissionPdf = submissionPdf;
     }
 
     @Scheduled(fixedDelayString = "${luke.forms.outbox-poll-ms:2000}")
@@ -71,6 +74,10 @@ public class FormSubmissionOutboxConsumer {
             row.setErrorMessage(null);
             outbox.save(row);
             recordOutcome(row.getFormInstanceId(), "STARTED", pid, businessKey, null);
+            // If the form opted into "Save submission as Attachment", render the submission to a PDF and
+            // register it as a FORMS document on the instance BEFORE mirroring, so it rides the mirror
+            // onto the process instance too (best-effort; never fails the start).
+            submissionPdf.maybeGenerate(row.getTenantId(), row.getFormInstanceId(), pid, businessKey);
             // Mirror the form's attachments into Camunda now that the real process instance exists
             // (best-effort; the document table is the source of truth).
             documentMirror.mirrorFormProcess(row.getTenantId(), row.getFormInstanceId(), pid);

@@ -42,6 +42,8 @@ public class Document {
     /** Allowed {@link #kind} values (plain varchar, no DB CHECK — mirrors the codebase convention). */
     public static final String KIND_FORM_ATTACHMENT = "FORM_ATTACHMENT";
     public static final String KIND_SIGNATURE_ATTACHMENT = "SIGNATURE_ATTACHMENT";
+    /** A server-generated PDF render of a completed form submission (distinct from user-uploaded files). */
+    public static final String KIND_FORM_SUBMISSION_PDF = "FORM_SUBMISSION_PDF";
     public static final String KIND_GENERIC = "GENERIC";
 
     /** Allowed {@link #status} values. */
