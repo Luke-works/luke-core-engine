@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.cibseven.bpm.engine.HistoryService;
+import org.cibseven.bpm.engine.ManagementService;
 import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
 import org.cibseven.bpm.engine.history.HistoricProcessInstance;
@@ -34,14 +35,51 @@ public class WorkflowRunService {
     private final RuntimeService runtimeService;
     private final HistoryService historyService;
     private final TaskService taskService;
+    private final ManagementService managementService;
 
     public WorkflowRunService(WorkflowDefinitionService definitions, WorkflowVersionRepository versions,
-            RuntimeService runtimeService, HistoryService historyService, TaskService taskService) {
+            RuntimeService runtimeService, HistoryService historyService, TaskService taskService,
+            ManagementService managementService) {
         this.definitions = definitions;
         this.versions = versions;
         this.runtimeService = runtimeService;
         this.historyService = historyService;
         this.taskService = taskService;
+        this.managementService = managementService;
+    }
+
+    /** Load a run's history row, asserting the tenant owns it (else a business error). */
+    private HistoricProcessInstance owned(String tenantId, String instanceId) {
+        HistoricProcessInstance h = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(instanceId).singleResult();
+        if (h == null || (tenantId != null && h.getTenantId() != null && !tenantId.equals(h.getTenantId()))) {
+            throw new WorkflowLifecycleException("Run not found.");
+        }
+        return h;
+    }
+
+    /**
+     * Recover a stuck run: optionally set process variables, then give every failed job in
+     * the instance fresh retries so the engine re-executes it. Returns the refreshed detail.
+     */
+    public RunDetail retryRun(String tenantId, String instanceId, Map<String, Object> variables) {
+        owned(tenantId, instanceId);
+        if (variables != null && !variables.isEmpty()) {
+            runtimeService.setVariables(instanceId, variables);
+        }
+        for (Incident inc : runtimeService.createIncidentQuery().processInstanceId(instanceId).list()) {
+            if ("failedJob".equals(inc.getIncidentType()) && inc.getConfiguration() != null) {
+                managementService.setJobRetries(inc.getConfiguration(), 3);
+            }
+        }
+        return runDetail(tenantId, instanceId);
+    }
+
+    /** Cancel a running instance (deletes it with a reason). */
+    public RunDetail cancelRun(String tenantId, String instanceId) {
+        owned(tenantId, instanceId);
+        runtimeService.deleteProcessInstance(instanceId, "Cancelled from the workflow builder");
+        return runDetail(tenantId, instanceId);
     }
 
     /** Start a test instance of the definition's published version, tenant-scoped. */

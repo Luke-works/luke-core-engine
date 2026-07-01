@@ -57,6 +57,19 @@ public class WorkflowRunController {
         return runs.runDetail(tenantId, instanceId);
     }
 
+    /** Retry a stuck run (optionally setting variables first), giving failed jobs fresh retries. */
+    @PostMapping("/runs/{instanceId}/retry")
+    public RunDetail retry(@RequestHeader("X-Tenant-Id") String tenantId,
+            @PathVariable String instanceId, @RequestBody(required = false) StartRequest body) {
+        return runs.retryRun(tenantId, instanceId, body != null ? body.variables() : null);
+    }
+
+    /** Cancel a running instance. */
+    @PostMapping("/runs/{instanceId}/cancel")
+    public RunDetail cancel(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String instanceId) {
+        return runs.cancelRun(tenantId, instanceId);
+    }
+
     @ExceptionHandler(WorkflowLifecycleException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleLifecycle(WorkflowLifecycleException e) {

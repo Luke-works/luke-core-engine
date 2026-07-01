@@ -9,8 +9,10 @@ import static org.mockito.Mockito.when;
 import java.util.Map;
 import java.util.Optional;
 import org.cibseven.bpm.engine.HistoryService;
+import org.cibseven.bpm.engine.ManagementService;
 import org.cibseven.bpm.engine.RuntimeService;
 import org.cibseven.bpm.engine.TaskService;
+import org.cibseven.bpm.engine.history.HistoricProcessInstance;
 import org.cibseven.bpm.engine.runtime.ProcessInstance;
 import org.cibseven.bpm.engine.runtime.ProcessInstantiationBuilder;
 import org.junit.jupiter.api.Test;
@@ -22,11 +24,12 @@ class WorkflowRunServiceTest {
 
     private final WorkflowDefinitionService definitions = mock(WorkflowDefinitionService.class);
     private final WorkflowVersionRepository versions = mock(WorkflowVersionRepository.class);
-    private final RuntimeService runtimeService = mock(RuntimeService.class);
-    private final HistoryService historyService = mock(HistoryService.class);
-    private final TaskService taskService = mock(TaskService.class);
+    private final RuntimeService runtimeService = mock(RuntimeService.class, Answers.RETURNS_DEEP_STUBS);
+    private final HistoryService historyService = mock(HistoryService.class, Answers.RETURNS_DEEP_STUBS);
+    private final TaskService taskService = mock(TaskService.class, Answers.RETURNS_DEEP_STUBS);
+    private final ManagementService managementService = mock(ManagementService.class);
     private final WorkflowRunService service =
-            new WorkflowRunService(definitions, versions, runtimeService, historyService, taskService);
+            new WorkflowRunService(definitions, versions, runtimeService, historyService, taskService, managementService);
 
     @Test
     void startsTheProcessForThePublishedVersionScopedToTenant() {
@@ -58,5 +61,48 @@ class WorkflowRunServiceTest {
         assertThatThrownBy(() -> service.startTestRun("t1", "d1", null, "u1"))
                 .isInstanceOf(WorkflowLifecycleException.class)
                 .hasMessageContaining("Publish");
+    }
+
+    @Test
+    void retryBumpsFailedJobRetriesAndSetsVariables() {
+        HistoricProcessInstance h = mock(HistoricProcessInstance.class);
+        when(h.getTenantId()).thenReturn("t1");
+        when(h.getEndTime()).thenReturn(new java.util.Date()); // ended → runDetail stays shallow
+        when(historyService.createHistoricProcessInstanceQuery().processInstanceId("PI-9").singleResult())
+                .thenReturn(h);
+        org.cibseven.bpm.engine.runtime.Incident inc = mock(org.cibseven.bpm.engine.runtime.Incident.class);
+        when(inc.getIncidentType()).thenReturn("failedJob");
+        when(inc.getConfiguration()).thenReturn("job-1");
+        when(runtimeService.createIncidentQuery().processInstanceId("PI-9").list()).thenReturn(java.util.List.of(inc));
+
+        service.retryRun("t1", "PI-9", Map.of("amount", 9));
+
+        verify(runtimeService).setVariables("PI-9", Map.of("amount", 9));
+        verify(managementService).setJobRetries("job-1", 3);
+    }
+
+    @Test
+    void cancelDeletesTheInstance() {
+        HistoricProcessInstance h = mock(HistoricProcessInstance.class);
+        when(h.getTenantId()).thenReturn("t1");
+        when(h.getEndTime()).thenReturn(new java.util.Date());
+        when(historyService.createHistoricProcessInstanceQuery().processInstanceId("PI-9").singleResult())
+                .thenReturn(h);
+
+        service.cancelRun("t1", "PI-9");
+
+        verify(runtimeService).deleteProcessInstance("PI-9", "Cancelled from the workflow builder");
+    }
+
+    @Test
+    void retryOnAnotherTenantsRunIsRejected() {
+        HistoricProcessInstance h = mock(HistoricProcessInstance.class);
+        when(h.getTenantId()).thenReturn("other");
+        when(historyService.createHistoricProcessInstanceQuery().processInstanceId("PI-9").singleResult())
+                .thenReturn(h);
+
+        assertThatThrownBy(() -> service.cancelRun("t1", "PI-9"))
+                .isInstanceOf(WorkflowLifecycleException.class)
+                .hasMessageContaining("not found");
     }
 }
