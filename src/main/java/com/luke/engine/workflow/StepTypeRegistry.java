@@ -26,9 +26,23 @@ public class StepTypeRegistry {
         // Replaced/augmented as each capability publishes its own (WF-2 follow-ups).
         register(new StepTypeDescriptor("forms.submitted", "Form submitted", "FORMS", "trigger", "Forms"));
         register(new StepTypeDescriptor("forms.review", "Review task", "FORMS", "task", "Forms"));
-        register(new StepTypeDescriptor("email.send", "Send email", "EMAIL", "action", "Email"));
-        register(new StepTypeDescriptor("phone.call", "Place call", "PHONE", "action", "Phone"));
-        register(new StepTypeDescriptor("signatures.send", "Send for signature", "SIGNATURES", "action", "Signatures"));
+        register(new StepTypeDescriptor("email.send", "Send email", "EMAIL", "action", "Email", List.of(
+                StepFieldDescriptor.req("to", "To"),
+                StepFieldDescriptor.text("subject", "Subject"),
+                StepFieldDescriptor.area("htmlBody", "HTML body"),
+                StepFieldDescriptor.area("textBody", "Text body"),
+                StepFieldDescriptor.text("template", "Template alias"),
+                StepFieldDescriptor.text("from", "From"),
+                StepFieldDescriptor.text("cc", "Cc"),
+                StepFieldDescriptor.text("bcc", "Bcc"))));
+        register(new StepTypeDescriptor("phone.call", "Place call", "PHONE", "action", "Phone", List.of(
+                StepFieldDescriptor.req("customerNumber", "Customer number"),
+                StepFieldDescriptor.text("assistantId", "Assistant ID"),
+                StepFieldDescriptor.text("phoneNumberId", "Phone number ID"))));
+        register(new StepTypeDescriptor("signatures.send", "Send for signature", "SIGNATURES", "action", "Signatures", List.of(
+                StepFieldDescriptor.req("definitionCode", "Document code"),
+                StepFieldDescriptor.num("version", "Version"),
+                StepFieldDescriptor.num("expiresInDays", "Expires in days"))));
         register(new StepTypeDescriptor("signatures.signed", "Document signed", "SIGNATURES", "trigger", "Signatures"));
         register(new StepTypeDescriptor("integration.trigger", "Integration trigger", "INTEGRATIONS", "trigger", "Integrations"));
         register(new StepTypeDescriptor("integration.action", "Integration action", "INTEGRATIONS", "action", "Integrations"));
