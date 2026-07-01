@@ -61,6 +61,18 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.capability.signature.SignatureProcessOutbox.class,
         com.luke.engine.capability.signature.SignatureRequest.class,
         com.luke.engine.capability.signature.SignatureAuditEvent.class,
+        // Phone / Voice (Vapi) capability → V8 migration.
+        com.luke.engine.capability.phone.PhoneCall.class,
+        com.luke.engine.capability.phone.PhoneNumber.class,
+        com.luke.engine.capability.phone.PhoneSettings.class,
+        com.luke.engine.capability.phone.PhoneCallProcessOutbox.class,
+        // Workflow capability + integrations (Nango) module → V9 migration.
+        com.luke.engine.workflow.WorkflowDefinition.class,
+        com.luke.engine.workflow.WorkflowVersion.class,
+        com.luke.engine.workflow.integrations.IntegrationConnection.class,
+        com.luke.engine.workflow.integrations.IntegrationWebhookLog.class,
+        com.luke.engine.workflow.integrations.IntegrationEventOutbox.class,
+        com.luke.engine.workflow.integrations.IntegrationUsageEvent.class,
     };
 
     @Test
