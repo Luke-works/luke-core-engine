@@ -41,6 +41,11 @@ public class GatewayAuthFilter {
                 // CapabilityAccessInterceptor guards — must inject the verified X-User-Id here
                 // too. The public token-signing routes (/api/public/sign*) are NOT listed.
                 "/api/signature-definitions/*", "/api/signature-instances/*", "/api/signatures/*",
+                // PHONE (Vapi) — the CapabilityAccessInterceptor guards these, so the verified
+                // X-User-Id must be injected here too or every phone route 401s under the gateway.
+                "/api/phone-calls/*", "/api/phone-numbers/*", "/api/phone-settings/*",
+                // WORKFLOW — definitions/versions lifecycle, catalog, and the integrations module.
+                "/api/workflow/*",
                 "/api/my-capabilities",
                 "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*");
         reg.setName("gatewayAuthFilter");

@@ -26,6 +26,14 @@ class GatewayAuthFilterTest {
         assertTrue(patterns.contains("/api/signature-instances/*"), patterns.toString());
         assertTrue(patterns.contains("/api/signatures/*"), patterns.toString());
 
+        // Phone / Voice (Vapi) — the same miss recurred here on consdev; lock it in.
+        assertTrue(patterns.contains("/api/phone-calls/*"), patterns.toString());
+        assertTrue(patterns.contains("/api/phone-numbers/*"), patterns.toString());
+        assertTrue(patterns.contains("/api/phone-settings/*"), patterns.toString());
+
+        // Workflow (definitions/versions lifecycle, catalog, integrations module).
+        assertTrue(patterns.contains("/api/workflow/*"), patterns.toString());
+
         // The pre-existing capability routes stay covered.
         assertTrue(patterns.contains("/api/form-definitions/*"), patterns.toString());
         assertTrue(patterns.contains("/api/form-instances/*"), patterns.toString());
