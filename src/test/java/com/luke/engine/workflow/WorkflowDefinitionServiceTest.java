@@ -35,8 +35,9 @@ class WorkflowDefinitionServiceTest {
     private final WorkflowDefinitionRepository defs = mock(WorkflowDefinitionRepository.class);
     private final WorkflowVersionRepository vers = mock(WorkflowVersionRepository.class);
     private final WorkflowProcessDeployer deployer = mock(WorkflowProcessDeployer.class);
+    private final WorkflowTriggerSubscriptionRepository subs = mock(WorkflowTriggerSubscriptionRepository.class);
     private final WorkflowDefinitionService service = new WorkflowDefinitionService(
-            defs, vers, new WorkflowCompiler(), deployer, new ObjectMapper(), new StepTypeRegistry());
+            defs, vers, new WorkflowCompiler(), deployer, new ObjectMapper(), new StepTypeRegistry(), subs);
 
     private WorkflowDefinition def(String draftJson) {
         WorkflowDefinition d = new WorkflowDefinition();
@@ -122,6 +123,37 @@ class WorkflowDefinitionServiceTest {
         verify(deployer).deploy(eq(TENANT), eq("wf_v1"), eq("<xml/>"));
         assertThat(out.getPublishedVersion()).isEqualTo(1);
         assertThat(out.getStatus()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void publishRegistersTheTriggerSubscriptionScopedByFormCode() {
+        String scoped =
+                """
+                { "id": "wf", "version": 1,
+                  "trigger": { "capability": "forms", "type": "submitted", "config": { "formCode": "INTAKE" } },
+                  "nodes": [ { "id": "n1", "kind": "action", "capability": "email", "action": "send", "next": "end" } ] }
+                """;
+        WorkflowVersion v = new WorkflowVersion(DEF_ID, 1, scoped, "u");
+        v.setCompileOk(true);
+        v.setBpmnXml("<xml/>");
+        v.setProcessId("wf_v1");
+        v.setSignedOffAt(LocalDateTime.now());
+        when(defs.findByIdAndTenantId(DEF_ID, TENANT)).thenReturn(Optional.of(def(scoped)));
+        when(vers.findByDefinitionIdAndVersion(DEF_ID, 1)).thenReturn(Optional.of(v));
+        when(defs.save(any())).thenAnswer(a -> a.getArgument(0));
+        when(deployer.deploy(anyString(), anyString(), anyString())).thenReturn("dep1");
+
+        service.publish(TENANT, DEF_ID, 1, "u");
+
+        verify(subs).deleteByDefinitionId(DEF_ID); // replace any prior subscription
+        org.mockito.ArgumentCaptor<WorkflowTriggerSubscription> captor =
+                org.mockito.ArgumentCaptor.forClass(WorkflowTriggerSubscription.class);
+        verify(subs).save(captor.capture());
+        WorkflowTriggerSubscription s = captor.getValue();
+        assertThat(s.getCapability()).isEqualTo("forms");
+        assertThat(s.getEventType()).isEqualTo("submitted");
+        assertThat(s.getFormCode()).isEqualTo("INTAKE");
+        assertThat(s.getProcessId()).isEqualTo("wf_v1");
     }
 
     @Test

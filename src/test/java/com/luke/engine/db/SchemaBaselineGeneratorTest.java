@@ -41,6 +41,8 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.capability.form.FormInstance.class,
         com.luke.engine.capability.form.FormAuditEvent.class,
         com.luke.engine.capability.form.FormSubmissionOutbox.class,
+        // Forms→workflow inbound event rail → V10 migration.
+        com.luke.engine.capability.form.FormEventOutbox.class,
         com.luke.engine.capability.email.EmailServer.class,
         com.luke.engine.capability.email.EmailMessage.class,
         com.luke.engine.capability.email.EmailVerification.class,
@@ -73,6 +75,8 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.workflow.integrations.IntegrationWebhookLog.class,
         com.luke.engine.workflow.integrations.IntegrationEventOutbox.class,
         com.luke.engine.workflow.integrations.IntegrationUsageEvent.class,
+        // Start-on-event registry (forms→workflow) → V10 migration.
+        com.luke.engine.workflow.WorkflowTriggerSubscription.class,
     };
 
     @Test

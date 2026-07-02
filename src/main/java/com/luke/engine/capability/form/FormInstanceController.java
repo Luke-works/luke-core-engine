@@ -38,15 +38,18 @@ public class FormInstanceController {
     private final FormDefinitionRepository forms;
     private final FormVersionRepository versions;
     private final FormSubmissionService submissions;
+    private final FormEventPublisher events;
 
     public FormInstanceController(FormInstanceRepository instances,
                                   FormDefinitionRepository forms,
                                   FormVersionRepository versions,
-                                  FormSubmissionService submissions) {
+                                  FormSubmissionService submissions,
+                                  FormEventPublisher events) {
         this.instances = instances;
         this.forms = forms;
         this.versions = versions;
         this.submissions = submissions;
+        this.events = events;
     }
 
     /* ── request bodies ─────────────────────────────────────── */
@@ -90,6 +93,7 @@ public class FormInstanceController {
         inst.setCreatedBy(userId);
         if (body.expiresAt() != null) inst.setExpiresAt(toLocal(body.expiresAt()));
         instances.save(inst);
+        events.emit(inst, "created");
         return view(inst, artifact.getSchema());
     }
 
@@ -213,6 +217,7 @@ public class FormInstanceController {
         if (inst.isExpired()) {
             inst.setState(FormInstanceStates.EXPIRED);
             instances.save(inst);
+            events.emit(inst, "expired");
             throw new ResponseStatusException(HttpStatus.GONE, "This form has expired.");
         }
     }
@@ -275,7 +280,12 @@ public class FormInstanceController {
         if (FormInstanceStates.SUBMITTED.equals(to) && inst.getSubmittedAt() == null) {
             inst.setSubmittedAt(LocalDateTime.now());
         }
-        return instances.save(inst);
+        FormInstance saved = instances.save(inst);
+        // Emit the forms→workflow lifecycle event (best-effort here; the flagship
+        // "submitted" path emits atomically inside FormSubmissionService). eventType is the
+        // lower-cased state; the correlator no-ops for states nothing subscribes to.
+        events.emit(saved, to.toLowerCase(java.util.Locale.ROOT));
+        return saved;
     }
 
     private FormInstance load(String tenantId, String id) {

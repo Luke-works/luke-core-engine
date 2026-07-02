@@ -20,7 +20,8 @@ class FormInstancePaginationTest {
     private FormInstanceController controller(FormInstanceRepository instances) {
         return new FormInstanceController(
                 instances, mock(FormDefinitionRepository.class),
-                mock(FormVersionRepository.class), mock(FormSubmissionService.class));
+                mock(FormVersionRepository.class), mock(FormSubmissionService.class),
+                mock(FormEventPublisher.class));
     }
 
     @Test

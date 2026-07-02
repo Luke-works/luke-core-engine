@@ -33,7 +33,8 @@ class FormInstanceListQueryTest {
     @BeforeEach
     void seed() {
         controller = new FormInstanceController(
-                instances, forms, mock(FormVersionRepository.class), mock(FormSubmissionService.class));
+                instances, forms, mock(FormVersionRepository.class), mock(FormSubmissionService.class),
+                mock(FormEventPublisher.class));
 
         form("INTAKE", "Customer Intake");
         form("LEAVE", "Leave Request");

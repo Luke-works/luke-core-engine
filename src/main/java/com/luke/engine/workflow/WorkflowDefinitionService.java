@@ -29,16 +29,19 @@ public class WorkflowDefinitionService {
     private final WorkflowProcessDeployer deployer;
     private final ObjectMapper mapper;
     private final StepTypeRegistry registry;
+    private final WorkflowTriggerSubscriptionRepository subscriptions;
 
     public WorkflowDefinitionService(WorkflowDefinitionRepository definitions,
             WorkflowVersionRepository versions, WorkflowCompiler compiler,
-            WorkflowProcessDeployer deployer, ObjectMapper mapper, StepTypeRegistry registry) {
+            WorkflowProcessDeployer deployer, ObjectMapper mapper, StepTypeRegistry registry,
+            WorkflowTriggerSubscriptionRepository subscriptions) {
         this.definitions = definitions;
         this.versions = versions;
         this.compiler = compiler;
         this.deployer = deployer;
         this.mapper = mapper;
         this.registry = registry;
+        this.subscriptions = subscriptions;
     }
 
     @Transactional
@@ -125,22 +128,46 @@ public class WorkflowDefinitionService {
         if (!v.isCompileOk() || v.getBpmnXml() == null || v.getProcessId() == null) {
             throw new WorkflowLifecycleException("Version " + version + " has no compiled BPMN");
         }
-        assertCapabilitiesResolvable(v.getJsonSource());
+        WorkflowDoc doc = parse(v.getJsonSource());
+        assertCapabilitiesResolvable(doc);
         deployer.deploy(tenantId, v.getProcessId(), v.getBpmnXml());
+        registerTriggerSubscription(tenantId, id, v, doc);
         def.setPublishedVersion(version);
         def.setStatus("PUBLISHED");
         def.setUpdatedBy(user);
         return definitions.save(def);
     }
 
-    /** Every action/task node's capability must map to a registered step type. */
-    private void assertCapabilitiesResolvable(String json) {
-        WorkflowDoc doc;
+    /**
+     * Record what this published version starts on — the start-on-event registry
+     * ({@link WorkflowTriggerSubscription}). One row per definition: re-publishing replaces
+     * it so an old version can't keep firing. For forms triggers the {@code formCode}
+     * scopes which form fires the workflow (null = any).
+     */
+    private void registerTriggerSubscription(String tenantId, String definitionId, WorkflowVersion v, WorkflowDoc doc) {
+        subscriptions.deleteByDefinitionId(definitionId);
+        WorkflowTrigger t = doc.trigger();
+        if (t == null || t.capability() == null || t.type() == null) return;
+        String formCode = null;
+        if (t.config() != null) {
+            Object fc = t.config().get("formCode");
+            if (fc != null && !fc.toString().isBlank()) formCode = fc.toString();
+        }
+        subscriptions.save(new WorkflowTriggerSubscription(
+                tenantId, definitionId, v.getProcessId(),
+                t.capability().toLowerCase(), t.type(), formCode, v.getVersion()));
+    }
+
+    private WorkflowDoc parse(String json) {
         try {
-            doc = mapper.readValue(json, WorkflowDoc.class);
+            return mapper.readValue(json, WorkflowDoc.class);
         } catch (Exception e) {
             throw new WorkflowLifecycleException("Invalid workflow JSON: " + e.getMessage());
         }
+    }
+
+    /** Every action/task node's capability must map to a registered step type. */
+    private void assertCapabilitiesResolvable(WorkflowDoc doc) {
         if (doc.nodes() == null) return;
         for (WorkflowNode n : doc.nodes()) {
             String kind = n.kind();

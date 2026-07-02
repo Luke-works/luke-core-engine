@@ -30,12 +30,14 @@ public class FormSubmissionService {
     private final FormInstanceRepository instances;
     private final FormSubmissionOutboxRepository outbox;
     private final DocumentService documents;
+    private final FormEventPublisher events;
 
     public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
-                                 DocumentService documents) {
+                                 DocumentService documents, FormEventPublisher events) {
         this.instances = instances;
         this.outbox = outbox;
         this.documents = documents;
+        this.events = events;
     }
 
     /**
@@ -67,6 +69,9 @@ public class FormSubmissionService {
             } catch (RuntimeException ignored) { /* snapshot just omits them */ }
         }
         enqueue(inst);
+        // Emit the forms→workflow lifecycle event on the same transaction, so a
+        // submission and its "form submitted" event commit together.
+        events.emit(inst, "submitted");
     }
 
     /**
