@@ -105,6 +105,8 @@ luke:
     parent-cluster-id: ${LUKE_PARENT_CLUSTER_ID:parent_cluster}
     parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
   forms:
+    # Base URL the public per-recipient outbound links point at (consumer-ui /respond/:token).
+    recipient-base-url: ${FORMS_PUBLIC_BASE_URL:http://localhost:5173}
     # BPMN process key started for each form submission (deployed per tenant).
     intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
     # Global kill-switch for the "Save submission as Attachment" PDF render (per-form opt-in still
