@@ -24,13 +24,17 @@ public class StepTypeRegistry {
     public StepTypeRegistry() {
         // Reference descriptors — the ones the golden fixture resolves against.
         // Replaced/augmented as each capability publishes its own (WF-2 follow-ups).
-        // Forms initiators (native trigger lifecycle).
+        // Forms initiators — map 1:1 to real FormInstance lifecycle states
+        // (see FormInstanceStates). NB: there is no "approved"/"rejected" form state —
+        // approval/rejection is a review-task OUTCOME evaluated inside a running workflow
+        // (see forms.review), not a starting event. IN_PROGRESS is omitted (autosave noise).
         register(new StepTypeDescriptor("forms.submitted", "Form submitted", "FORMS", "trigger", "Forms"));
-        register(new StepTypeDescriptor("forms.created", "Form created", "FORMS", "trigger", "Forms"));
         register(new StepTypeDescriptor("forms.processed", "Form processed", "FORMS", "trigger", "Forms"));
-        register(new StepTypeDescriptor("forms.updated", "Form updated", "FORMS", "trigger", "Forms"));
-        register(new StepTypeDescriptor("forms.approved", "Form approved", "FORMS", "trigger", "Forms"));
-        register(new StepTypeDescriptor("forms.rejected", "Form rejected", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.created", "Form created", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.sent", "Form invitation sent", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.opened", "Form opened", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.expired", "Form expired", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.cancelled", "Form cancelled", "FORMS", "trigger", "Forms"));
         register(new StepTypeDescriptor("forms.review", "Review task", "FORMS", "task", "Forms"));
         // Email initiators (native trigger lifecycle — delivery + engagement events).
         register(new StepTypeDescriptor("email.received", "Email received", "EMAIL", "trigger", "Email"));
