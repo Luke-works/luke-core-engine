@@ -77,6 +77,10 @@ public final class FormSupport {
                 field.put("type", mapType(entity.path("type").asText("")));
                 field.put("required", attrs.path("required").asBoolean(false));
                 field.put("conditional", isConditionallyControlled(attrs));
+                // `disabled` marks a preparer-provided / display field for outbound forms — the send UI
+                // prefills these and the recipient surface renders them read-only.
+                field.put("disabled", attrs.path("disabled").asBoolean(false));
+                field.put("label", attrs.path("label").asText(""));
                 fields.add(field);
             });
         } catch (Exception ignored) {
