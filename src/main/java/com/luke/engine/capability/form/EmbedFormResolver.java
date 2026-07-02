@@ -42,6 +42,15 @@ public class EmbedFormResolver {
         if (form.getPublishedVersion() == null) {
             throw notFound("This form is not published.");
         }
+        // Kind gating (mirrors FormDefinitionController#requireEmbeddable): outbound forms are sent to a
+        // recipient, never embedded; an inbound form is embeddable only once its submission handling is
+        // decided. Same 404 surface — never leak why to the public embed endpoint.
+        if (FormDefinition.KIND_OUTBOUND.equals(form.getKind())) {
+            throw notFound("This form is not available.");
+        }
+        if (form.getSubmissionHandling() == null || form.getSubmissionHandling().isBlank()) {
+            throw notFound("This form is not accepting submissions yet.");
+        }
         // Revocation: a token minted before the form's embed key was rotated is dead.
         if (ref.keyVersion() != form.getEmbedKeyVersion()) {
             throw notFound("Unknown or invalid form link.");

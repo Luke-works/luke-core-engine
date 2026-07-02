@@ -33,7 +33,7 @@ class FormLifecycleControllerTest {
     @Test
     void checkIn_isASnapshot_andDoesNotAutoPublish() {
         String tenant = "t-lifecycle-1";
-        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Contact", null));
+        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Contact", null, null));
 
         FormVersion v1 = controller.checkIn(tenant, "u1", form.getId(), new CheckInBody(SCHEMA, null));
         assertEquals(1, v1.getVersion());
@@ -48,7 +48,7 @@ class FormLifecycleControllerTest {
     @Test
     void publish_isBlocked_untilTheVersionIsSignedOff() {
         String tenant = "t-lifecycle-2";
-        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Survey", null));
+        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Survey", null, null));
         controller.checkIn(tenant, "u1", form.getId(), new CheckInBody(SCHEMA, null));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
@@ -65,7 +65,7 @@ class FormLifecycleControllerTest {
     @Test
     void signOff_withNoVersions_isRejected() {
         String tenant = "t-lifecycle-3";
-        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Empty", null));
+        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Empty", null, null));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> controller.signOff(tenant, "u1", form.getId()));
@@ -75,7 +75,7 @@ class FormLifecycleControllerTest {
     @Test
     void signOff_marksTheLatestVersion_soANewerCheckInMustBeReSignedOff() {
         String tenant = "t-lifecycle-4";
-        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Intake", null));
+        FormDefinition form = controller.create(tenant, "u1", new CreateForm("Intake", null, null));
         controller.checkIn(tenant, "u1", form.getId(), new CheckInBody(SCHEMA, null));   // v1
         controller.signOff(tenant, "u1", form.getId());                                   // v1 signed off
         controller.checkIn(tenant, "u1", form.getId(), new CheckInBody(SCHEMA, null));   // v2 (unsigned)

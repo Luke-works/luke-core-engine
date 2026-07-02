@@ -53,6 +53,23 @@ public class FormDefinition {
 
     private String description;
 
+    /** Authoring intent. INBOUND = embedded somewhere, anyone submits; OUTBOUND = prefilled by a
+     *  preparer and sent to a named recipient (never embeddable). Chosen at creation. */
+    public static final String KIND_INBOUND = "INBOUND";
+    public static final String KIND_OUTBOUND = "OUTBOUND";
+
+    @Column(nullable = false)
+    private String kind = KIND_INBOUND;
+
+    /** Inbound only: the chosen submission handling (e.g. {@code "COLLECT"}). Null = undecided, which
+     *  keeps the embed surface gated ("decide what happens to submissions before embedding"). */
+    private String submissionHandling;
+
+    /** Outbound only: JSON map of {@code fieldKey → role} where role ∈ PREPARER | RECIPIENT | EITHER.
+     *  Recipient identity (firstName/lastName/email) is always preparer-provided and implicit. */
+    @Column(columnDefinition = "text")
+    private String outboundRolesJson;
+
     /** Lifecycle: DRAFT, PUBLISHED, RETIRED. */
     @Column(nullable = false)
     private String status = "DRAFT";
@@ -123,6 +140,15 @@ public class FormDefinition {
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind; }
+
+    public String getSubmissionHandling() { return submissionHandling; }
+    public void setSubmissionHandling(String submissionHandling) { this.submissionHandling = submissionHandling; }
+
+    public String getOutboundRolesJson() { return outboundRolesJson; }
+    public void setOutboundRolesJson(String outboundRolesJson) { this.outboundRolesJson = outboundRolesJson; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

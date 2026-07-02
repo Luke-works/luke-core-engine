@@ -58,10 +58,12 @@ public class FormDefinitionController {
     }
 
     /* ── request bodies ─────────────────────────────────────── */
-    public record CreateForm(String name, String description) {}
+    public record CreateForm(String name, String description, String kind) {}
     public record MetaPatch(String name, String description, String allowedEmbedOrigins) {}
     public record DraftBody(String schema) {}
     public record CheckInBody(String schema, Boolean publish) {}
+    public record SubmissionHandlingBody(String mode) {}
+    public record OutboundConfigBody(Map<String, String> roles) {}
 
     /* ── CRUD ───────────────────────────────────────────────── */
 
@@ -79,6 +81,7 @@ public class FormDefinitionController {
         form.setCode(uniqueCode(tenantId));
         form.setName(body.name().trim());
         form.setDescription(body.description());
+        form.setKind(normalizeKind(body.kind()));
         form.setStatus("DRAFT");
         form.setCreatedBy(userId);
         form.setUpdatedBy(userId);
@@ -118,7 +121,7 @@ public class FormDefinitionController {
     @GetMapping("/{id}/embed-token")
     public Map<String, Object> embedToken(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         FormDefinition form = load(tenantId, id);
-        requirePublished(form);
+        requireEmbeddable(form);
         return embedTokenResponse(tenantId, form);
     }
 
@@ -132,16 +135,88 @@ public class FormDefinitionController {
                                                 @RequestHeader(value = "X-User-Id", required = false) String userId,
                                                 @PathVariable String id) {
         FormDefinition form = load(tenantId, id);
-        requirePublished(form);
+        requireEmbeddable(form);
         form.setEmbedKeyVersion(form.getEmbedKeyVersion() + 1);
         form.setUpdatedBy(userId);
         forms.save(form);
         return embedTokenResponse(tenantId, form);
     }
 
+    /**
+     * Inbound only: record what happens to submissions (e.g. "COLLECT"). Deciding this is what
+     * unlocks the embed surface — an inbound form with no submission handling stays un-embeddable.
+     */
+    @PutMapping("/{id}/submission-handling")
+    public FormDefinition setSubmissionHandling(@RequestHeader("X-Tenant-Id") String tenantId,
+                                                @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                @PathVariable String id, @RequestBody SubmissionHandlingBody body) {
+        FormDefinition form = load(tenantId, id);
+        if (!FormDefinition.KIND_INBOUND.equals(form.getKind())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Submission handling applies to inbound forms only");
+        }
+        String mode = body.mode() == null || body.mode().isBlank() ? "COLLECT" : body.mode().trim();
+        form.setSubmissionHandling(mode);
+        form.setUpdatedBy(userId);
+        return forms.save(form);
+    }
+
+    /**
+     * Outbound only: store the per-field fill-role map (fieldKey → PREPARER | RECIPIENT | EITHER).
+     * Recipient identity (firstName/lastName/email) is always preparer-provided and implicit.
+     */
+    @PutMapping("/{id}/outbound-config")
+    public FormDefinition setOutboundConfig(@RequestHeader("X-Tenant-Id") String tenantId,
+                                            @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                            @PathVariable String id, @RequestBody OutboundConfigBody body) {
+        FormDefinition form = load(tenantId, id);
+        if (!FormDefinition.KIND_OUTBOUND.equals(form.getKind())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Outbound config applies to outbound forms only");
+        }
+        Map<String, String> roles = body.roles() == null ? Map.of() : body.roles();
+        for (Map.Entry<String, String> e : roles.entrySet()) {
+            if (!OUTBOUND_ROLES.contains(e.getValue())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Invalid role '" + e.getValue() + "' for field '" + e.getKey() + "' (PREPARER | RECIPIENT | EITHER)");
+            }
+        }
+        form.setOutboundRolesJson(writeJson(roles));
+        form.setUpdatedBy(userId);
+        return forms.save(form);
+    }
+
     private void requirePublished(FormDefinition form) {
         if (form.getPublishedVersion() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Publish the form before embedding it");
+        }
+    }
+
+    /** Embedding requires a published INBOUND form whose submission handling has been decided. */
+    private void requireEmbeddable(FormDefinition form) {
+        requirePublished(form);
+        if (FormDefinition.KIND_OUTBOUND.equals(form.getKind())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Outbound forms are sent to a recipient, not embedded.");
+        }
+        if (form.getSubmissionHandling() == null || form.getSubmissionHandling().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Decide what happens to submissions before embedding this form.");
+        }
+    }
+
+    private static final java.util.Set<String> OUTBOUND_ROLES = java.util.Set.of("PREPARER", "RECIPIENT", "EITHER");
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private static String normalizeKind(String kind) {
+        if (kind == null) return FormDefinition.KIND_INBOUND;
+        String k = kind.trim().toUpperCase(java.util.Locale.ROOT);
+        return FormDefinition.KIND_OUTBOUND.equals(k) ? FormDefinition.KIND_OUTBOUND : FormDefinition.KIND_INBOUND;
+    }
+
+    private static String writeJson(Object o) {
+        try {
+            return JSON.writeValueAsString(o);
+        } catch (Exception e) {
+            return "{}";
         }
     }
 
