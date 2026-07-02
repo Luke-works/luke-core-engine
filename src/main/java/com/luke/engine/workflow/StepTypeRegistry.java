@@ -24,8 +24,22 @@ public class StepTypeRegistry {
     public StepTypeRegistry() {
         // Reference descriptors — the ones the golden fixture resolves against.
         // Replaced/augmented as each capability publishes its own (WF-2 follow-ups).
+        // Forms initiators (native trigger lifecycle).
         register(new StepTypeDescriptor("forms.submitted", "Form submitted", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.created", "Form created", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.processed", "Form processed", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.updated", "Form updated", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.approved", "Form approved", "FORMS", "trigger", "Forms"));
+        register(new StepTypeDescriptor("forms.rejected", "Form rejected", "FORMS", "trigger", "Forms"));
         register(new StepTypeDescriptor("forms.review", "Review task", "FORMS", "task", "Forms"));
+        // Email initiators (native trigger lifecycle — delivery + engagement events).
+        register(new StepTypeDescriptor("email.received", "Email received", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.delivered", "Email delivered", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.opened", "Email opened", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.link_clicked", "Email link clicked", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.bounced", "Email bounced", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.complained", "Email marked as spam", "EMAIL", "trigger", "Email"));
+        register(new StepTypeDescriptor("email.unsubscribed", "Email unsubscribed", "EMAIL", "trigger", "Email"));
         register(new StepTypeDescriptor("email.send", "Send email", "EMAIL", "action", "Email", List.of(
                 StepFieldDescriptor.req("to", "To"),
                 StepFieldDescriptor.text("subject", "Subject"),
