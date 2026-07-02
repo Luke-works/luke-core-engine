@@ -43,6 +43,8 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.capability.form.FormSubmissionOutbox.class,
         // Forms→workflow inbound event rail → V10 migration.
         com.luke.engine.capability.form.FormEventOutbox.class,
+        // Outbound recipient OTP challenge → V12 migration.
+        com.luke.engine.capability.form.FormRecipientOtp.class,
         com.luke.engine.capability.email.EmailServer.class,
         com.luke.engine.capability.email.EmailMessage.class,
         com.luke.engine.capability.email.EmailVerification.class,

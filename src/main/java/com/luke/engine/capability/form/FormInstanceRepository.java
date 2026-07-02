@@ -21,6 +21,10 @@ public interface FormInstanceRepository
 
     Optional<FormInstance> findByTokenAndTenantId(String token, String tenantId);
 
+    /** Public per-recipient resolve (outbound fill surface): the opaque token is the sole handle,
+     *  so this is intentionally NOT tenant-scoped — the caller has no tenant context. */
+    Optional<FormInstance> findByToken(String token);
+
     boolean existsByToken(String token);
 
     List<FormInstance> findByTenantIdOrderByCreatedAtDesc(String tenantId);
