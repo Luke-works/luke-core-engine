@@ -90,13 +90,17 @@ public class SignatureRequest {
     // ── Signature field placement (UI coordinates; one field in V1) ───────────────
     @Column(nullable = false)
     private int fieldPage;
-    @Column(nullable = false)
+    // Explicit snake_case column names: Hibernate maps a single trailing capital (fieldX) to
+    // "fieldx" (NO underscore), but V6__signature_tables.sql created these as field_x/_y/_w/_h — so
+    // without these the generated SQL references a non-existent column and 500s on Postgres. (H2
+    // tests pass because ddl-auto creates the schema from the entity, masking the mismatch.)
+    @Column(name = "field_x", nullable = false)
     private double fieldX;
-    @Column(nullable = false)
+    @Column(name = "field_y", nullable = false)
     private double fieldY;
-    @Column(nullable = false)
+    @Column(name = "field_w", nullable = false)
     private double fieldW;
-    @Column(nullable = false)
+    @Column(name = "field_h", nullable = false)
     private double fieldH;
 
     /** Unguessable public-signing token; minted on send, null until then. Unique. */
