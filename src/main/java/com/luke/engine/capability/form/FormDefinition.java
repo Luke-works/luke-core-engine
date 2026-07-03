@@ -1,0 +1,199 @@
+package com.luke.engine.capability.form;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
+import java.time.LocalDateTime;
+
+/**
+ * A form template (the "definition"), versioned and tenant-scoped. The editable
+ * working draft lives in {@code draftSchema}; immutable checked-in versions are
+ * {@link FormVersion} rows. {@code publishedVersion} is the one consumers (the
+ * renderer, a process via formKey) resolve to.
+ *
+ * <p>Addressed externally by {@code code} (FM-XXXX-DDMMMYY), stable across
+ * environments; {@code id} is internal. Lives in the capability engine's own
+ * schema alongside {@link com.luke.engine.capability.capability.Capability}.
+ */
+@Entity
+@Table(
+    name = "luke_form_definitions",
+    uniqueConstraints = @UniqueConstraint(name = "uq_form_tenant_code", columnNames = {"tenantId", "code"}),
+    indexes = @Index(name = "idx_form_tenant", columnList = "tenantId")
+)
+public class FormDefinition {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private String id;
+
+    /** Optimistic-locking token (#57): concurrent draft saves / lock checkouts that
+     *  read-then-write the same row collide → OptimisticLockException → 409, instead of
+     *  a silent last-write-wins clobber. JPA manages it. */
+    @Version
+    private Long version;
+
+    @Column(nullable = false)
+    private String tenantId;
+
+    /** Stable human id, e.g. "FM-XKQW-05JUN26". Unique per tenant. */
+    @Column(nullable = false)
+    private String code;
+
+    @Column(nullable = false)
+    private String name;
+
+    private String description;
+
+    /** Authoring intent. INBOUND = embedded somewhere, anyone submits; OUTBOUND = prefilled by a
+     *  preparer and sent to a named recipient (never embeddable). Chosen at creation. */
+    public static final String KIND_INBOUND = "INBOUND";
+    public static final String KIND_OUTBOUND = "OUTBOUND";
+
+    @Column(nullable = false)
+    private String kind = KIND_INBOUND;
+
+    /** Inbound only: the chosen submission handling (e.g. {@code "COLLECT"}). Null = undecided, which
+     *  keeps the embed surface gated ("decide what happens to submissions before embedding"). */
+    private String submissionHandling;
+
+    /** Outbound only: JSON map of {@code fieldKey → role} where role ∈ PREPARER | RECIPIENT | EITHER.
+     *  Recipient identity (firstName/lastName/email) is always preparer-provided and implicit. */
+    @Column(columnDefinition = "text")
+    private String outboundRolesJson;
+
+    /** Lifecycle: DRAFT, PUBLISHED, RETIRED. */
+    @Column(nullable = false)
+    private String status = "DRAFT";
+
+    /** The version consumers resolve to via {@code @published}; null until first publish. */
+    private Integer publishedVersion;
+
+    /** Editable working draft (coltorapps schema JSON). Not what processes consume. */
+    @Column(columnDefinition = "text")
+    private String draftSchema;
+
+    /** Per-form allowlist of web origins permitted to embed the published form, enforced as the CSP
+     *  {@code frame-ancestors} directive on the public embed surface (Route B M2). Comma-separated
+     *  origins; null/empty = any site may embed (public default). Sanitized via {@link FrameAncestors}. */
+    @Column(columnDefinition = "text")
+    private String allowedEmbedOrigins;
+
+    /** Embed-key version for revocation (Route B M4): the signed embed token carries this value;
+     *  bumping it invalidates every previously-issued token for this form (they fail the version check
+     *  on the public embed surface). Starts at 0. */
+    @Column(nullable = false)
+    private int embedKeyVersion = 0;
+
+    /** Soft-delete marker (trash); null = live. */
+    private LocalDateTime deletedAt;
+
+    /** Advisory edit-lock holder (userId), or null when unlocked. Set on checkout,
+     *  cleared on release / check-in / discard. Stale locks can be taken over. */
+    private String lockedBy;
+    private LocalDateTime lockedAt;
+
+    private String createdBy;
+    private String updatedBy;
+
+    /** Resolved display names for created_by / updated_by — filled at read time, NOT persisted. */
+    @Transient
+    private String createdByName;
+    @Transient
+    private String updatedByName;
+
+    /** When the form last passed its self-test ("Test the form"), and by whom. */
+    private LocalDateTime lastTestedAt;
+    private String lastTestedBy;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    private LocalDateTime updatedAt;
+
+    public FormDefinition() {}
+
+    @PreUpdate
+    public void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+
+    public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind; }
+
+    public String getSubmissionHandling() { return submissionHandling; }
+    public void setSubmissionHandling(String submissionHandling) { this.submissionHandling = submissionHandling; }
+
+    public String getOutboundRolesJson() { return outboundRolesJson; }
+    public void setOutboundRolesJson(String outboundRolesJson) { this.outboundRolesJson = outboundRolesJson; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public Integer getPublishedVersion() { return publishedVersion; }
+    public void setPublishedVersion(Integer publishedVersion) { this.publishedVersion = publishedVersion; }
+
+    public String getDraftSchema() { return draftSchema; }
+    public void setDraftSchema(String draftSchema) { this.draftSchema = draftSchema; }
+
+    public String getAllowedEmbedOrigins() { return allowedEmbedOrigins; }
+    public void setAllowedEmbedOrigins(String allowedEmbedOrigins) { this.allowedEmbedOrigins = allowedEmbedOrigins; }
+
+    public int getEmbedKeyVersion() { return embedKeyVersion; }
+    public void setEmbedKeyVersion(int embedKeyVersion) { this.embedKeyVersion = embedKeyVersion; }
+
+    public LocalDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
+
+    public String getLockedBy() { return lockedBy; }
+    public void setLockedBy(String lockedBy) { this.lockedBy = lockedBy; }
+
+    public LocalDateTime getLockedAt() { return lockedAt; }
+    public void setLockedAt(LocalDateTime lockedAt) { this.lockedAt = lockedAt; }
+
+    public String getCreatedBy() { return createdBy; }
+    public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+
+    public String getUpdatedBy() { return updatedBy; }
+    public void setUpdatedBy(String updatedBy) { this.updatedBy = updatedBy; }
+
+    public String getCreatedByName() { return createdByName; }
+    public void setCreatedByName(String createdByName) { this.createdByName = createdByName; }
+
+    public String getUpdatedByName() { return updatedByName; }
+    public void setUpdatedByName(String updatedByName) { this.updatedByName = updatedByName; }
+
+    public LocalDateTime getLastTestedAt() { return lastTestedAt; }
+    public void setLastTestedAt(LocalDateTime lastTestedAt) { this.lastTestedAt = lastTestedAt; }
+
+    public String getLastTestedBy() { return lastTestedBy; }
+    public void setLastTestedBy(String lastTestedBy) { this.lastTestedBy = lastTestedBy; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+}

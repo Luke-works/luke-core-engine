@@ -9,9 +9,18 @@ services:
     region: ohio             # closest US region to DFW; alternatives: virginia, oregon
     branch: main
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /actuator/health
+    # Readiness probe (#36): goes DOWN during graceful shutdown (drain) and when the
+    # DB is unreachable, so Render stops routing to an instance that isn't ready.
+    # Liveness is /actuator/health/liveness (process up). Aggregate: /actuator/health.
+    healthCheckPath: /actuator/health/readiness
     envVars:
-      # Spring profile activates application-postgres.yml overrides
+      # Spring profile activates application-postgres.yml overrides.
+      # dev/qa run "postgres" only. PROD: once every sync:false secret below is set
+      # (LUKE_INTERNAL_SHARED_SECRET, LUKE_SECRETS_KEYS_V1, real LUKE_EMBED_HMAC_SECRET,
+      # CAPABILITY_OPERATOR_USER/PASSWORD, gateway JWKS), switch this to "postgres,prod"
+      # to make AuthHardeningGuard (#56) + InsecureKeyGuard (#58) refuse to boot if any
+      # auth layer still fails open or a dev-default key is in use. Do NOT add ",prod"
+      # before those secrets exist — the service will (intentionally) fail to start.
       - key: SPRING_PROFILES_ACTIVE
         value: postgres
 
@@ -53,7 +62,45 @@ services:
       # CORS — tighten to your deployed UI URLs once they exist.
       # Comma-separated list; supports patterns like https://*.onrender.com
       - key: ALLOWED_ORIGINS
-        value: "https://*.onrender.com"
+        value: "https://*.onrender.com,https://*.lukeflow.com"
+
+      # ── Merged capability domain (forms / email / secrets / embed) ──────────
+      # Folded in when luke-capability-engine merged into core. Set the secrets in
+      # the Render dashboard.
+      # Shared secret guards the RETAINED /api/internal/** endpoints (process-start,
+      # secrets, emails). Unset → those endpoints fail closed.
+      - key: LUKE_INTERNAL_SHARED_SECRET
+        sync: false
+      # Postmark transactional email (EMAIL capability).
+      - key: POSTMARK_ACCOUNT_TOKEN
+        sync: false
+      - key: POSTMARK_SERVER_TOKEN
+        sync: false
+      - key: EMAIL_DEFAULT_FROM
+        sync: false
+      - key: EMAIL_SENDER_BASE_DOMAIN
+        value: lukeflow.com
+      # Encrypted secret store (AES-256-GCM master key). LUKE_SECRETS_KEYS_V1 binds
+      # to luke.secrets.keys.v1 via relaxed binding.
+      - key: LUKE_SECRETS_ACTIVE_KEY_ID
+        value: v1
+      - key: LUKE_SECRETS_KEYS_V1
+        sync: false
+      # Signs/verifies public embed tokens.
+      - key: LUKE_EMBED_HMAC_SECRET
+        generateValue: true
+
+      # ── Phone / Voice (Vapi) capability ─────────────────────────────────────
+      # Global fallback Vapi PRIVATE key (per-tenant keys override via the secret store).
+      - key: VAPI_API_KEY
+        sync: false
+      # Shared secret Vapi echoes in X-Vapi-Secret on every webhook; set the same value
+      # on your Vapi assistant/phone-number server config so webhooks verify.
+      - key: VAPI_WEBHOOK_SECRET
+        sync: false
+      # In prod, reject unsigned/mismatched Vapi webhooks once VAPI_WEBHOOK_SECRET is set.
+      - key: VAPI_WEBHOOK_REQUIRE_SECRET
+        value: "true"
 
 databases:
   - name: luke-camunda-db

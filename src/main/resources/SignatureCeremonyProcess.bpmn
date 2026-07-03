@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Definitions_signature_ceremony" targetNamespace="http://bpmn.io/schema/bpmn">
+  <!-- The runtime "ceremony" behind a SignatureInstance. Started (per tenant) by the
+       SignatureProcessOutboxConsumer when a campaign is launched; it waits at the
+       "Await Signatures" receive task while recipients sign (driven by the public
+       signing endpoints), and is closed when the instance reaches a terminal state
+       (COMPLETED/CANCELLED/DECLINED/EXPIRED) by correlating the SignatureClosure
+       message. The write-back service task records the closure on the instance.
+       Mirrors FormSubmissionIntakeProcess. -->
+  <bpmn:message id="Message_SignatureClosure" name="SignatureClosure" />
+  <bpmn:process id="SignatureCeremonyProcess" name="Signature Ceremony Process" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_start_await</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_await" sourceRef="StartEvent_1" targetRef="Activity_await" />
+    <!-- Wait for the campaign to reach closure. The message is correlated by the
+         instance's businessKey within the tenant (see SignatureCeremonyService). -->
+    <bpmn:receiveTask id="Activity_await" name="Await Signatures" messageRef="Message_SignatureClosure">
+      <bpmn:incoming>Flow_start_await</bpmn:incoming>
+      <bpmn:outgoing>Flow_await_wb</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:sequenceFlow id="Flow_await_wb" sourceRef="Activity_await" targetRef="Activity_writeback" />
+    <!-- Record the closure outcome back on the instance, in-process via the repository.
+         Best-effort: a failure here does not roll back the logically-complete process. -->
+    <bpmn:serviceTask id="Activity_writeback" name="Record Closure" camunda:delegateExpression="${signatureCeremonyWriteBackDelegate}">
+      <bpmn:incoming>Flow_await_wb</bpmn:incoming>
+      <bpmn:outgoing>Flow_wb_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_wb_end" sourceRef="Activity_writeback" targetRef="Event_end" />
+    <bpmn:endEvent id="Event_end">
+      <bpmn:incoming>Flow_wb_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="SignatureCeremonyProcess">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="192" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_await_di" bpmnElement="Activity_await">
+        <dc:Bounds x="300" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_writeback_di" bpmnElement="Activity_writeback">
+        <dc:Bounds x="460" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_end_di" bpmnElement="Event_end">
+        <dc:Bounds x="632" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_await_di" bpmnElement="Flow_start_await">
+        <di:waypoint x="228" y="120" />
+        <di:waypoint x="300" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_await_wb_di" bpmnElement="Flow_await_wb">
+        <di:waypoint x="400" y="120" />
+        <di:waypoint x="460" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_wb_end_di" bpmnElement="Flow_wb_end">
+        <di:waypoint x="560" y="120" />
+        <di:waypoint x="632" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

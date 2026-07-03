@@ -37,12 +37,20 @@ public class ParentClusterInitializer {
     @Value("${camunda.bpm.admin-user.id:admin}")
     private String adminUserId;
 
-    public ParentClusterInitializer(IdentityService identityService) {
+    private final BootCoordinator bootCoordinator;
+
+    public ParentClusterInitializer(IdentityService identityService, BootCoordinator bootCoordinator) {
         this.identityService = identityService;
+        this.bootCoordinator = bootCoordinator;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void ensureParentClusterTenant() {
+        // #40: serialize across instances so concurrent first-boot doesn't race on create.
+        bootCoordinator.runExclusive("parent-cluster", this::ensureParentClusterTenantExclusive);
+    }
+
+    private void ensureParentClusterTenantExclusive() {
         Tenant existing = identityService.createTenantQuery()
                 .tenantId(parentClusterId)
                 .singleResult();

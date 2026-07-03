@@ -1,8 +1,17 @@
 server:
   # Render injects PORT at runtime; 8080 is the local default
   port: ${PORT:8080}
+  # Graceful shutdown (#44): on SIGTERM (Render redeploy/scale-down) stop accepting new
+  # connections and let in-flight HTTP requests finish before the JVM exits, instead of
+  # cutting them off mid-flight. Bounded by spring.lifecycle.timeout-per-shutdown-phase.
+  shutdown: graceful
 
 spring:
+  # Upper bound on each shutdown phase: web server drains in-flight requests, then the
+  # context closes (which stops the Camunda job executor — it finishes/releases acquired
+  # jobs). 30s comfortably covers normal requests without hanging a deploy.
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   application:
     name: luke-core-engine
   # Default: H2 in-memory database (no setup needed)
@@ -14,15 +23,32 @@ spring:
     driver-class-name: ${DB_DRIVER:org.h2.Driver}
   h2:
     console:
-      enabled: true
+      # SECURE BY DEFAULT (#34): the console is an UNAUTHENTICATED SQL shell (Spring
+      # Security permits all; engine auth filters only cover /engine-rest + /api). Off
+      # unless a local dev explicitly opts in. Already false in the postgres profile,
+      # and H2ConsoleGuard refuses to boot if it's ever enabled under that prod profile.
+      enabled: ${H2_CONSOLE_ENABLED:false}
       path: /h2-console
   jpa:
     open-in-view: false
     hibernate:
+      # H2 / local dev / tests: Hibernate creates the schema (no Postgres, no Flyway).
+      # The postgres profile flips this to `none` and lets Flyway own the luke_* tables (#24).
       ddl-auto: update
     properties:
       hibernate:
         format_sql: false
+  flyway:
+    # Disabled here so the H2/test profile keeps using ddl-auto (the V1 baseline is
+    # Postgres DDL). Enabled only in application-postgres.yml (#24).
+    enabled: false
+  servlet:
+    # Signature/document uploads (merged from luke-signature-engine). PDF source
+    # documents are bounded here; the signature capability also enforces its own
+    # per-request guards (PNG size, %PDF- magic bytes) in the controllers.
+    multipart:
+      max-file-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
+      max-request-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
 
 # CIBSeven / Camunda Engine Configuration
 camunda:
@@ -42,14 +68,33 @@ camunda:
       # data. New tenants/users created via consumer-ui MUST receive explicit
       # tenant-scoped authorizations on signup or they get a blank app.
       enabled: true
+    # history-level DECISION (#29): kept at `full`. The form-intake trace UI
+    # (ProcessTraceController) reads historic *variable* values, which `audit`/`activity`
+    # do not retain — and full history is wanted for audit/compliance.
     history-level: full
     default-serialization-format: application/json
     auto-deployment-enabled: false
     generic-properties:
       properties:
-        historyTimeToLive: P180D
+        # RETENTION POLICY (#29): history is RETAINED, not deleted. Business/audit
+        # requirement — we keep the full process + form-submission history indefinitely
+        # and scale STORAGE to hold it (see docs/runbooks/scaling-and-ha.md), rather than
+        # purging old data via a cleanup job.
+        #
+        # No historyCleanupBatchWindow* is configured, so Camunda's history cleanup job
+        # never runs and nothing is auto-deleted. historyTimeToLive is intentionally
+        # UNSET (no default TTL → no instance is ever eligible for removal → data is
+        # retained indefinitely). If a regulatory retention *limit* is ever required, add
+        # a cleanup window + TTL then.
+        #
+        # enforceHistoryTimeToLive=false: process definitions may deploy WITHOUT declaring
+        # a TTL (we don't want one). This must stay explicit — the engine default would
+        # otherwise reject TTL-less deployments and break process deployment.
         enforceHistoryTimeToLive: false
-        generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-]+"
+        # Colon (:) is allowed so namespaced ids like Clerk consumer users
+        # (clerk:<sub>) pass CIBSeven's resource-id validation. Without it,
+        # creating user 'clerk:user_…' fails: "is not a valid resource identifier".
+        generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-:]+"
 
 # Luke defaults
 luke:
@@ -59,25 +104,220 @@ luke:
     # customer organizations create their own tenants via consumer-ui.
     parent-cluster-id: ${LUKE_PARENT_CLUSTER_ID:parent_cluster}
     parent-cluster-name: ${LUKE_PARENT_CLUSTER_NAME:Parent Cluster}
+  forms:
+    # Public origin the per-recipient outbound links point at. The /respond/:token page is served
+    # as a STANDALONE static bundle by core-engine itself (RespondPageController + /respond-assets),
+    # so this is the gateway/public origin that routes to core — same origin the bundle calls the
+    # public API on. Defaults to core's local port; set FORMS_PUBLIC_BASE_URL to the gateway origin in deploy.
+    recipient-base-url: ${FORMS_PUBLIC_BASE_URL:http://localhost:8080}
+    # HMAC secret for recipient fill-session access tokens (minted after OTP). CHANGE IN PROD.
+    recipient-hmac-secret: ${FORMS_RECIPIENT_HMAC_SECRET:dev-recipient-secret-change-me}
+    # How long a recipient fill session (post-OTP access token) stays valid.
+    recipient-session-ttl-ms: ${FORMS_RECIPIENT_SESSION_TTL_MS:1800000}
+    # BPMN process key started for each form submission (deployed per tenant).
+    intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
+    # Global kill-switch for the "Save submission as Attachment" PDF render (per-form opt-in still
+    # required via the schema's settings.saveSubmissionAsPdf). Off-by-default per-form, on globally.
+    submission-pdf-enabled: ${LUKE_FORMS_SUBMISSION_PDF_ENABLED:true}
+  render:
+    # luke-file-proxy base URL for the internal headless-Chromium render endpoint. UNSET → submission
+    # PDFs are skipped (the feature no-ops) rather than failing submissions.
+    base-url: ${LUKE_RENDER_URL:}
+  signatures:
+    # BPMN process key for the signature ceremony (deployed per tenant). The
+    # SignatureProcessOutboxConsumer starts it on campaign launch and correlates the
+    # SignatureClosure message when the instance reaches a terminal state.
+    ceremony-process-key: ${LUKE_SIGNATURES_CEREMONY_PROCESS_KEY:SignatureCeremonyProcess}
+    # HA: run the outbox poller on exactly ONE node — set false on the others.
+    outbox-enabled: ${LUKE_SIGNATURES_OUTBOX_ENABLED:true}
+    outbox-poll-ms: ${LUKE_SIGNATURES_OUTBOX_POLL_MS:2000}
+  phone:
+    # Vapi.ai (https://vapi.ai) phone integration — inbound + outbound voice calls.
+    vapi:
+      base-url: ${VAPI_BASE_URL:https://api.vapi.ai}
+      # Global fallback Vapi PRIVATE key (dev / single-account). Per-tenant keys are stored
+      # encrypted in the secret store and take precedence (see VapiCredentials).
+      api-key: ${VAPI_API_KEY:}
+      # Shared secret Vapi echoes back in X-Vapi-Secret on every webhook; we verify it.
+      webhook-secret: ${VAPI_WEBHOOK_SECRET:}
+      # Default-lenient: when no webhook-secret is set, webhooks are accepted (dev). Set true in
+      # prod (the prod profile should pin this on) to reject unsigned/mismatched webhooks.
+      webhook-require-secret: ${VAPI_WEBHOOK_REQUIRE_SECRET:false}
+    # BPMN process key started for each call (deployed per tenant). The
+    # PhoneCallProcessOutboxConsumer starts it when a call begins and correlates the
+    # PhoneCallEnded message when the call reaches a terminal status.
+    call-process-key: ${LUKE_PHONE_CALL_PROCESS_KEY:PhoneCallProcess}
+    # HA: run the outbox poller on exactly ONE node — set false on the others.
+    outbox-enabled: ${LUKE_PHONE_OUTBOX_ENABLED:true}
+    outbox-poll-ms: ${LUKE_PHONE_OUTBOX_POLL_MS:2000}
+  workflow:
+    # Nango (https://nango.dev) — managed OAuth + connectors for the WORKFLOW integrations module.
+    nango:
+      base-url: ${NANGO_BASE_URL:https://api.nango.dev}
+      # Platform secret key (server-only Bearer; NEVER sent to the browser — only short-lived
+      # Connect session tokens are). A blank key never crashes boot; a connect attempt fails clearly.
+      secret-key: ${NANGO_SECRET_KEY:}
+      # Per-tenant active-connection quota (the billing-relevant gate).
+      max-connections-per-tenant: ${NANGO_MAX_CONNECTIONS_PER_TENANT:25}
+      # Default-lenient: with no secret-key set, webhooks are accepted (dev). Set true in prod
+      # (the prod profile should pin this on) to reject unsigned/mismatched webhooks — fail-closed.
+      webhook-require-signature: ${NANGO_WEBHOOK_REQUIRE_SIGNATURE:false}
+    # Inbound-event outbox (WF-12): the poller that correlates Nango sync/forward events to Camunda.
+    # HA: run on exactly ONE node — set false on the others.
+    outbox-enabled: ${LUKE_WORKFLOW_OUTBOX_ENABLED:true}
+    outbox-poll-ms: ${LUKE_WORKFLOW_OUTBOX_POLL_MS:2000}
+  internal:
+    # Shared secret for server-to-server calls into /api/internal/** (e.g.
+    # capability-engine starting a process). MUST match capability-engine's
+    # value; unset → the internal endpoints reject everything (403).
+    shared-secret: ${LUKE_INTERNAL_SHARED_SECRET:}
   capabilities:
     base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
+    # Operator credential presented to capability-engine on the admin routes
+    # (/api/tenants/** — subscriptions + grants). Must match capability-engine's
+    # CAPABILITY_OPERATOR_USER/PASSWORD. Unset → no header (capability-engine then
+    # leaves those routes open for local dev).
+    operator:
+      user: ${CAPABILITY_OPERATOR_USER:}
+      password: ${CAPABILITY_OPERATOR_PASSWORD:}
+  auth:
+    # Consumer gateway (luke-auth-engine) trust. When enabled, /engine-rest/*
+    # also accepts Bearer act-as-user tokens signed by the gateway, verified
+    # against its published JWKS. Disabled by default → Basic-auth only.
+    gateway:
+      enabled: ${LUKE_AUTH_GATEWAY_ENABLED:false}
+      jwks-url: ${LUKE_AUTH_GATEWAY_JWKS_URL:}
+      issuer: ${LUKE_AUTH_GATEWAY_ISSUER:luke-auth-engine}
+      audience: ${LUKE_AUTH_GATEWAY_AUDIENCE:luke-core-engine}
+    # Merged from capability: operator credential the capability OperatorAuthFilter
+    # reads for the former admin routes (/api/tenants/**). M2 reconciles this with
+    # luke.capabilities.operator. Unset → routes open (local dev).
+    operator:
+      user: ${CAPABILITY_OPERATOR_USER:}
+      password: ${CAPABILITY_OPERATOR_PASSWORD:}
   cors:
     # Comma-separated origin patterns. Local dev default allows any localhost
     # port; in production set ALLOWED_ORIGINS to your deployed UI URLs.
     allowed-origins: ${ALLOWED_ORIGINS:http://localhost:*}
 
+  # ── Merged from luke-capability-engine (forms/email/secrets/embed data store) ──
+  # NOTE: capability's JPA default_schema is intentionally dropped — entities now
+  # ride core's currentSchema (Strategy A, one schema per env). Do not re-add it.
+  core-engine:
+    # Used by the form process-start path; becomes a no-op once ProcessStarter
+    # goes in-process (M3).
+    base-url: ${CORE_ENGINE_BASE_URL:http://localhost:8080}
+  embed:
+    # HMAC secret for signing/verifying public embed tokens. Set a real value in prod.
+    hmac-secret: ${LUKE_EMBED_HMAC_SECRET:dev-embed-secret-change-me}
+  email:
+    postmark:
+      base-url: ${POSTMARK_BASE_URL:https://api.postmarkapp.com}
+      account-token: ${POSTMARK_ACCOUNT_TOKEN:}
+      server-token: ${POSTMARK_SERVER_TOKEN:}
+      default-from: ${EMAIL_DEFAULT_FROM:}
+      message-stream: ${POSTMARK_MESSAGE_STREAM:outbound}
+    sender:
+      base-domain: ${EMAIL_SENDER_BASE_DOMAIN:}
+      default-local-part: ${EMAIL_SENDER_DEFAULT_LOCAL_PART:no-reply}
+    verification:
+      code-length: ${EMAIL_VERIFICATION_CODE_LENGTH:6}
+      ttl-seconds: ${EMAIL_VERIFICATION_TTL_SECONDS:600}
+      max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+    otp:
+      # Postmark template alias for the one-time-passcode email (published to the
+      # platform server on boot by OtpTemplateInstaller). Sent by alias; falls back
+      # to an inline render of the same template if the stored one is missing.
+      template-alias: ${OTP_TEMPLATE_ALIAS:luke-otp}
+      # Brand/product name merged into the OTP email ({{product_name}}).
+      product-name: ${EMAIL_PRODUCT_NAME:Lukeflow}
+  secrets:
+    # AES-256-GCM master keys for the encrypted secret store.
+    active-key-id: ${LUKE_SECRETS_ACTIVE_KEY_ID:dev}
+    keys:
+      dev: ${LUKE_SECRETS_KEY_DEV:dev-secrets-master-key-change-me}
+
+  # ── Merged from luke-signature-engine (SIG-M) ──────────────────────────────
+  # E-signature capability. PAdES sealing needs an org PKCS#12 keystore
+  # (LUKE_SIGN_KEYSTORE_*) at runtime; the service boots WITHOUT it (only sealing
+  # requires it). Signed PDFs live in the DocumentStore (NOT the DB): local FS in
+  # dev, S3-compatible (R2/B2/MinIO-endpoint) in prod — set LUKE_DOCSTORE_PROVIDER=s3.
+  sign:
+    # Base URL the public per-recipient signing links point at (consumer-ui /sign/:token).
+    public-base-url: ${SIGN_PUBLIC_BASE_URL:http://localhost:5173}
+    # Retention window for signed documents (~7 years).
+    retention-days: ${LUKE_SIGN_RETENTION_DAYS:2555}
+    # PAdES signature dictionary metadata.
+    reason: ${LUKE_SIGN_REASON:Signed via Luke e-signature}
+    location: ${LUKE_SIGN_LOCATION:}
+    trust:
+      # self = US ESIGN/UETA (org cert + free RFC-3161 TSA); qtsp = EU eIDAS (post-V1).
+      mode: ${LUKE_SIGN_TRUST_MODE:self}
+      tsa-enabled: ${LUKE_SIGN_TSA_ENABLED:true}
+      tsa-url: ${LUKE_SIGN_TSA_URL:http://timestamp.digicert.com}
+      keystore-base64: ${LUKE_SIGN_KEYSTORE_BASE64:}
+      keystore-password: ${LUKE_SIGN_KEYSTORE_PASSWORD:}
+      key-alias: ${LUKE_SIGN_KEY_ALIAS:}
+    # CSV of IP-risk classes to hard-block (e.g. TOR,DATACENTER). Empty = flag-only,
+    # never blocks (corporate VPNs / iCloud Private Relay are legit signers).
+    block-ip-risk: ${LUKE_SIGN_BLOCK_IP_RISK:}
+  docstore:
+    # local (dev, file FS) | s3 (AWS/Cloudflare R2/Backblaze B2/MinIO-endpoint).
+    provider: ${LUKE_DOCSTORE_PROVIDER:local}
+    local-dir: ${LUKE_DOCSTORE_LOCAL_DIR:./luke-data/docstore}
+    bucket: ${LUKE_DOCSTORE_BUCKET:}
+    region: ${LUKE_DOCSTORE_REGION:}
+    endpoint: ${LUKE_DOCSTORE_ENDPOINT:}
+    access-key: ${LUKE_DOCSTORE_ACCESS_KEY:}
+    secret-key: ${LUKE_DOCSTORE_SECRET_KEY:}
+    # Per-capability retention (DOC-5). days=0 → no retention. SIGNATURES get a legal window
+    # under COMPLIANCE Object Lock (immutable until expiry); everything else GOVERNANCE.
+    retention:
+      default-days: ${LUKE_DOC_RETENTION_DAYS:0}
+      signatures-days: ${LUKE_DOC_RETENTION_DAYS_SIGNATURES:2555}
+    # Retention purge job (DOC-5). Disabled in dev/qa; enable in prod. Keep dry-run=true first to
+    # log what WOULD be purged. Core marks rows DELETED only — S3 bytes are reclaimed by lifecycle.
+    purge:
+      enabled: ${LUKE_DOC_PURGE_ENABLED:false}
+      dry-run: ${LUKE_DOC_PURGE_DRY_RUN:true}
+      interval-ms: ${LUKE_DOC_PURGE_INTERVAL_MS:86400000}
+
 # Actuator
 management:
   endpoints:
     web:
+      # `metrics` leaks memory/DB-pool/route detail to unauthenticated callers — drop it
+      # from the web surface (scrape it from a private management port if needed).
       exposure:
-        include: health,info,metrics
+        include: health,info
   endpoint:
     health:
+      # Kept `always`: the readiness/liveness probes are orchestration endpoints that must
+      # surface their component (datasource) status — hiding it breaks db-aware readiness.
+      # The bigger leak (metrics) is removed above; isolate /actuator at the network edge
+      # for defence-in-depth rather than blinding the probes.
       show-details: always
+      # Expose liveness/readiness groups (#44). Render's healthCheckPath points at
+      # /actuator/health/readiness (#36).
+      probes:
+        enabled: true
+      # Readiness (#36): include the datasource so an instance with a down/unreachable
+      # DB reports NOT ready (same DB-sensitivity as the old aggregate check, plus drain
+      # semantics). During graceful shutdown readinessState flips OUT_OF_SERVICE → the
+      # readiness probe goes DOWN → the platform stops routing while requests drain.
+      # Liveness stays the default (livenessState only) so a transient DB blip restarts
+      # nothing — it only fails readiness, not liveness.
+      group:
+        readiness:
+          include: readinessState,db
 
 # Logging
 logging:
+  # Tag every log line with the per-request correlation id (set by CorrelationIdFilter,
+  # MDC key 'correlationId') so a request can be traced across its log output. '-' when
+  # outside a request (startup/background).
+  pattern:
+    level: "%5p [cid:%X{correlationId:--}]"
   level:
     root: INFO
     com.luke: DEBUG

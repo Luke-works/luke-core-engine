@@ -52,23 +52,28 @@ public class RestApiAuthFilter {
     private String parentClusterId;
 
     @Bean
-    public FilterRegistrationBean<Filter> engineRestAuthFilter(IdentityService identityService) {
+    public FilterRegistrationBean<Filter> engineRestAuthFilter(IdentityService identityService,
+                                                               GatewayJwtAuthenticator gatewayAuth) {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new EngineRestBasicAuthFilter(identityService, parentClusterId));
+        registration.setFilter(new EngineRestBasicAuthFilter(identityService, gatewayAuth, parentClusterId));
         registration.addUrlPatterns("/engine-rest/*");
         registration.setName("engineRestAuthFilter");
         registration.setOrder(1);
-        log.info("RestApiAuthFilter registered — tenant scope driven by X-Tenant-Id (parent cluster '{}' sees all)", parentClusterId);
+        log.info("RestApiAuthFilter registered — Basic + {} gateway-Bearer; tenant scope driven by X-Tenant-Id (parent cluster '{}' sees all)",
+                gatewayAuth.isEnabled() ? "enabled" : "disabled", parentClusterId);
         return registration;
     }
 
     private static class EngineRestBasicAuthFilter implements Filter {
 
         private final IdentityService identityService;
+        private final GatewayJwtAuthenticator gatewayAuth;
         private final String parentClusterId;
 
-        EngineRestBasicAuthFilter(IdentityService identityService, String parentClusterId) {
+        EngineRestBasicAuthFilter(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+                                  String parentClusterId) {
             this.identityService = identityService;
+            this.gatewayAuth = gatewayAuth;
             this.parentClusterId = parentClusterId;
         }
 
@@ -86,60 +91,109 @@ public class RestApiAuthFilter {
             }
 
             String authHeader = httpReq.getHeader("Authorization");
-
-            if (authHeader == null || !authHeader.toLowerCase().startsWith("basic ")) {
+            if (authHeader == null) {
                 sendUnauthorized(httpResp);
                 return;
             }
 
             try {
-                String base64Credentials = authHeader.substring(6);
-                String decoded = new String(Base64.getDecoder().decode(base64Credentials), StandardCharsets.UTF_8);
-                int colonIndex = decoded.indexOf(':');
-                if (colonIndex < 0) {
+                // Resolve the caller's username from whichever scheme they used:
+                //   Bearer → a gateway act-as-user token (consumer-ui via luke-auth-engine)
+                //   Basic  → username:password against CIBSeven (core-ui, platform extensions)
+                // Both schemes converge on the SAME authorization path below.
+                String lower = authHeader.toLowerCase();
+                String username;
+                if (lower.startsWith("bearer ")) {
+                    username = authenticateBearer(authHeader, httpResp);
+                } else if (lower.startsWith("basic ")) {
+                    username = authenticateBasic(authHeader, httpResp);
+                } else {
                     sendUnauthorized(httpResp);
                     return;
                 }
-
-                String username = decoded.substring(0, colonIndex);
-                String password = decoded.substring(colonIndex + 1);
-
-                if (!identityService.checkPassword(username, password)) {
-                    log.warn("Authentication failed for user: {}", username);
-                    sendUnauthorized(httpResp);
-                    return;
+                if (username == null) {
+                    return; // an error response was already written
                 }
 
-                List<String> userTenants = identityService.createTenantQuery()
-                        .userMember(username)
-                        .list()
-                        .stream()
-                        .map(Tenant::getId)
-                        .toList();
-                // Groups must be passed so authorization checks honor grants
-                // inherited via group membership (e.g. camunda-admin).
-                List<String> groupIds = identityService.createGroupQuery()
-                        .groupMember(username)
-                        .list()
-                        .stream()
-                        .map(Group::getId)
-                        .toList();
-
-                // Resolve the tenant scope for this request from the header.
-                List<String> scopeTenants = resolveScope(httpReq, username, userTenants, groupIds, httpResp);
-                if (scopeTenants == null) {
-                    return; // a 403 was already written
-                }
-
-                identityService.setAuthentication(username, groupIds, scopeTenants);
-                try {
-                    chain.doFilter(request, response);
-                } finally {
-                    identityService.clearAuthentication();
-                }
+                proceedAsUser(username, httpReq, httpResp, request, response, chain);
             } catch (IllegalArgumentException e) {
                 log.debug("Malformed Authorization header");
                 sendUnauthorized(httpResp);
+            }
+        }
+
+        /** Validate HTTP Basic credentials; returns the username or null (response written). */
+        private String authenticateBasic(String authHeader, HttpServletResponse httpResp) throws IOException {
+            String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
+            int colonIndex = decoded.indexOf(':');
+            if (colonIndex < 0) {
+                sendUnauthorized(httpResp);
+                return null;
+            }
+            String username = decoded.substring(0, colonIndex);
+            String password = decoded.substring(colonIndex + 1);
+            if (!identityService.checkPassword(username, password)) {
+                log.warn("Authentication failed for user: {}", username);
+                sendUnauthorized(httpResp);
+                return null;
+            }
+            return username;
+        }
+
+        /**
+         * Validate a gateway act-as-user Bearer token; returns the engine userId
+         * or null (response written). The asserted user must already exist in the
+         * engine — a Clerk user that has authenticated but not yet been onboarded
+         * gets a clean 403 "not provisioned" rather than acting with no scope.
+         */
+        private String authenticateBearer(String authHeader, HttpServletResponse httpResp) throws IOException {
+            String userId = gatewayAuth.authenticate(authHeader.substring(7).trim());
+            if (userId == null) {
+                sendUnauthorized(httpResp);
+                return null;
+            }
+            if (identityService.createUserQuery().userId(userId).count() == 0) {
+                log.warn("Gateway-authenticated user '{}' is not provisioned in the engine", userId);
+                sendNotProvisioned(httpResp, userId);
+                return null;
+            }
+            return userId;
+        }
+
+        /**
+         * Resolve the user's groups + tenants, scope them from {@code X-Tenant-Id},
+         * set the engine authentication, and run the request. Shared by both schemes.
+         */
+        private void proceedAsUser(String username, HttpServletRequest httpReq, HttpServletResponse httpResp,
+                                   ServletRequest request, ServletResponse response, FilterChain chain)
+                throws IOException, ServletException {
+
+            List<String> userTenants = identityService.createTenantQuery()
+                    .userMember(username)
+                    .list()
+                    .stream()
+                    .map(Tenant::getId)
+                    .toList();
+            // Groups must be passed so authorization checks honor grants
+            // inherited via group membership (e.g. camunda-admin).
+            List<String> groupIds = identityService.createGroupQuery()
+                    .groupMember(username)
+                    .list()
+                    .stream()
+                    .map(Group::getId)
+                    .toList();
+
+            // Resolve the tenant scope for this request from the header.
+            List<String> scopeTenants = resolveScope(httpReq, username, userTenants, groupIds, httpResp);
+            if (scopeTenants == null) {
+                return; // a 403 was already written
+            }
+
+            identityService.setAuthentication(username, groupIds, scopeTenants);
+            try {
+                chain.doFilter(request, response);
+            } finally {
+                identityService.clearAuthentication();
             }
         }
 
@@ -183,6 +237,13 @@ public class RestApiAuthFilter {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"Not a member of tenant '" + tenantId + "'\"}");
+        }
+
+        private void sendNotProvisioned(HttpServletResponse response, String userId) throws IOException {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"User '" + userId
+                    + "' is authenticated but not yet onboarded to the engine\"}");
         }
     }
 }

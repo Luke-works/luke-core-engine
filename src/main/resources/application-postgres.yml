@@ -6,15 +6,86 @@ spring:
     # Prefer DB_URL when set (single-string JDBC URL); otherwise construct from
     # individual host/port/db fields. Render's blueprint wires the individual
     # fields from the managed Postgres instance.
-    url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DATABASE:luke_camunda}}
+    #
+    # DB_SCHEMA lets several environments share one Postgres instance by isolating
+    # each in its own schema (e.g. platform_dev / platform_qa / platform_uat).
+    # currentSchema points the connection's search_path at it; the Hikari
+    # connection-init-sql creates the schema on first connect (Postgres won't
+    # auto-create it). Defaults to "public" when DB_SCHEMA is unset.
+    url: ${DB_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DATABASE:luke_camunda}?currentSchema=${DB_SCHEMA:public}}
     username: ${DB_USERNAME:luke}
     password: ${DB_PASSWORD:luke}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
+      # Sized down from 20 → 8: 20 connections is oversized for the basic-256mb
+      # Postgres and each pooled connection holds driver/statement buffers in the
+      # JVM. 8 matches the small instance + job-executor concurrency.
+      maximum-pool-size: 8
+      minimum-idle: 2
       idle-timeout: 30000
       connection-timeout: 20000
+      # Ensure the env's schema exists before Camunda/Hibernate create tables in it.
+      connection-init-sql: CREATE SCHEMA IF NOT EXISTS ${DB_SCHEMA:public}
   h2:
     console:
       enabled: false
+
+  # JPA/Hibernate for the luke_* data-store tables. Scope Hibernate to THIS env's
+  # schema so ddl-auto's table-existence check is schema-qualified. WITHOUT this,
+  # the check scans ALL schemas, sees a leftover capability_<env>.luke_* table, and
+  # skips creating it in ${DB_SCHEMA} — queries then fail "relation does not exist".
+  # This is the JPA counterpart of Camunda's schema-name fix below, and mirrors what
+  # luke-capability-engine did with default_schema before the merge.
+  jpa:
+    hibernate:
+      # Flyway owns the luke_* schema in Postgres (#24); Hibernate must NOT auto-mutate
+      # it. `none` (not `validate`) is deliberate: validate would crash-loop dev/qa on
+      # boot if any existing column had drifted from the mapping under the old
+      # ddl-auto:update regime. Flyway is the single source of truth going forward;
+      # all future luke_* DDL ships as a new V__ migration, not an implicit alter.
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: ${DB_SCHEMA:public}
+        hbm2ddl:
+          create_namespaces: true
+
+  # Flyway manages ONLY the custom luke_* tables (classpath:db/migration). Camunda
+  # keeps managing its own ACT_* tables via camunda.bpm.database.schema-update below.
+  flyway:
+    enabled: true
+    # The schema is ALWAYS non-empty here because Camunda's ACT_* tables share it, so
+    # baseline-on-migrate stamps a baseline on first run regardless of whether the luke_* tables
+    # exist. Baseline at 0 (not 1) so V1 — which CREATEs the luke_* tables — runs on a schema with
+    # no Flyway history yet. For a schema ALREADY baselined past V1 with no luke_* tables (a
+    # Camunda-only schema whose first boot baselined at 1, e.g. an early qa), Flyway won't re-run V1
+    # — so db/migration/beforeMigrate.sql (an idempotent copy of V1) recreates the baseline tables
+    # before V2+ run. Between the two, any environment self-heals on deploy with no manual DB reset.
+    baseline-on-migrate: true
+    baseline-version: 0
+    baseline-description: "pre-luke_* baseline (Camunda-only state)"
+    # Put flyway_schema_history in (and migrate) THIS env's schema, matching the
+    # per-env shared-Postgres isolation used by Hibernate/Camunda above.
+    schemas: ${DB_SCHEMA:public}
+    default-schema: ${DB_SCHEMA:public}
+    create-schemas: true
+
+# CIBSeven schema isolation (PostgreSQL, shared instance).
+#
+# Several env engines share ONE Postgres instance, each isolated in its own
+# schema (platform_dev/qa/uat). currentSchema/search_path alone is not enough:
+# Camunda's "do my tables already exist?" check is NOT schema-scoped, so it
+# scans ALL schemas. When dev + qa first boot together, whichever wins the race
+# creates ACT_* tables; the other engine then sees those tables, assumes its own
+# already exist, skips creation, and crashes with
+# `relation "act_id_user" does not exist`.
+#
+# schema-name scopes the table-presence check to THIS env's schema; table-prefix
+# makes every statement schema-qualified, so creation/queries are deterministic
+# regardless of search_path.
+camunda:
+  bpm:
+    database:
+      schema-update: true
+      schema-name: ${DB_SCHEMA:public}
+      table-prefix: ${DB_SCHEMA:public}.
