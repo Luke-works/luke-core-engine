@@ -5,6 +5,12 @@ server:
   # connections and let in-flight HTTP requests finish before the JVM exits, instead of
   # cutting them off mid-flight. Bounded by spring.lifecycle.timeout-per-shutdown-phase.
   shutdown: graceful
+  # TEMPORARY (qa diagnostics): on_param includes the exception message/stacktrace in an error
+  # response ONLY when the request carries ?message=true / ?trace=true — never by default, so
+  # nothing leaks to normal callers. REMOVE after diagnosing the sign-500.
+  error:
+    include-message: on_param
+    include-stacktrace: on_param
 
 spring:
   # Upper bound on each shutdown phase: web server drains in-flight requests, then the
