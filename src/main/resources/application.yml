@@ -292,8 +292,11 @@ management:
         include: health,info
   endpoint:
     health:
-      # Don't expose component/datasource detail to unauthenticated callers.
-      show-details: when-authorized
+      # Kept `always`: the readiness/liveness probes are orchestration endpoints that must
+      # surface their component (datasource) status — hiding it breaks db-aware readiness.
+      # The bigger leak (metrics) is removed above; isolate /actuator at the network edge
+      # for defence-in-depth rather than blinding the probes.
+      show-details: always
       # Expose liveness/readiness groups (#44). Render's healthCheckPath points at
       # /actuator/health/readiness (#36).
       probes:
