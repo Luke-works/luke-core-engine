@@ -97,6 +97,10 @@ public class FormInboxController {
         // read the real id from the formMetaData process variable. Best-effort: falls back to the
         // business key if the variable is missing/unreadable.
         Map<String, String> formInstanceIds = new HashMap<>();
+        // pid → form definition code, read from the same formMetaData variable (it carries
+        // formCode = FormInstance.definitionCode). Lets the inbox group/filter by form
+        // without an extra FormInstance lookup.
+        Map<String, String> formCodes = new HashMap<>();
         if (!pids.isEmpty()) {
             for (ProcessInstance pi : runtimeService.createProcessInstanceQuery()
                     .processInstanceIds(pids).list()) {
@@ -107,11 +111,17 @@ public class FormInboxController {
                         .processInstanceIdIn(pids.toArray(new String[0]))
                         .variableName("formMetaData")
                         .list()) {
-                    String fid = instanceIdFromMeta(v.getValue());
-                    if (fid != null) formInstanceIds.put(v.getProcessInstanceId(), fid);
+                    JsonNode meta = readMeta(v.getValue());
+                    if (meta == null) continue;
+                    if (meta.hasNonNull("instanceId")) {
+                        formInstanceIds.put(v.getProcessInstanceId(), meta.get("instanceId").asText());
+                    }
+                    if (meta.hasNonNull("formCode")) {
+                        formCodes.put(v.getProcessInstanceId(), meta.get("formCode").asText());
+                    }
                 }
             } catch (RuntimeException e) {
-                log.debug("Inbox: could not resolve formMetaData instanceIds (using business keys): {}", e.toString());
+                log.debug("Inbox: could not resolve formMetaData (using business keys): {}", e.toString());
             }
         }
 
@@ -128,6 +138,7 @@ public class FormInboxController {
             // The submission this task is about (FormInstance id), preferring the variable-resolved id.
             m.put("instanceId", formInstanceIds.getOrDefault(pid, businessKeys.get(pid)));
             m.put("businessKey", businessKeys.get(pid)); // the human-readable SM-... key (display/trace)
+            m.put("definitionCode", formCodes.get(pid)); // the form this task belongs to (inbox grouping)
             out.add(m);
         }
         return new PagedInbox(out, total, offset, limit);
@@ -163,13 +174,12 @@ public class FormInboxController {
         return Map.of("ok", true, "taskId", taskId);
     }
 
-    /** Extract {@code instanceId} from the formMetaData variable (a Spin JSON node or a JSON string —
-     *  both render JSON via toString()). Mirrors FormInstanceWriteBackDelegate. */
-    private static String instanceIdFromMeta(Object formMetaData) {
+    /** Parse the formMetaData variable (a Spin JSON node or a JSON string — both render JSON via
+     *  toString()) into a JsonNode, or null if absent/unreadable. Mirrors FormInstanceWriteBackDelegate. */
+    private static JsonNode readMeta(Object formMetaData) {
         if (formMetaData == null) return null;
         try {
-            JsonNode n = MAPPER.readTree(formMetaData.toString());
-            return n.hasNonNull("instanceId") ? n.get("instanceId").asText() : null;
+            return MAPPER.readTree(formMetaData.toString());
         } catch (Exception e) {
             return null;
         }
