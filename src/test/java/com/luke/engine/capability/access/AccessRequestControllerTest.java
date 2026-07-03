@@ -20,6 +20,7 @@ import org.cibseven.bpm.engine.identity.Group;
 import org.cibseven.bpm.engine.identity.GroupQuery;
 import org.cibseven.bpm.engine.identity.Tenant;
 import org.cibseven.bpm.engine.identity.TenantQuery;
+import org.cibseven.bpm.engine.identity.UserQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -153,19 +154,55 @@ class AccessRequestControllerTest {
         verify(grantController, times(0)).setGrant(any(), any(), any(), any(), any());
     }
 
-    /* ── helpers: make {@code userId} a tenant-admin of TENANT ── */
+    /* ── cross-tenant escalation: admin of another org is NOT an owner here ── */
 
+    @Test
+    void approveRefusedForAdminOfAnotherTenant() {
+        // The exploit: caller owns a DIFFERENT org and is only a plain member of TENANT.
+        // Ownership is scoped, so they must be refused here (was previously allowed via the
+        // global tenant-admin role).
+        ownerCaller(OWNER, "TEN-OTHER-09SEP26");
+        assertThatThrownBy(() -> controller.approve(TENANT, OWNER, "req-x",
+                new AccessRequestController.ApproveBody(null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        verify(grantController, times(0)).setGrant(any(), any(), any(), any(), any());
+    }
+
+    /* ── helpers: make {@code userId} an owner of a tenant, member of TENANT ── */
+
+    /** Caller is an owner of TENANT (the common case). */
     private void adminCaller(String userId) {
-        Group adminGroup = mock(Group.class);
-        when(adminGroup.getId()).thenReturn("tenant-admin");
+        ownerCaller(userId, TENANT);
+    }
+
+    /**
+     * Caller is a plain member of TENANT and an owner of {@code ownedTenant} only. When
+     * {@code ownedTenant != TENANT} this models the cross-tenant-escalation attacker.
+     */
+    private void ownerCaller(String userId, String ownedTenant) {
+        // Not a platform operator (no camunda-admin group).
         GroupQuery groupQuery = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(groupQuery.list()).thenReturn(List.of(adminGroup));
+        when(groupQuery.list()).thenReturn(List.of());
         when(identityService.createGroupQuery()).thenReturn(groupQuery);
 
+        // A member of TENANT (so the membership gate passes).
         Tenant tenant = mock(Tenant.class);
         when(tenant.getId()).thenReturn(TENANT);
         TenantQuery tenantQuery = mock(TenantQuery.class, org.mockito.Answers.RETURNS_SELF);
         when(tenantQuery.list()).thenReturn(List.of(tenant));
         when(identityService.createTenantQuery()).thenReturn(tenantQuery);
+
+        // Scoped ownership: owner of ownedTenant only.
+        UserQuery isOwner = mock(UserQuery.class);
+        when(isOwner.count()).thenReturn(1L);
+        UserQuery notOwner = mock(UserQuery.class);
+        when(notOwner.count()).thenReturn(0L);
+        UserQuery userQuery = mock(UserQuery.class, org.mockito.Answers.RETURNS_SELF);
+        when(userQuery.memberOfGroup("owner:" + ownedTenant)).thenReturn(isOwner);
+        when(userQuery.memberOfGroup(org.mockito.ArgumentMatchers.argThat(
+                g -> !("owner:" + ownedTenant).equals(g)))).thenReturn(notOwner);
+        when(identityService.createUserQuery()).thenReturn(userQuery);
     }
 }

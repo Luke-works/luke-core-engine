@@ -112,6 +112,9 @@ public class OrganizationController {
         if (!isMember(userId, TENANT_ADMIN)) {
             identityService.createMembership(userId, TENANT_ADMIN);
         }
+        // Record the scoped ownership binding authorization reads (owner OF this tenant), so a
+        // global tenant-admin role can never be mistaken for admin rights on someone else's org.
+        com.luke.engine.tenant.TenantOwnership.grant(identityService, userId, tenantId);
         log.info("User '{}' created org '{}' (tenant {}) as owner", userId, name, tenantId);
 
         // Auto-provision the platform admin into the new tenant for support access
