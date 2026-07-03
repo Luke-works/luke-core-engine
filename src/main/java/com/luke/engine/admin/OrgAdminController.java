@@ -119,6 +119,10 @@ public class OrgAdminController {
         }
         identityService.createTenantUserMembership(ctx.tenant, body.id());
         identityService.createMembership(body.id(), roleGroup(body.role(), body.accessLevel()));
+        // A tenant-admin is an owner OF this tenant — record the scoped binding authz reads.
+        if (TENANT_ADMIN.equals(body.role())) {
+            com.luke.engine.tenant.TenantOwnership.grant(identityService, body.id(), ctx.tenant);
+        }
         return Map.of("id", body.id(), "tenant", ctx.tenant);
     }
 
@@ -154,9 +158,10 @@ public class OrgAdminController {
         requireTenantMember(userId, ctx.tenant);
         if (!ASSIGNABLE_ROLES.contains(role)) throw bad("role must be one of " + ASSIGNABLE_ROLES);
         // Don't let an org lose its last owner: removing tenant-admin from the only
-        // remaining owner would leave nobody able to administer the tenant.
+        // remaining owner (of THIS tenant) would leave nobody able to administer it.
         if (TENANT_ADMIN.equals(role) && "none".equals(body.level())
-                && isOwner(userId) && !hasOtherOwner(userId, ctx.tenant)) {
+                && com.luke.engine.tenant.TenantOwnership.isOwner(identityService, userId, ctx.tenant)
+                && !hasOtherOwner(userId, ctx.tenant)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot remove the last org owner. Assign another owner first.");
         }
@@ -165,6 +170,15 @@ public class OrgAdminController {
         if ("read-write".equals(body.level())) identityService.createMembership(userId, role);
         else if ("read".equals(body.level())) identityService.createMembership(userId, role + READONLY);
         else if (!"none".equals(body.level())) throw bad("level must be none|read|read-write");
+        // Keep the scoped ownership binding (what authorization actually reads) in sync with the
+        // tenant-admin role: any tenant-admin tier owns this tenant; 'none' revokes ownership.
+        if (TENANT_ADMIN.equals(role)) {
+            if ("none".equals(body.level())) {
+                com.luke.engine.tenant.TenantOwnership.revoke(identityService, userId, ctx.tenant);
+            } else {
+                com.luke.engine.tenant.TenantOwnership.grant(identityService, userId, ctx.tenant);
+            }
+        }
         return Map.of("userId", userId, "role", role, "level", body.level());
     }
 
@@ -287,26 +301,19 @@ public class OrgAdminController {
         if (tenant == null || tenant.isBlank() || !tenants.contains(tenant)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of tenant '" + tenant + "'");
         }
-        boolean tenantAdmin = groups.stream().anyMatch(g -> "tenant-admin".equals(g.getId()) || ("tenant-admin" + READONLY).equals(g.getId()));
-        if (!tenantAdmin) {
+        // Scoped: owner OF THIS tenant (not the global tenant-admin role, which would let an
+        // admin of any org administer this one). See TenantOwnership.
+        if (!com.luke.engine.tenant.TenantOwnership.isOwner(identityService, userId, tenant)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Requires org owner (tenant-admin)");
         }
         return new Ctx(userId, tenant, false);
     }
 
-    /** Does this user hold the owner (tenant-admin) role in either tier? */
-    private boolean isOwner(String userId) {
-        return identityService.createGroupQuery().groupMember(userId).list().stream()
-                .anyMatch(g -> TENANT_ADMIN.equals(g.getId()) || (TENANT_ADMIN + READONLY).equals(g.getId()));
-    }
-
     /** Is there another owner of {@code tenant} besides {@code excludeUserId}? */
     private boolean hasOtherOwner(String excludeUserId, String tenant) {
-        for (User u : identityService.createUserQuery().memberOfTenant(tenant).list()) {
-            if (u.getId().equals(excludeUserId)) continue;
-            if (isOwner(u.getId())) return true;
-        }
-        return false;
+        long owners = com.luke.engine.tenant.TenantOwnership.ownerCount(identityService, tenant);
+        boolean selfIsOwner = com.luke.engine.tenant.TenantOwnership.isOwner(identityService, excludeUserId, tenant);
+        return owners - (selfIsOwner ? 1 : 0) > 0;
     }
 
     private void requireTenantMember(String userId, String tenant) {

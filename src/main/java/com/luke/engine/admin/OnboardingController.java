@@ -150,6 +150,11 @@ public class OnboardingController {
             if (!isGroupMember(roleGroup, req.id())) {
                 identityService.createMembership(req.id(), roleGroup);
             }
+            // A tenant-admin (either tier) owns the tenant — record the scoped ownership binding
+            // that authorization reads, so operator-provisioned admins are owners of THIS tenant.
+            if ("tenant-admin".equals(roleGroup) || "tenant-admin-readonly".equals(roleGroup)) {
+                com.luke.engine.tenant.TenantOwnership.grant(identityService, req.id(), req.tenantId());
+            }
         } catch (Exception e) {
             if (createdUser) {
                 try {

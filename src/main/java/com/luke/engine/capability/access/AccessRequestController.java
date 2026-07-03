@@ -39,8 +39,6 @@ import org.springframework.web.server.ResponseStatusException;
 public class AccessRequestController {
 
     private static final String CAMUNDA_ADMIN_GROUP = "camunda-admin";
-    private static final String TENANT_ADMIN = "tenant-admin";
-    private static final String READONLY = "-readonly";
 
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")
     private String parentClusterId;
@@ -219,9 +217,9 @@ public class AccessRequestController {
         if (!tenants.contains(tenantId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of tenant '" + tenantId + "'");
         }
-        boolean tenantAdmin = groups.stream()
-                .anyMatch(g -> TENANT_ADMIN.equals(g.getId()) || (TENANT_ADMIN + READONLY).equals(g.getId()));
-        if (!tenantAdmin) {
+        // Scoped: owner OF THIS tenant, not the global tenant-admin role (which would let an admin
+        // of any org approve access here). See TenantOwnership.
+        if (!com.luke.engine.tenant.TenantOwnership.isOwner(identityService, userId, tenantId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Requires org owner (tenant-admin)");
         }
     }
