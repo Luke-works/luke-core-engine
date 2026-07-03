@@ -34,7 +34,7 @@
         <cibseven.version>2.1.0</cibseven.version>
         <!-- Scripting language engines (JSR-223) -->
         <groovy.version>4.0.24</groovy.version>
-        <graaljs.version>24.1.1</graaljs.version>
+        <graaljs.version>25.1.3</graaljs.version>
         <jython.version>2.7.3</jython.version>
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
         <pdfbox.version>3.0.3</pdfbox.version>
