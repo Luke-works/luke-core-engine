@@ -286,11 +286,14 @@ luke:
 management:
   endpoints:
     web:
+      # `metrics` leaks memory/DB-pool/route detail to unauthenticated callers — drop it
+      # from the web surface (scrape it from a private management port if needed).
       exposure:
-        include: health,info,metrics
+        include: health,info
   endpoint:
     health:
-      show-details: always
+      # Don't expose component/datasource detail to unauthenticated callers.
+      show-details: when-authorized
       # Expose liveness/readiness groups (#44). Render's healthCheckPath points at
       # /actuator/health/readiness (#36).
       probes:

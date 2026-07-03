@@ -30,25 +30,29 @@ public class InsecureKeyGuard {
     private static final Logger log = LoggerFactory.getLogger(InsecureKeyGuard.class);
     static final String DEV_EMBED = "dev-embed-secret-change-me";
     static final String DEV_SECRETS = "dev-secrets-master-key-change-me";
+    static final String DEV_RECIPIENT = "dev-recipient-secret-change-me";
 
     private final String embedSecret;
     private final String devSecretsKey;
+    private final String recipientSecret;
     private final boolean requireStrong;
 
     @Autowired
     public InsecureKeyGuard(
             @Value("${luke.embed.hmac-secret:}") String embedSecret,
             @Value("${luke.secrets.keys.dev:}") String devSecretsKey,
+            @Value("${luke.forms.recipient-hmac-secret:}") String recipientSecret,
             @Value("${luke.security.require-strong-keys:false}") boolean requireStrong,
             Environment environment) {
         // The prod profile forces strictness even if the opt-in flag is left unset.
-        this(embedSecret, devSecretsKey, requireStrong || StrictProfile.isActive(environment));
+        this(embedSecret, devSecretsKey, recipientSecret, requireStrong || StrictProfile.isActive(environment));
     }
 
     /** Test-friendly constructor: the effective strict flag is already resolved. */
-    InsecureKeyGuard(String embedSecret, String devSecretsKey, boolean requireStrong) {
+    InsecureKeyGuard(String embedSecret, String devSecretsKey, String recipientSecret, boolean requireStrong) {
         this.embedSecret = embedSecret;
         this.devSecretsKey = devSecretsKey;
+        this.recipientSecret = recipientSecret;
         this.requireStrong = requireStrong;
     }
 
@@ -57,6 +61,9 @@ public class InsecureKeyGuard {
         List<String> insecure = new ArrayList<>();
         if (DEV_EMBED.equals(embedSecret)) insecure.add("luke.embed.hmac-secret (LUKE_EMBED_HMAC_SECRET)");
         if (DEV_SECRETS.equals(devSecretsKey)) insecure.add("luke.secrets.keys.dev (LUKE_SECRETS_KEY_DEV)");
+        // The recipient-fill HMAC secret signs post-OTP outbound-form access tokens; a known
+        // value lets an attacker forge fill-session tokens and bypass OTP (#audit).
+        if (DEV_RECIPIENT.equals(recipientSecret)) insecure.add("luke.forms.recipient-hmac-secret (FORMS_RECIPIENT_HMAC_SECRET)");
         if (insecure.isEmpty()) {
             return;
         }
