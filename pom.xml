@@ -272,6 +272,16 @@
                         </exclude>
                     </excludes>
                 </configuration>
+                <executions>
+                    <!-- Generate META-INF/build-info.properties so /actuator/info reports the
+                         build time + version — lets us confirm which commit a deployed instance
+                         is actually running (previously /actuator/info returned empty {}). -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
