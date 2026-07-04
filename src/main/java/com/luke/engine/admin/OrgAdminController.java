@@ -220,15 +220,20 @@ public class OrgAdminController {
         return Map.of("id", id, "name", body.name().trim());
     }
 
+    // Managing a candidate group's MEMBERS is allowed for a tenant owner OR a manager of that specific
+    // candidate group (delegated via /candidate-groups/{groupId}/managers below).
     @PutMapping("/users/{userId}/candidate-groups/{groupId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addToCandidateGroup(@RequestHeader(value = "Authorization", required = false) String auth,
                                     @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
                                     @PathVariable String userId, @PathVariable String groupId) {
-        Ctx ctx = requireAdmin(auth, tenant);
-        requireTenantMember(userId, ctx.tenant);
+        Ctx ctx = requireCandidateGroupAccess(auth, tenant, groupId);
         requireTenantGroup(groupId, ctx.tenant);
-        identityService.createMembership(userId, groupId);
+        requireTenantMember(userId, ctx.tenant);
+        // Idempotent: a duplicate createMembership throws (500). Only add if not already a member.
+        if (identityService.createGroupQuery().groupId(groupId).groupMember(userId).count() == 0) {
+            identityService.createMembership(userId, groupId);
+        }
     }
 
     @DeleteMapping("/users/{userId}/candidate-groups/{groupId}")
@@ -236,9 +241,57 @@ public class OrgAdminController {
     public void removeFromCandidateGroup(@RequestHeader(value = "Authorization", required = false) String auth,
                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
                                          @PathVariable String userId, @PathVariable String groupId) {
-        Ctx ctx = requireAdmin(auth, tenant);
+        Ctx ctx = requireCandidateGroupAccess(auth, tenant, groupId);
         requireTenantGroup(groupId, ctx.tenant);
         deleteMembership(userId, groupId);
+    }
+
+    /* ── candidate-group managers (delegated management; appoint/remove is OWNER-only) ── */
+
+    /** Users who may manage the membership of {@code groupId}. Visible to a tenant owner or a manager
+     *  of that group. */
+    @GetMapping("/candidate-groups/{groupId}/managers")
+    public List<Map<String, Object>> candidateGroupManagers(
+            @RequestHeader(value = "Authorization", required = false) String auth,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+            @PathVariable String groupId) {
+        Ctx ctx = requireCandidateGroupAccess(auth, tenant, groupId);
+        requireTenantGroup(groupId, ctx.tenant);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String id : com.luke.engine.tenant.CandidateGroupOwnership.managerIds(identityService, groupId)) {
+            User u = identityService.createUserQuery().userId(id).singleResult();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", id);
+            row.put("firstName", u != null ? u.getFirstName() : null);
+            row.put("lastName", u != null ? u.getLastName() : null);
+            out.add(row);
+        }
+        return out;
+    }
+
+    /** Appoint {@code userId} as a manager of candidate group {@code groupId}. OWNER-only: a manager
+     *  can never grow the set of managers (the model you chose). */
+    @PutMapping("/candidate-groups/{groupId}/managers/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addCandidateGroupManager(@RequestHeader(value = "Authorization", required = false) String auth,
+                                         @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                         @PathVariable String groupId, @PathVariable String userId) {
+        Ctx ctx = requireAdmin(auth, tenant); // owner-only
+        requireTenantGroup(groupId, ctx.tenant);
+        requireCandidateGroupExists(groupId);
+        requireTenantMember(userId, ctx.tenant);
+        com.luke.engine.tenant.CandidateGroupOwnership.grant(identityService, userId, groupId);
+    }
+
+    /** Remove {@code userId} as a manager of candidate group {@code groupId}. OWNER-only. */
+    @DeleteMapping("/candidate-groups/{groupId}/managers/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeCandidateGroupManager(@RequestHeader(value = "Authorization", required = false) String auth,
+                                            @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                            @PathVariable String groupId, @PathVariable String userId) {
+        Ctx ctx = requireAdmin(auth, tenant); // owner-only
+        requireTenantGroup(groupId, ctx.tenant);
+        com.luke.engine.tenant.CandidateGroupOwnership.revoke(identityService, userId, groupId);
     }
 
     /* ── capabilities (delegated to capability-engine, after authz) ──── */
@@ -315,6 +368,38 @@ public class OrgAdminController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Requires org owner (tenant-admin)");
         }
         return new Ctx(userId, tenant, false);
+    }
+
+    /** Caller may manage the MEMBERS of candidate group {@code groupId}: a platform operator, a
+     *  tenant owner, or an appointed manager of that specific candidate group. (requireTenantGroup,
+     *  called by the endpoint right after, still pins {@code groupId} to the active tenant — so a
+     *  manager of another tenant's group can't cross over.) */
+    private Ctx requireCandidateGroupAccess(String authHeader, String tenant, String groupId) {
+        String userId = resolveUserId(authHeader);
+        List<Group> groups = identityService.createGroupQuery().groupMember(userId).list();
+        List<String> tenants = identityService.createTenantQuery().userMember(userId).list()
+                .stream().map(t -> t.getId()).toList();
+        boolean operator = groups.stream().anyMatch(g -> CAMUNDA_ADMIN_GROUP.equals(g.getId())) || tenants.contains(parentClusterId);
+        if (operator) {
+            if (tenant == null || tenant.isBlank()) throw bad("X-Tenant-Id is required");
+            return new Ctx(userId, tenant, true);
+        }
+        if (tenant == null || tenant.isBlank() || !tenants.contains(tenant)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of tenant '" + tenant + "'");
+        }
+        boolean owner = com.luke.engine.tenant.TenantOwnership.isOwner(identityService, userId, tenant);
+        boolean manager = com.luke.engine.tenant.CandidateGroupOwnership.isManager(identityService, userId, groupId);
+        if (!owner && !manager) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Requires org owner or candidate-group manager");
+        }
+        return new Ctx(userId, tenant, false);
+    }
+
+    /** The candidate group must exist before managers can be appointed to it. */
+    private void requireCandidateGroupExists(String groupId) {
+        if (identityService.createGroupQuery().groupId(groupId).count() == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown candidate group: " + groupId);
+        }
     }
 
     /** Is there another owner of {@code tenant} besides {@code excludeUserId}? */
