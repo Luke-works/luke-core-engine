@@ -117,8 +117,16 @@ public class OrgAdminController {
             u.setPassword(body.password() != null ? body.password() : UUID.randomUUID().toString());
             identityService.saveUser(u);
         }
-        identityService.createTenantUserMembership(ctx.tenant, body.id());
-        identityService.createMembership(body.id(), roleGroup(body.role(), body.accessLevel()));
+        // Idempotent: role groups are GLOBAL, so a user already holding this role in another tenant
+        // is already in the group — an unguarded createMembership would throw a duplicate-key error
+        // (500) when adding an existing user to a second org. Guard both memberships.
+        if (identityService.createTenantQuery().tenantId(ctx.tenant).userMember(body.id()).count() == 0) {
+            identityService.createTenantUserMembership(ctx.tenant, body.id());
+        }
+        String rg = roleGroup(body.role(), body.accessLevel());
+        if (identityService.createGroupQuery().groupId(rg).groupMember(body.id()).count() == 0) {
+            identityService.createMembership(body.id(), rg);
+        }
         // A tenant-admin is an owner OF this tenant — record the scoped binding authz reads.
         if (TENANT_ADMIN.equals(body.role())) {
             com.luke.engine.tenant.TenantOwnership.grant(identityService, body.id(), ctx.tenant);
