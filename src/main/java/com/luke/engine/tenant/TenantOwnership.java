@@ -37,21 +37,33 @@ public final class TenantOwnership {
         return PREFIX + tenantId;
     }
 
+    // IMPORTANT: membership is checked via GroupQuery.groupId(g).groupMember(u), NOT
+    // UserQuery.userId(u).memberOfGroup(g). The latter is BROKEN in CIBSeven — combined with
+    // userId in a count() it ignores the group filter and returns 1 for any existing user, which
+    // silently made isOwner() true for everyone AND made grant()'s idempotency guard skip the
+    // createMembership for everyone (owner groups stayed empty). Net effect: the scoped-ownership
+    // authorization was completely bypassed — any tenant member could administer the tenant.
+    // The group-query form below is verified to evaluate membership correctly.
+    private static boolean isMemberOfOwnerGroup(IdentityService identity, String userId, String tenantId) {
+        return identity.createGroupQuery().groupId(groupId(tenantId)).groupMember(userId).count() > 0;
+    }
+
     /** Is {@code userId} an owner (admin) of {@code tenantId}? */
     public static boolean isOwner(IdentityService identity, String userId, String tenantId) {
         if (userId == null || tenantId == null) return false;
-        return identity.createUserQuery().userId(userId).memberOfGroup(groupId(tenantId)).count() > 0;
+        return isMemberOfOwnerGroup(identity, userId, tenantId);
     }
 
     /** How many owners does {@code tenantId} have? Used for the last-owner guard. */
     public static long ownerCount(IdentityService identity, String tenantId) {
+        // memberOfGroup WITHOUT userId is fine (only the userId+memberOfGroup combination is broken).
         return identity.createUserQuery().memberOfGroup(groupId(tenantId)).count();
     }
 
     /** Make {@code userId} an owner of {@code tenantId} (idempotent; creates the group on first use). */
     public static void grant(IdentityService identity, String userId, String tenantId) {
         ensureGroup(identity, tenantId);
-        if (identity.createUserQuery().userId(userId).memberOfGroup(groupId(tenantId)).count() == 0) {
+        if (!isMemberOfOwnerGroup(identity, userId, tenantId)) {
             identity.createMembership(userId, groupId(tenantId));
         }
     }

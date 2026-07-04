@@ -202,7 +202,9 @@ public class OrganizationController {
     }
 
     private boolean isMember(String userId, String groupId) {
-        return identityService.createUserQuery().userId(userId).memberOfGroup(groupId).count() > 0;
+        // GroupQuery form: UserQuery.userId(u).memberOfGroup(g).count() is broken in CIBSeven
+        // (ignores the group filter, returns 1 for any existing user) — see TenantOwnership.
+        return identityService.createGroupQuery().groupId(groupId).groupMember(userId).count() > 0;
     }
 
     private static final String LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

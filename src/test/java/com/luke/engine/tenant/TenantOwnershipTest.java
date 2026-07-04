@@ -1,24 +1,53 @@
 package com.luke.engine.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Group;
-import org.cibseven.bpm.engine.identity.GroupQuery;
-import org.cibseven.bpm.engine.identity.UserQuery;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
-/** The scoped-ownership binding: id format, tenant-scoped membership, idempotent grant. */
+/**
+ * INTEGRATION test against the REAL CIBSeven {@link IdentityService} (H2-backed) — deliberately not
+ * mocked.
+ *
+ * <p>The previous version of this test mocked the identity queries, so it happily passed while the
+ * production code was completely broken: {@code UserQuery.userId(u).memberOfGroup(g).count()} ignores
+ * the group filter in CIBSeven and returns 1 for any existing user, which made {@code isOwner()} true
+ * for everyone and made {@code grant()}'s idempotency guard skip the membership for everyone. A live
+ * pentest (Suite 1) caught it in qa; a mock never could. This test exercises the real query engine so
+ * the regression can't come back: it asserts a non-owner is NOT an owner (the exact thing the bug got
+ * wrong) and that grant/revoke actually move membership.
+ */
+@SpringBootTest
 class TenantOwnershipTest {
 
-    private static final String TENANT = "TEN-ACM-01JAN26";
-    private static final String USER = "workos:user_1";
+    @Autowired
+    private IdentityService identity;
+
+    private static final String TENANT = "TEN-OWN-TEST";
+    private static final String OTHER_TENANT = "TEN-OTH-TEST";
+    private static final String OWNER = "ownership-test-owner";
+    private static final String MEMBER = "ownership-test-member";
+
+    @AfterEach
+    void cleanup() {
+        for (String u : new String[] {OWNER, MEMBER}) {
+            try { identity.deleteMembership(u, TenantOwnership.groupId(TENANT)); } catch (RuntimeException ignore) { }
+            try { identity.deleteUser(u); } catch (RuntimeException ignore) { }
+        }
+        for (String t : new String[] {TENANT, OTHER_TENANT}) {
+            try { identity.deleteGroup(TenantOwnership.groupId(t)); } catch (RuntimeException ignore) { }
+            try { identity.deleteTenant(t); } catch (RuntimeException ignore) { }
+        }
+    }
+
+    private void createUser(String id) {
+        var u = identity.newUser(id);
+        u.setPassword("x");
+        identity.saveUser(u);
+    }
 
     @Test
     void groupIdIsScopedToTenant() {
@@ -26,54 +55,45 @@ class TenantOwnershipTest {
     }
 
     @Test
-    void isOwnerChecksMembershipOfTheTenantScopedGroup() {
-        IdentityService identity = mock(IdentityService.class);
-        UserQuery q = mock(UserQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(q.count()).thenReturn(1L);
-        when(identity.createUserQuery()).thenReturn(q);
+    void grantMakesOnlyTheGrantedUserAnOwner() {
+        createUser(OWNER);
+        createUser(MEMBER);
 
-        assertThat(TenantOwnership.isOwner(identity, USER, TENANT)).isTrue();
-        verify(q).userId(USER);
-        verify(q).memberOfGroup("owner:" + TENANT); // NOT the global "tenant-admin" group
+        // Before any grant, nobody is an owner.
+        assertThat(TenantOwnership.isOwner(identity, OWNER, TENANT)).isFalse();
+        assertThat(TenantOwnership.ownerCount(identity, TENANT)).isZero();
+
+        TenantOwnership.grant(identity, OWNER, TENANT);
+
+        // The granted user IS an owner; a different existing user is NOT — this is the exact
+        // assertion the broken userId+memberOfGroup query got wrong (it returned true for everyone).
+        assertThat(TenantOwnership.isOwner(identity, OWNER, TENANT)).isTrue();
+        assertThat(TenantOwnership.isOwner(identity, MEMBER, TENANT)).isFalse();
+        assertThat(TenantOwnership.ownerCount(identity, TENANT)).isEqualTo(1);
     }
 
     @Test
-    void grantCreatesGroupOnceAndIsIdempotent() {
-        IdentityService identity = mock(IdentityService.class);
-        GroupQuery gq = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(gq.count()).thenReturn(0L); // group does not exist yet
-        when(identity.createGroupQuery()).thenReturn(gq);
-        when(identity.newGroup(eq("owner:" + TENANT))).thenReturn(mock(Group.class));
-        UserQuery uq = mock(UserQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(uq.count()).thenReturn(0L); // not yet a member
-        when(identity.createUserQuery()).thenReturn(uq);
-
-        TenantOwnership.grant(identity, USER, TENANT);
-
-        verify(identity).saveGroup(org.mockito.ArgumentMatchers.any(Group.class));
-        verify(identity).createMembership(USER, "owner:" + TENANT);
+    void ownershipIsScopedToItsOwnTenant() {
+        createUser(OWNER);
+        TenantOwnership.grant(identity, OWNER, TENANT);
+        // Owner of TENANT is NOT an owner of a different tenant.
+        assertThat(TenantOwnership.isOwner(identity, OWNER, OTHER_TENANT)).isFalse();
     }
 
     @Test
-    void grantDoesNotDuplicateMembership() {
-        IdentityService identity = mock(IdentityService.class);
-        GroupQuery gq = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(gq.count()).thenReturn(1L); // group already exists
-        when(identity.createGroupQuery()).thenReturn(gq);
-        UserQuery uq = mock(UserQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(uq.count()).thenReturn(1L); // already a member
-        when(identity.createUserQuery()).thenReturn(uq);
-
-        TenantOwnership.grant(identity, USER, TENANT);
-
-        verify(identity, never()).saveGroup(org.mockito.ArgumentMatchers.any(Group.class));
-        verify(identity, never()).createMembership(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    void grantIsIdempotent() {
+        createUser(OWNER);
+        TenantOwnership.grant(identity, OWNER, TENANT);
+        TenantOwnership.grant(identity, OWNER, TENANT);
+        assertThat(TenantOwnership.ownerCount(identity, TENANT)).isEqualTo(1);
     }
 
     @Test
-    void revokeDeletesMembershipAndSwallowsErrors() {
-        IdentityService identity = mock(IdentityService.class);
-        TenantOwnership.revoke(identity, USER, TENANT);
-        verify(identity, times(1)).deleteMembership(USER, "owner:" + TENANT);
+    void revokeRemovesOwnership() {
+        createUser(OWNER);
+        TenantOwnership.grant(identity, OWNER, TENANT);
+        TenantOwnership.revoke(identity, OWNER, TENANT);
+        assertThat(TenantOwnership.isOwner(identity, OWNER, TENANT)).isFalse();
+        assertThat(TenantOwnership.ownerCount(identity, TENANT)).isZero();
     }
 }

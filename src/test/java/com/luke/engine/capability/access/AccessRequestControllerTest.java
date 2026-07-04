@@ -20,7 +20,6 @@ import org.cibseven.bpm.engine.identity.Group;
 import org.cibseven.bpm.engine.identity.GroupQuery;
 import org.cibseven.bpm.engine.identity.Tenant;
 import org.cibseven.bpm.engine.identity.TenantQuery;
-import org.cibseven.bpm.engine.identity.UserQuery;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -182,11 +181,6 @@ class AccessRequestControllerTest {
      * {@code ownedTenant != TENANT} this models the cross-tenant-escalation attacker.
      */
     private void ownerCaller(String userId, String ownedTenant) {
-        // Not a platform operator (no camunda-admin group).
-        GroupQuery groupQuery = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(groupQuery.list()).thenReturn(List.of());
-        when(identityService.createGroupQuery()).thenReturn(groupQuery);
-
         // A member of TENANT (so the membership gate passes).
         Tenant tenant = mock(Tenant.class);
         when(tenant.getId()).thenReturn(TENANT);
@@ -194,15 +188,19 @@ class AccessRequestControllerTest {
         when(tenantQuery.list()).thenReturn(List.of(tenant));
         when(identityService.createTenantQuery()).thenReturn(tenantQuery);
 
-        // Scoped ownership: owner of ownedTenant only.
-        UserQuery isOwner = mock(UserQuery.class);
-        when(isOwner.count()).thenReturn(1L);
-        UserQuery notOwner = mock(UserQuery.class);
-        when(notOwner.count()).thenReturn(0L);
-        UserQuery userQuery = mock(UserQuery.class, org.mockito.Answers.RETURNS_SELF);
-        when(userQuery.memberOfGroup("owner:" + ownedTenant)).thenReturn(isOwner);
-        when(userQuery.memberOfGroup(org.mockito.ArgumentMatchers.argThat(
-                g -> !("owner:" + ownedTenant).equals(g)))).thenReturn(notOwner);
-        when(identityService.createUserQuery()).thenReturn(userQuery);
+        // createGroupQuery() serves BOTH the operator check (.groupMember(u).list() → no camunda-admin)
+        // and TenantOwnership.isOwner (.groupId("owner:<t>").groupMember(u).count()). Ownership resolves
+        // to 1 only for ownedTenant. (Mirrors the real group-query path — the userId+memberOfGroup form
+        // was the broken one that shipped the escalation.)
+        GroupQuery ownerHit = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
+        when(ownerHit.count()).thenReturn(1L);
+        GroupQuery ownerMiss = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
+        when(ownerMiss.count()).thenReturn(0L);
+        GroupQuery groupQuery = mock(GroupQuery.class, org.mockito.Answers.RETURNS_SELF);
+        when(groupQuery.list()).thenReturn(List.of()); // operator check: no camunda-admin
+        when(groupQuery.groupId("owner:" + ownedTenant)).thenReturn(ownerHit);
+        when(groupQuery.groupId(org.mockito.ArgumentMatchers.argThat(
+                g -> !("owner:" + ownedTenant).equals(g)))).thenReturn(ownerMiss);
+        when(identityService.createGroupQuery()).thenReturn(groupQuery);
     }
 }

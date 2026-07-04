@@ -226,7 +226,9 @@ public class OnboardingController {
     }
 
     private boolean isGroupMember(String groupId, String userId) {
-        return identityService.createUserQuery().userId(userId).memberOfGroup(groupId).count() > 0;
+        // GroupQuery form: UserQuery.userId(u).memberOfGroup(g).count() is broken in CIBSeven
+        // (ignores the group filter, returns 1 for any existing user) — see TenantOwnership.
+        return identityService.createGroupQuery().groupId(groupId).groupMember(userId).count() > 0;
     }
 
     private String firstBlank(OnboardUserRequest r) {
