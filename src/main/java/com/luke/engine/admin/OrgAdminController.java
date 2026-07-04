@@ -410,7 +410,11 @@ public class OrgAdminController {
     }
 
     private void requireTenantMember(String userId, String tenant) {
-        if (identityService.createUserQuery().userId(userId).memberOfTenant(tenant).count() == 0) {
+        // TenantQuery form: UserQuery.userId(u).memberOfTenant(t).count() is broken in CIBSeven the
+        // same way userId+memberOfGroup is — it ignores the filter and returns 1 for any user, so the
+        // old form never rejected a non-member (an owner could act on users outside their org). See
+        // TenantOwnership / TenantMembershipQueryTest.
+        if (identityService.createTenantQuery().tenantId(tenant).userMember(userId).count() == 0) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "User '" + userId + "' is not in this org");
         }
     }
