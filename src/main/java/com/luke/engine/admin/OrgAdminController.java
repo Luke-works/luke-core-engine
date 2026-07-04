@@ -220,6 +220,41 @@ public class OrgAdminController {
         return Map.of("id", id, "name", body.name().trim());
     }
 
+    /** Rename a candidate group's DISPLAY name. Owner/operator only. The id (derived from the original
+     *  name at creation) is immutable — process definitions and per-field references bind to the id, so a
+     *  rename only changes what the UI shows, never the group's identity or its memberships. */
+    @PutMapping("/candidate-groups/{groupId}")
+    public Map<String, String> renameCandidateGroup(@RequestHeader(value = "Authorization", required = false) String auth,
+                                                    @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                                    @PathVariable String groupId, @RequestBody GroupBody body) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        requireTenantGroup(groupId, ctx.tenant);
+        requireCandidateGroupExists(groupId);
+        if (body.name() == null || body.name().isBlank()) throw bad("name is required");
+        Group g = identityService.createGroupQuery().groupId(groupId).singleResult();
+        g.setName(body.name().trim());
+        identityService.saveGroup(g);
+        return Map.of("id", groupId, "name", body.name().trim());
+    }
+
+    /** Delete a candidate group and its delegated-managers group. Owner/operator only. CIBSeven removes
+     *  the group's memberships with it; we additionally drop the {@code cgowner:<id>} managers group so no
+     *  orphaned owner binding survives. Idempotent — deleting an already-gone group is a no-op 204. */
+    @DeleteMapping("/candidate-groups/{groupId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteCandidateGroup(@RequestHeader(value = "Authorization", required = false) String auth,
+                                     @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                     @PathVariable String groupId) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        requireTenantGroup(groupId, ctx.tenant);
+        com.luke.engine.tenant.CandidateGroupOwnership.deleteManagersGroup(identityService, groupId);
+        try {
+            identityService.deleteGroup(groupId);
+        } catch (RuntimeException ignored) {
+            /* already gone — idempotent */
+        }
+    }
+
     // Managing a candidate group's MEMBERS is allowed for a tenant owner OR a manager of that specific
     // candidate group (delegated via /candidate-groups/{groupId}/managers below).
     @PutMapping("/users/{userId}/candidate-groups/{groupId}")

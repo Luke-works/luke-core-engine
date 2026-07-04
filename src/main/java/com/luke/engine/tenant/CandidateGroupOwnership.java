@@ -60,6 +60,17 @@ public final class CandidateGroupOwnership {
         }
     }
 
+    /** Delete the managers group of {@code candidateGroupId} entirely (its memberships go with it).
+     *  Used when the candidate group itself is deleted so no orphaned {@code cgowner:} group remains.
+     *  No-op if the group was never created. */
+    public static void deleteManagersGroup(IdentityService identity, String candidateGroupId) {
+        try {
+            identity.deleteGroup(managerGroupId(candidateGroupId));
+        } catch (RuntimeException ignored) {
+            /* never had managers / already gone */
+        }
+    }
+
     private static void ensureGroup(IdentityService identity, String candidateGroupId) {
         String gid = managerGroupId(candidateGroupId);
         if (identity.createGroupQuery().groupId(gid).count() == 0) {

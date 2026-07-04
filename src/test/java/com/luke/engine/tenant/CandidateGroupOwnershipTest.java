@@ -72,6 +72,20 @@ class CandidateGroupOwnershipTest {
     }
 
     @Test
+    void deleteManagersGroupRemovesTheOwnerBindingAndIsIdempotent() {
+        createUser(MANAGER);
+        CandidateGroupOwnership.grant(identity, MANAGER, CG);
+        assertThat(CandidateGroupOwnership.isManager(identity, MANAGER, CG)).isTrue();
+
+        CandidateGroupOwnership.deleteManagersGroup(identity, CG);
+        assertThat(CandidateGroupOwnership.isManager(identity, MANAGER, CG)).isFalse();
+        assertThat(CandidateGroupOwnership.managerIds(identity, CG)).isEmpty();
+
+        // Deleting a group that was never created (or already gone) is a safe no-op.
+        CandidateGroupOwnership.deleteManagersGroup(identity, "TEN-CG-TEST:never");
+    }
+
+    @Test
     void grantIsIdempotentAndRevokeRemoves() {
         createUser(MANAGER);
         CandidateGroupOwnership.grant(identity, MANAGER, CG);
