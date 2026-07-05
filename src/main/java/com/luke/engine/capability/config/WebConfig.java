@@ -23,6 +23,18 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // Public embed/sign surface is unauthenticated (token/HMAC-gated, no cookies) and
+        // designed for arbitrary third-party sites embedding a form, so it must accept any
+        // origin — WITHOUT credentials. Must mirror SecurityConfig's CorsFilter policy: the
+        // filter gates the request first, but this handler-level mapping runs again on
+        // dispatch, so both layers have to agree or cross-origin embeds still 403.
+        // Registered before "/api/**" so it wins the path match for public routes.
+        registry.addMapping("/api/public/**")
+                .allowedOriginPatterns("*")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
+                .allowedHeaders("Content-Type", "Accept", "X-Tenant-Id")
+                .allowCredentials(false);
+
         registry.addMapping("/api/**")
                 .allowedOriginPatterns(allowedOrigins.toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
