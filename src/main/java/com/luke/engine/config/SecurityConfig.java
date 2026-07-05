@@ -58,6 +58,21 @@ public class SecurityConfig {
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // Public embed/sign/documents surface (/api/public/**) is unauthenticated and
+        // guarded by signed tokens/HMAC + rate limits + honeypot — NOT by cookies. It is
+        // designed to be called from arbitrary third-party sites embedding a form, so CORS
+        // must allow any origin. CORS is not an authz control here; opening it adds no
+        // exposure because no credentials ride these requests. Kept WITHOUT credentials and
+        // without identity/trust headers so it can never be widened into a credentialed hole.
+        // Registered before "/**" so it wins the path match for public routes.
+        CorsConfiguration publicConfig = new CorsConfiguration();
+        publicConfig.setAllowedOriginPatterns(List.of("*"));
+        publicConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        publicConfig.setAllowedHeaders(List.of("Content-Type", "Accept", "X-Tenant-Id"));
+        publicConfig.setAllowCredentials(false);
+        publicConfig.setMaxAge(3600L);
+        source.registerCorsConfiguration("/api/public/**", publicConfig);
+
         source.registerCorsConfiguration("/**", config);
         return source;
     }
