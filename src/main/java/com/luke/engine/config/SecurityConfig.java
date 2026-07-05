@@ -64,7 +64,14 @@ public class SecurityConfig {
         // must allow any origin. CORS is not an authz control here; opening it adds no
         // exposure because no credentials ride these requests. Kept WITHOUT credentials and
         // without identity/trust headers so it can never be widened into a credentialed hole.
-        // Registered before "/**" so it wins the path match for public routes.
+        //
+        // This also covers the embed page's own static bundle (/embed-assets/**): the shell
+        // boots it via <script type="module">, which is fetched in CORS mode and therefore
+        // sends an Origin header EVEN same-origin. The embed page is served off gateway hosts
+        // (e.g. authdev.lukeflow.com) that aren't in the first-party allowlist, so without
+        // this the bundle 403s and the form never renders. The page route (/embed/**) is a
+        // navigation (no CORS), but is included for consistency — it's public by design.
+        // Registered before "/**" so these win the path match for public routes.
         CorsConfiguration publicConfig = new CorsConfiguration();
         publicConfig.setAllowedOriginPatterns(List.of("*"));
         publicConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
@@ -72,6 +79,8 @@ public class SecurityConfig {
         publicConfig.setAllowCredentials(false);
         publicConfig.setMaxAge(3600L);
         source.registerCorsConfiguration("/api/public/**", publicConfig);
+        source.registerCorsConfiguration("/embed-assets/**", publicConfig);
+        source.registerCorsConfiguration("/embed/**", publicConfig);
 
         source.registerCorsConfiguration("/**", config);
         return source;
