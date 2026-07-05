@@ -55,4 +55,30 @@ class SecurityConfigCorsTest {
         assertTrue(patterns.indexOf("/api/public/**") < patterns.indexOf("/**"),
                 "public route must be registered before the catch-all");
     }
+
+    /**
+     * The embed shell boots its bundle via {@code <script type="module">}, which is fetched in
+     * CORS mode and sends an Origin header even same-origin. The page is served off gateway hosts
+     * outside the first-party allowlist, so the static bundle must accept any origin or the form
+     * never renders.
+     */
+    @Test
+    void embedAssetsAllowAnyOriginWithoutCredentials() {
+        SecurityConfig sc = new SecurityConfig();
+        ReflectionTestUtils.setField(sc, "allowedOrigins", "https://app.example.com");
+
+        UrlBasedCorsConfigurationSource src =
+                (UrlBasedCorsConfigurationSource) sc.corsConfigurationSource();
+
+        for (String route : new String[] {"/embed-assets/**", "/embed/**"}) {
+            CorsConfiguration cfg = src.getCorsConfigurations().get(route);
+            assertNotNull(cfg, route + " must have its own CORS policy");
+            assertTrue(cfg.getAllowedOriginPatterns().contains("*"), route + " must allow any origin");
+            assertFalse(Boolean.TRUE.equals(cfg.getAllowCredentials()), route + " must NOT send credentials");
+
+            var patterns = src.getCorsConfigurations().keySet().stream().toList();
+            assertTrue(patterns.indexOf(route) < patterns.indexOf("/**"),
+                    route + " must be registered before the catch-all");
+        }
+    }
 }
