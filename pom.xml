@@ -39,7 +39,7 @@
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
         <pdfbox.version>3.0.3</pdfbox.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
-        <awssdk.version>2.25.60</awssdk.version>
+        <awssdk.version>2.47.4</awssdk.version>
     </properties>
 
     <!-- ============================================================= -->
