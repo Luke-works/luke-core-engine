@@ -33,7 +33,7 @@
         <java.version>21</java.version>
         <cibseven.version>2.1.0</cibseven.version>
         <!-- Scripting language engines (JSR-223) -->
-        <groovy.version>4.0.24</groovy.version>
+        <groovy.version>5.0.7</groovy.version>
         <graaljs.version>24.1.1</graaljs.version>
         <jython.version>2.7.3</jython.version>
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
