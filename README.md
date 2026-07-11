@@ -1,10 +1,10 @@
 # Luke Core Engine
 
-Multi-tenant [CIBSeven](https://www.cibseven.org/) (Camunda 7) process engine. Spring Boot 3.4 + Java 21 + PostgreSQL. Customer organizations map to Camunda tenants; an admin "parent cluster" tenant exists for cluster operators.
+Multi-tenant [FluxNova](https://fluxnova.finos.org/) (FINOS fork of Camunda 7) process engine. Spring Boot 3.4 + Java 21 + PostgreSQL. Customer organizations map to Camunda tenants; an admin "parent cluster" tenant exists for cluster operators.
 
 ## What's in this repo
 
-- `src/main/java/com/luke/engine/` — Spring Boot app wrapping the CIBSeven BPMN engine, custom tenant filters, REST controllers
+- `src/main/java/com/luke/engine/` — Spring Boot app wrapping the FluxNova BPMN engine, custom tenant filters, REST controllers
 - `src/main/resources/application*.yml` — Configuration (H2 default, Postgres via `postgres` profile)
 - `Dockerfile` — Multi-stage container build (JDK 21 build → JRE runtime)
 - `render.yaml` — [Render](https://render.com) Blueprint for one-click deploy (web service + managed Postgres)

@@ -51,7 +51,7 @@ class PostgresSchemaValidationTest {
         // Satisfy the postgres-profile fail-fast guards so the context boots far enough to validate:
         // AdminPasswordGuard requires a non-default Camunda admin password; H2ConsoleGuard requires the
         // H2 console off. (The prod-only guards — InsecureKey/AuthHardening/Edge — don't fire here.)
-        registry.add("camunda.bpm.admin-user.password", () -> "test-Str0ng-Passw0rd-not-default");
+        registry.add("fluxnova.bpm.admin-user.password", () -> "test-Str0ng-Passw0rd-not-default");
         registry.add("spring.h2.console.enabled", () -> "false");
     }
 

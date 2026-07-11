@@ -1,7 +1,7 @@
 package com.luke.engine.backfill;
 
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +18,7 @@ public class AdminTenantMembershipBackfill implements Backfill {
 
     private final IdentityService identityService;
 
-    @Value("${camunda.bpm.admin-user.id:admin}")
+    @Value("${fluxnova.bpm.admin-user.id:admin}")
     private String adminUserId;
 
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")

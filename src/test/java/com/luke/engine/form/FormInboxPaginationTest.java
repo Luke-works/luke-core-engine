@@ -8,10 +8,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.TaskService;
-import org.cibseven.bpm.engine.task.Task;
-import org.cibseven.bpm.engine.task.TaskQuery;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.TaskService;
+import org.finos.fluxnova.bpm.engine.task.Task;
+import org.finos.fluxnova.bpm.engine.task.TaskQuery;
 import org.junit.jupiter.api.Test;
 
 /** #23/#26: the inbox query is paginated + size-capped, reports a total, and supports

@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.User;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.User;
 import org.springframework.stereotype.Component;
 
 /**

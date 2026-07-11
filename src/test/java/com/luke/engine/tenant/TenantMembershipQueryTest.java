@@ -2,7 +2,7 @@ package com.luke.engine.tenant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.cibseven.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,12 +52,14 @@ class TenantMembershipQueryTest {
         assertThat(identity.createTenantQuery().tenantId(B).userMember(USER).count())
                 .as("NOT a member of B").isZero();
 
-        // CHARACTERIZATION of the BROKEN form (do NOT use it): userId+memberOfTenant ignores the
-        // tenant filter and returns 1 for any existing user — 1 even for tenant B where USER is not a
-        // member. This is why requireTenantMember was switched off it. If CIBSeven ever fixes this,
-        // update this test.
-        assertThat(identity.createUserQuery().userId(USER).memberOfTenant(A).count()).isEqualTo(1);
+        // The userId+memberOfTenant form: under CIBSeven this IGNORED the tenant filter and returned 1
+        // for any existing user (1 even for tenant B where USER is not a member) — the trap that made us
+        // switch requireTenantMember to the TenantQuery form above. FluxNova FIXED this: the filter is
+        // now honoured, so B correctly returns 0. (requireTenantMember still uses the reliable form; this
+        // fix is a bonus. If a future engine regresses it, this test will catch it.)
+        assertThat(identity.createUserQuery().userId(USER).memberOfTenant(A).count())
+                .as("member of A").isEqualTo(1);
         assertThat(identity.createUserQuery().userId(USER).memberOfTenant(B).count())
-                .as("BROKEN form returns 1 even for a non-member").isEqualTo(1);
+                .as("FluxNova honours the tenant filter — not a member of B").isZero();
     }
 }

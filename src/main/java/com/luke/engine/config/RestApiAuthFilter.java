@@ -7,7 +7,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.cibseven.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,8 +15,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import org.cibseven.bpm.engine.identity.Group;
-import org.cibseven.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.identity.Group;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

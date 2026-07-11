@@ -2,9 +2,9 @@ package com.luke.engine.capability.signature;
 
 import java.util.List;
 import java.util.Map;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.runtime.ProcessInstance;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

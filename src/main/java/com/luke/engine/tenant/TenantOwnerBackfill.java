@@ -2,10 +2,10 @@ package com.luke.engine.tenant;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Group;
-import org.cibseven.bpm.engine.identity.Tenant;
-import org.cibseven.bpm.engine.identity.User;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Group;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.identity.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,7 +39,7 @@ public class TenantOwnerBackfill {
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")
     private String parentClusterId;
 
-    @Value("${camunda.bpm.admin-user.id:admin}")
+    @Value("${fluxnova.bpm.admin-user.id:admin}")
     private String adminUserId;
 
     public TenantOwnerBackfill(IdentityService identity) {

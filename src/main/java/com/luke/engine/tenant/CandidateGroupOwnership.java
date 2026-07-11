@@ -1,8 +1,8 @@
 package com.luke.engine.tenant;
 
 import java.util.List;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Group;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Group;
 
 /**
  * Per-candidate-group manager binding: who may manage the membership of ONE tenant candidate group

@@ -12,6 +12,6 @@ public class CamundaConfig {
 
     @PostConstruct
     public void init() {
-        log.info("Luke Core Engine - CIBSeven configuration initialized");
+        log.info("Luke Core Engine - FluxNova configuration initialized");
     }
 }

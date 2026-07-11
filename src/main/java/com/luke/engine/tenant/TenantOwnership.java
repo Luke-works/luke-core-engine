@@ -1,7 +1,7 @@
 package com.luke.engine.tenant;
 
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Group;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Group;
 
 /**
  * The single source of truth for "who administers <em>this</em> tenant".

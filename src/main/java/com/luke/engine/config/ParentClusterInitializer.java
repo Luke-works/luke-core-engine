@@ -1,7 +1,7 @@
 package com.luke.engine.config;
 
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,7 +34,7 @@ public class ParentClusterInitializer {
     @Value("${luke.tenant.parent-cluster-name:Parent Cluster}")
     private String parentClusterName;
 
-    @Value("${camunda.bpm.admin-user.id:admin}")
+    @Value("${fluxnova.bpm.admin-user.id:admin}")
     private String adminUserId;
 
     private final BootCoordinator bootCoordinator;

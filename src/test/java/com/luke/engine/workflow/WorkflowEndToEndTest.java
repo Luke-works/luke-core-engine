@@ -15,21 +15,20 @@ import com.luke.engine.workflow.integrations.IntegrationConnectionRepository;
 import com.luke.engine.workflow.integrations.IntegrationConnectionStatus;
 import com.luke.engine.workflow.integrations.IntegrationUsageEventRepository;
 import com.luke.engine.workflow.integrations.NangoClient;
-import java.util.List;
 import java.util.Map;
-import org.cibseven.bpm.engine.ManagementService;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.TaskService;
-import org.cibseven.bpm.engine.runtime.Job;
-import org.cibseven.bpm.engine.runtime.ProcessInstance;
-import org.cibseven.bpm.engine.task.Task;
+import org.finos.fluxnova.bpm.engine.ManagementService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.TaskService;
+import org.finos.fluxnova.bpm.engine.runtime.Job;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstance;
+import org.finos.fluxnova.bpm.engine.task.Task;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 
 /**
- * WF-13 — the whole spine on a LIVE CIBSeven engine: author JSON → compile → deploy →
+ * WF-13 — the whole spine on a LIVE FluxNova engine: author JSON → compile → deploy →
  * start → run the golden scenario (form → email → human review → branch → Salesforce upsert)
  * to completion. This is the integration proof behind the unit tests: the compiled BPMN really
  * deploys and executes, both the user-task wait and the connector-action delegate really fire.
@@ -40,7 +39,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 @SpringBootTest(properties = {
         "DB_URL=jdbc:h2:mem:wfe2e;DB_CLOSE_DELAY=-1",
         "luke.workflow.outbox-enabled=false",
-        "camunda.bpm.job-execution.enabled=false"
+        "fluxnova.bpm.job-execution.enabled=false"
 })
 class WorkflowEndToEndTest {
 
@@ -121,14 +120,20 @@ class WorkflowEndToEndTest {
         assertThat(runtimeService.createProcessInstanceQuery().processInstanceId(pi.getId()).count()).isZero();
     }
 
-    /** Execute all waiting jobs until the process settles (job executor is disabled in this test). */
+    /**
+     * Execute waiting jobs until the process settles (the async job executor is disabled in this test,
+     * so we drain by hand). Fetch and run exactly ONE job per iteration, re-querying each time, instead
+     * of executing a whole snapshot in a loop: executing a job can complete/supersede other jobs in the
+     * same snapshot, so a stale snapshot would re-execute an already-processed async continuation —
+     * double-firing its delegate or hitting an OptimisticLockingException on an entity another job
+     * already modified. One-at-a-time re-querying mirrors how the real job executor drains and is
+     * deterministic across engine implementations.
+     */
     private void drainJobs() {
-        for (int i = 0; i < 25; i++) {
-            List<Job> jobs = managementService.createJobQuery().list();
-            if (jobs.isEmpty()) return;
-            for (Job job : jobs) {
-                managementService.executeJob(job.getId());
-            }
+        for (int i = 0; i < 100; i++) {
+            Job job = managementService.createJobQuery().listPage(0, 1).stream().findFirst().orElse(null);
+            if (job == null) return;
+            managementService.executeJob(job.getId());
         }
     }
 }
