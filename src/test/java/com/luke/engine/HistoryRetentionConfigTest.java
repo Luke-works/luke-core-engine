@@ -4,8 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import org.cibseven.bpm.engine.ProcessEngine;
-import org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.finos.fluxnova.bpm.engine.ProcessEngine;
+import org.finos.fluxnova.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

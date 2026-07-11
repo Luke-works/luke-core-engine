@@ -4,28 +4,28 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.cibseven.bpm.model.bpmn.Bpmn;
-import org.cibseven.bpm.model.bpmn.BpmnModelInstance;
-import org.cibseven.bpm.model.bpmn.instance.Activity;
-import org.cibseven.bpm.model.bpmn.instance.BoundaryEvent;
-import org.cibseven.bpm.model.bpmn.instance.BpmnModelElementInstance;
-import org.cibseven.bpm.model.bpmn.instance.ConditionExpression;
-import org.cibseven.bpm.model.bpmn.instance.Definitions;
-import org.cibseven.bpm.model.bpmn.instance.EndEvent;
-import org.cibseven.bpm.model.bpmn.instance.ErrorEventDefinition;
-import org.cibseven.bpm.model.bpmn.instance.ExclusiveGateway;
-import org.cibseven.bpm.model.bpmn.instance.FlowNode;
-import org.cibseven.bpm.model.bpmn.instance.IntermediateCatchEvent;
-import org.cibseven.bpm.model.bpmn.instance.Message;
-import org.cibseven.bpm.model.bpmn.instance.MessageEventDefinition;
-import org.cibseven.bpm.model.bpmn.instance.ParallelGateway;
-import org.cibseven.bpm.model.bpmn.instance.Process;
-import org.cibseven.bpm.model.bpmn.instance.SequenceFlow;
-import org.cibseven.bpm.model.bpmn.instance.ServiceTask;
-import org.cibseven.bpm.model.bpmn.instance.StartEvent;
-import org.cibseven.bpm.model.bpmn.instance.TimeDuration;
-import org.cibseven.bpm.model.bpmn.instance.TimerEventDefinition;
-import org.cibseven.bpm.model.bpmn.instance.UserTask;
+import org.finos.fluxnova.bpm.model.bpmn.Bpmn;
+import org.finos.fluxnova.bpm.model.bpmn.BpmnModelInstance;
+import org.finos.fluxnova.bpm.model.bpmn.instance.Activity;
+import org.finos.fluxnova.bpm.model.bpmn.instance.BoundaryEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.BpmnModelElementInstance;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ConditionExpression;
+import org.finos.fluxnova.bpm.model.bpmn.instance.Definitions;
+import org.finos.fluxnova.bpm.model.bpmn.instance.EndEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ErrorEventDefinition;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ExclusiveGateway;
+import org.finos.fluxnova.bpm.model.bpmn.instance.FlowNode;
+import org.finos.fluxnova.bpm.model.bpmn.instance.IntermediateCatchEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.Message;
+import org.finos.fluxnova.bpm.model.bpmn.instance.MessageEventDefinition;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ParallelGateway;
+import org.finos.fluxnova.bpm.model.bpmn.instance.Process;
+import org.finos.fluxnova.bpm.model.bpmn.instance.SequenceFlow;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ServiceTask;
+import org.finos.fluxnova.bpm.model.bpmn.instance.StartEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.TimeDuration;
+import org.finos.fluxnova.bpm.model.bpmn.instance.TimerEventDefinition;
+import org.finos.fluxnova.bpm.model.bpmn.instance.UserTask;
 import org.springframework.stereotype.Component;
 
 /**
@@ -137,8 +137,8 @@ public class WorkflowCompiler {
                     // Outbound rail: a delegate-backed, async service task. asyncBefore puts it on a
                     // job so the executor's transient failures retry via the job executor (WF-11).
                     ServiceTask st = add(ServiceTask.class, n.id());
-                    st.setCamundaDelegateExpression("${connectorExecutor}");
-                    st.setCamundaAsyncBefore(true);
+                    st.setFluxnovaDelegateExpression("${connectorExecutor}");
+                    st.setFluxnovaAsyncBefore(true);
                     yield st;
                 }
                 case "task" -> add(UserTask.class, n.id());

@@ -5,9 +5,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.identity.Tenant;
-import org.cibseven.bpm.engine.identity.User;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.identity.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -37,7 +37,7 @@ public class OrganizationController {
     private static final String TENANT_ADMIN = "tenant-admin";
 
     /** Platform admin/support account auto-added to every new tenant for support access. */
-    @org.springframework.beans.factory.annotation.Value("${camunda.bpm.admin-user.id:admin}")
+    @org.springframework.beans.factory.annotation.Value("${fluxnova.bpm.admin-user.id:admin}")
     private String adminUserId;
 
     private final IdentityService identityService;

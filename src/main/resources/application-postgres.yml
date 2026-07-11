@@ -51,7 +51,7 @@ spring:
           create_namespaces: true
 
   # Flyway manages ONLY the custom luke_* tables (classpath:db/migration). Camunda
-  # keeps managing its own ACT_* tables via camunda.bpm.database.schema-update below.
+  # keeps managing its own ACT_* tables via fluxnova.bpm.database.schema-update below.
   flyway:
     enabled: true
     # The schema is ALWAYS non-empty here because Camunda's ACT_* tables share it, so
@@ -70,7 +70,7 @@ spring:
     default-schema: ${DB_SCHEMA:public}
     create-schemas: true
 
-# CIBSeven schema isolation (PostgreSQL, shared instance).
+# FluxNova schema isolation (PostgreSQL, shared instance).
 #
 # Several env engines share ONE Postgres instance, each isolated in its own
 # schema (platform_dev/qa/uat). currentSchema/search_path alone is not enough:
@@ -83,7 +83,7 @@ spring:
 # schema-name scopes the table-presence check to THIS env's schema; table-prefix
 # makes every statement schema-qualified, so creation/queries are deterministic
 # regardless of search_path.
-camunda:
+fluxnova:
   bpm:
     database:
       schema-update: true

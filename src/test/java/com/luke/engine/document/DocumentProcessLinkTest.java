@@ -7,8 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.io.InputStream;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.TaskService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.TaskService;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 

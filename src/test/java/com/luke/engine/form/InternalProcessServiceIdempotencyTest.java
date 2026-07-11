@@ -9,10 +9,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.runtime.ProcessInstance;
-import org.cibseven.bpm.engine.runtime.ProcessInstanceQuery;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstance;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstanceQuery;
 import org.junit.jupiter.api.Test;
 
 /** #31: a process-start for a businessKey already running returns the existing

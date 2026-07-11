@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.ProcessEngine;
-import org.cibseven.bpm.engine.identity.Tenant;
-import org.cibseven.bpm.engine.identity.User;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.ProcessEngine;
+import org.finos.fluxnova.bpm.engine.identity.Tenant;
+import org.finos.fluxnova.bpm.engine.identity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

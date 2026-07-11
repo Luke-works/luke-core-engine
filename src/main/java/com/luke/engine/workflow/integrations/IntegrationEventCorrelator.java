@@ -1,10 +1,10 @@
 package com.luke.engine.workflow.integrations;
 
 import java.util.List;
-import org.cibseven.bpm.engine.IdentityService;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.runtime.MessageCorrelationBuilder;
-import org.cibseven.bpm.engine.runtime.MessageCorrelationResult;
+import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.runtime.MessageCorrelationBuilder;
+import org.finos.fluxnova.bpm.engine.runtime.MessageCorrelationResult;
 import org.springframework.stereotype.Component;
 
 /**

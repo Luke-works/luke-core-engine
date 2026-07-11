@@ -50,8 +50,8 @@ spring:
       max-file-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
       max-request-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
 
-# CIBSeven / Camunda Engine Configuration
-camunda:
+# FluxNova (FINOS) / Camunda 7 Engine Configuration
+fluxnova:
   bpm:
     admin-user:
       id: ${CAMUNDA_ADMIN_USER:admin}
@@ -92,7 +92,7 @@ camunda:
         # otherwise reject TTL-less deployments and break process deployment.
         enforceHistoryTimeToLive: false
         # Colon (:) is allowed so namespaced ids like Clerk consumer users
-        # (clerk:<sub>) pass CIBSeven's resource-id validation. Without it,
+        # (clerk:<sub>) pass FluxNova's resource-id validation. Without it,
         # creating user 'clerk:user_…' fails: "is not a valid resource identifier".
         generalResourceWhitelistPattern: "[a-zA-Z0-9_\\-:]+"
 
@@ -315,4 +315,4 @@ logging:
   level:
     root: INFO
     com.luke: DEBUG
-    org.cibseven: INFO
+    org.finos.fluxnova: INFO

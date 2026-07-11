@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * Fail-closed guard against shipping the Camunda admin account with a blank or
  * default password.
  *
- * <p>{@code application.yml} defaults {@code camunda.bpm.admin-user.password} to
+ * <p>{@code application.yml} defaults {@code fluxnova.bpm.admin-user.password} to
  * {@code "admin"} for local dev. If {@code CAMUNDA_ADMIN_PASSWORD} is left unset
  * in a real deployment, that default would create a cross-tenant super-user with
  * a guessable password (GHSA-8cj8-q9jr-h2x9 / #38).
@@ -36,8 +36,8 @@ public class AdminPasswordGuard {
     private final String adminPassword;
 
     public AdminPasswordGuard(Environment environment,
-                              @Value("${camunda.bpm.admin-user.id:admin}") String adminUser,
-                              @Value("${camunda.bpm.admin-user.password:}") String adminPassword) {
+                              @Value("${fluxnova.bpm.admin-user.id:admin}") String adminUser,
+                              @Value("${fluxnova.bpm.admin-user.password:}") String adminPassword) {
         this.environment = environment;
         this.adminUser = adminUser;
         this.adminPassword = adminPassword;

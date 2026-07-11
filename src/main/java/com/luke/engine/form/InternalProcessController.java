@@ -4,7 +4,7 @@ import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
-import org.cibseven.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

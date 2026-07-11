@@ -8,13 +8,13 @@ import static org.mockito.Mockito.when;
 
 import java.util.Map;
 import java.util.Optional;
-import org.cibseven.bpm.engine.HistoryService;
-import org.cibseven.bpm.engine.ManagementService;
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.TaskService;
-import org.cibseven.bpm.engine.history.HistoricProcessInstance;
-import org.cibseven.bpm.engine.runtime.ProcessInstance;
-import org.cibseven.bpm.engine.runtime.ProcessInstantiationBuilder;
+import org.finos.fluxnova.bpm.engine.HistoryService;
+import org.finos.fluxnova.bpm.engine.ManagementService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.TaskService;
+import org.finos.fluxnova.bpm.engine.history.HistoricProcessInstance;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstance;
+import org.finos.fluxnova.bpm.engine.runtime.ProcessInstantiationBuilder;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 
@@ -70,7 +70,7 @@ class WorkflowRunServiceTest {
         when(h.getEndTime()).thenReturn(new java.util.Date()); // ended → runDetail stays shallow
         when(historyService.createHistoricProcessInstanceQuery().processInstanceId("PI-9").singleResult())
                 .thenReturn(h);
-        org.cibseven.bpm.engine.runtime.Incident inc = mock(org.cibseven.bpm.engine.runtime.Incident.class);
+        org.finos.fluxnova.bpm.engine.runtime.Incident inc = mock(org.finos.fluxnova.bpm.engine.runtime.Incident.class);
         when(inc.getIncidentType()).thenReturn("failedJob");
         when(inc.getConfiguration()).thenReturn("job-1");
         when(runtimeService.createIncidentQuery().processInstanceId("PI-9").list()).thenReturn(java.util.List.of(inc));

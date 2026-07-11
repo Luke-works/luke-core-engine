@@ -24,14 +24,14 @@
     <packaging>jar</packaging>
 
     <name>Luke Core Engine</name>
-    <description>CIBSeven Camunda Engine with Spring Boot and PostgreSQL</description>
+    <description>FluxNova (FINOS) Camunda 7 Engine with Spring Boot and PostgreSQL</description>
 
     <!-- ============================================================= -->
     <!-- Properties                                                    -->
     <!-- ============================================================= -->
     <properties>
         <java.version>21</java.version>
-        <cibseven.version>2.1.0</cibseven.version>
+        <fluxnova.version>2.0.3</fluxnova.version>
         <!-- Scripting language engines (JSR-223) -->
         <groovy.version>4.0.24</groovy.version>
         <graaljs.version>24.1.1</graaljs.version>
@@ -43,14 +43,14 @@
     </properties>
 
     <!-- ============================================================= -->
-    <!-- Dependency Management: CIBSeven BOM                           -->
+    <!-- Dependency Management: FluxNova BOM                           -->
     <!-- ============================================================= -->
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.cibseven.bpm</groupId>
-                <artifactId>cibseven-bom</artifactId>
-                <version>${cibseven.version}</version>
+                <groupId>org.finos.fluxnova.bpm</groupId>
+                <artifactId>fluxnova-bom</artifactId>
+                <version>${fluxnova.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -70,25 +70,25 @@
     <!-- ============================================================= -->
     <dependencies>
 
-        <!-- CIBSeven Spring Boot Starters -->
+        <!-- FluxNova Spring Boot Starters -->
         <dependency>
-            <groupId>org.cibseven.bpm.springboot</groupId>
-            <artifactId>cibseven-bpm-spring-boot-starter-rest</artifactId>
+            <groupId>org.finos.fluxnova.bpm.springboot</groupId>
+            <artifactId>fluxnova-bpm-spring-boot-starter-rest</artifactId>
         </dependency>
-        <!-- CIBSeven webapp removed — Luke Core UI replaces it -->
+        <!-- FluxNova webapp removed — Luke Core UI replaces it -->
 
-        <!-- CIBSeven Spin JSON Plugin (for Object/JSON variable serialization) -->
+        <!-- FluxNova Spin JSON Plugin (for Object/JSON variable serialization) -->
         <dependency>
-            <groupId>org.cibseven.bpm</groupId>
-            <artifactId>cibseven-engine-plugin-spin</artifactId>
+            <groupId>org.finos.fluxnova.bpm</groupId>
+            <artifactId>fluxnova-engine-plugin-spin</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.cibseven.spin</groupId>
-            <artifactId>cibseven-spin-dataformat-json-jackson</artifactId>
+            <groupId>org.finos.fluxnova.spin</groupId>
+            <artifactId>fluxnova-spin-dataformat-json-jackson</artifactId>
         </dependency>
 
         <!-- ========================================================= -->
-        <!-- CIBSeven Connect (HTTP/SOAP connectors for Service Tasks) -->
+        <!-- FluxNova Connect (HTTP/SOAP connectors for Service Tasks) -->
         <!--                                                           -->
         <!-- Without these, the Spring Boot starter's @ConditionalOn-  -->
         <!-- Class auto-config for ConnectProcessEnginePlugin never    -->
@@ -100,15 +100,15 @@
         <!--   binds connectors to Service Tasks at deployment time.   -->
         <!-- connect-connectors-all → the HTTP + SOAP connector        -->
         <!--   implementations invoked at runtime.                     -->
-        <!-- Versions are managed by the cibseven-bom.                 -->
+        <!-- Versions are managed by the fluxnova-bom.                 -->
         <!-- ========================================================= -->
         <dependency>
-            <groupId>org.cibseven.bpm</groupId>
-            <artifactId>cibseven-engine-plugin-connect</artifactId>
+            <groupId>org.finos.fluxnova.bpm</groupId>
+            <artifactId>fluxnova-engine-plugin-connect</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.cibseven.connect</groupId>
-            <artifactId>cibseven-connect-connectors-all</artifactId>
+            <groupId>org.finos.fluxnova.connect</groupId>
+            <artifactId>fluxnova-connect-connectors-all</artifactId>
         </dependency>
 
         <!-- ========================================================= -->

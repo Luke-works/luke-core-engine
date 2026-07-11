@@ -1,7 +1,7 @@
 package com.luke.engine.document;
 
-import org.cibseven.bpm.engine.RuntimeService;
-import org.cibseven.bpm.engine.TaskService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
+import org.finos.fluxnova.bpm.engine.TaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

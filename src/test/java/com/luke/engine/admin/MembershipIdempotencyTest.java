@@ -3,7 +3,7 @@ package com.luke.engine.admin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.cibseven.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

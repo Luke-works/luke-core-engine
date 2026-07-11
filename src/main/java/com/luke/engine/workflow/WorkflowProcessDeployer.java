@@ -1,7 +1,7 @@
 package com.luke.engine.workflow;
 
-import org.cibseven.bpm.engine.RepositoryService;
-import org.cibseven.bpm.engine.repository.Deployment;
+import org.finos.fluxnova.bpm.engine.RepositoryService;
+import org.finos.fluxnova.bpm.engine.repository.Deployment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

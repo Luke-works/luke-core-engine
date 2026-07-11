@@ -6,16 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import org.cibseven.bpm.model.bpmn.Bpmn;
-import org.cibseven.bpm.model.bpmn.BpmnModelInstance;
-import org.cibseven.bpm.model.bpmn.instance.BoundaryEvent;
-import org.cibseven.bpm.model.bpmn.instance.EndEvent;
-import org.cibseven.bpm.model.bpmn.instance.ExclusiveGateway;
-import org.cibseven.bpm.model.bpmn.instance.IntermediateCatchEvent;
-import org.cibseven.bpm.model.bpmn.instance.SequenceFlow;
-import org.cibseven.bpm.model.bpmn.instance.ServiceTask;
-import org.cibseven.bpm.model.bpmn.instance.StartEvent;
-import org.cibseven.bpm.model.bpmn.instance.UserTask;
+import org.finos.fluxnova.bpm.model.bpmn.Bpmn;
+import org.finos.fluxnova.bpm.model.bpmn.BpmnModelInstance;
+import org.finos.fluxnova.bpm.model.bpmn.instance.BoundaryEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.EndEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ExclusiveGateway;
+import org.finos.fluxnova.bpm.model.bpmn.instance.IntermediateCatchEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.SequenceFlow;
+import org.finos.fluxnova.bpm.model.bpmn.instance.ServiceTask;
+import org.finos.fluxnova.bpm.model.bpmn.instance.StartEvent;
+import org.finos.fluxnova.bpm.model.bpmn.instance.UserTask;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -88,8 +88,8 @@ class WorkflowCompilerTest {
     void bindsActionTasksToTheConnectorExecutor() throws Exception {
         BpmnModelInstance m = reread(compiler.compile(parse(GOLDEN_JSON)));
         ServiceTask n4 = m.getModelElementById("n4");
-        assertThat(n4.getCamundaDelegateExpression()).isEqualTo("${connectorExecutor}");
-        assertThat(n4.isCamundaAsyncBefore()).isTrue();
+        assertThat(n4.getFluxnovaDelegateExpression()).isEqualTo("${connectorExecutor}");
+        assertThat(n4.isFluxnovaAsyncBefore()).isTrue();
     }
 
     @Test

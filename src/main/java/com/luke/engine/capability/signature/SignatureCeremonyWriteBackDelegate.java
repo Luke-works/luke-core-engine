@@ -1,7 +1,7 @@
 package com.luke.engine.capability.signature;
 
-import org.cibseven.bpm.engine.delegate.DelegateExecution;
-import org.cibseven.bpm.engine.delegate.JavaDelegate;
+import org.finos.fluxnova.bpm.engine.delegate.DelegateExecution;
+import org.finos.fluxnova.bpm.engine.delegate.JavaDelegate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
