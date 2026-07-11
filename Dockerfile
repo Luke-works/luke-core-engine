@@ -18,9 +18,14 @@ RUN ./mvnw -B clean package -DskipTests
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
-# Run as non-root
-RUN groupadd -r luke && useradd -r -g luke luke
+# Run as non-root. Create a real, writable home directory (-m): GraalVM JS
+# (Truffle) unpacks its runtime resources into $HOME on first use, so a system
+# user with no home makes the engine fail to boot with
+# `AccessDeniedException: /home/luke`. FluxNova's GraalJS triggers this on-disk
+# install where CIBSeven's did not.
+RUN groupadd -r luke && useradd -r -g luke -m -d /home/luke luke
 USER luke
+ENV HOME=/home/luke
 
 # Copy the built jar (version pattern matches pom artifactId-version)
 COPY --from=build --chown=luke:luke /app/target/luke-core-engine-*.jar app.jar

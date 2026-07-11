@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Wires JSR-223 scripting languages into the CIBSeven engine and makes the
+ * Wires JSR-223 scripting languages into the FluxNova engine and makes the
  * GraalVM JS engine usable from BPMN script tasks.
  *
  * The language engines themselves (Groovy, GraalVM JS, Jython) are pulled in as
@@ -64,8 +64,12 @@ public class ScriptingEnginePlugin extends AbstractProcessEnginePlugin {
                             f.getEngineName(), f.getEngineVersion(), String.join(", ", f.getNames())))
                     .collect(Collectors.joining("; "));
             log.info("Scripting enabled — available engines: {}", summary);
-        } catch (Exception e) {
-            log.warn("Could not enumerate script engines: {}", e.getMessage());
+        } catch (Throwable t) {
+            // Enumerating engines forces GraalVM JS (Truffle) to initialize, which can throw an
+            // Error (e.g. ExceptionInInitializerError while unpacking runtime resources), not just
+            // an Exception. This is a boot-time DIAGNOSTIC — it must never take the engine down, so
+            // catch Throwable. Actual script execution surfaces any real problem at run time.
+            log.warn("Could not enumerate script engines (scripting may be degraded): {}", t.toString());
         }
     }
 }
