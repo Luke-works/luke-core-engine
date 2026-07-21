@@ -1,4 +1,4 @@
--- Flyway V10 — EMAIL capability: per-address email BOXES (inbound + outbound).
+-- Flyway V14 — EMAIL capability: per-address email BOXES (inbound + outbound).
 --
 -- Adds registered send-from / receive-at addresses on top of the per-tenant Postmark
 -- server (luke_email_servers). Under the postgres profile Hibernate ddl-auto is `none`,
