@@ -14,7 +14,7 @@
 --       INBOUND  → routed by the public webhook; may fire a workflow (workflow_trigger).
 --   • luke_email_servers.inbound_hook_token — per-tenant unguessable token in the inbound
 --       webhook URL (/api/public/email/inbound/{token}); resolves the token → tenant.
---   • luke_emails.direction       — INBOUND|OUTBOUND on stored messages (default OUTBOUND).
+--   • luke_email_messages.direction — INBOUND|OUTBOUND on stored messages (default OUTBOUND).
 
     create table if not exists luke_email_boxes (
         id varchar(255) not null,
@@ -42,5 +42,5 @@
     create unique index if not exists idx_emailserver_inbound_token
         on luke_email_servers (inbound_hook_token);
 
-    alter table luke_emails
+    alter table luke_email_messages
         add column if not exists direction varchar(255) not null default 'OUTBOUND';
