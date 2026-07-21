@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="Definitions_email_inbox" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Lukeflow" exporterVersion="1.0">
+  <bpmn:process id="EmailInboxProcess" name="Email Inbox Process" isExecutable="true">
+    <!-- The default per-tenant handler for inbound email (mirrors FormSubmissionIntakeProcess).
+         Started by the public inbound webhook for each message arriving at a registered inbound
+         box. Process variables: emailMessageId, emailBox, emailFrom, emailSubject, emailEvent.
+         The Review task is what surfaces the email as actionable work in the inbox/tasklist. -->
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_start_review</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_start_review" sourceRef="StartEvent_1" targetRef="Activity_review" />
+    <bpmn:userTask id="Activity_review" name="Review inbound email">
+      <bpmn:incoming>Flow_start_review</bpmn:incoming>
+      <bpmn:outgoing>Flow_review_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="Flow_review_end" sourceRef="Activity_review" targetRef="Event_end" />
+    <bpmn:endEvent id="Event_end">
+      <bpmn:incoming>Flow_review_end</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="EmailInboxProcess">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="192" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_review_di" bpmnElement="Activity_review">
+        <dc:Bounds x="300" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_end_di" bpmnElement="Event_end">
+        <dc:Bounds x="472" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_review_di" bpmnElement="Flow_start_review">
+        <di:waypoint x="228" y="120" />
+        <di:waypoint x="300" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_review_end_di" bpmnElement="Flow_review_end">
+        <di:waypoint x="400" y="120" />
+        <di:waypoint x="472" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

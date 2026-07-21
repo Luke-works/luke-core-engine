@@ -2,12 +2,15 @@ package com.luke.engine.capability.email;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.luke.engine.workflow.EmailEventCorrelator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.finos.fluxnova.bpm.engine.IdentityService;
+import org.finos.fluxnova.bpm.engine.RuntimeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,14 +39,21 @@ public class PublicInboundEmailController {
     private final EmailBoxService boxes;
     private final EmailMessageRepository messages;
     private final EmailEventCorrelator correlator;
+    private final RuntimeService runtimeService;
     private final IdentityService identityService;
 
+    /** The default per-tenant inbox process key (see EmailInboxProcess.bpmn / EmailInboxProcessDeployer). */
+    @Value("${luke.email.inbox-process-key:EmailInboxProcess}")
+    private String inboxProcessKey;
+
     public PublicInboundEmailController(EmailServerRepository servers, EmailBoxService boxes,
-            EmailMessageRepository messages, EmailEventCorrelator correlator, IdentityService identityService) {
+            EmailMessageRepository messages, EmailEventCorrelator correlator,
+            RuntimeService runtimeService, IdentityService identityService) {
         this.servers = servers;
         this.boxes = boxes;
         this.messages = messages;
         this.correlator = correlator;
+        this.runtimeService = runtimeService;
         this.identityService = identityService;
     }
 
@@ -61,8 +71,12 @@ public class PublicInboundEmailController {
 
         Optional<EmailBox> box = boxes.resolveInbound(tenantId, recipient, mailboxHash);
 
-        // Persist the inbound message (tenant set explicitly; auth scope for any tenant filter).
+        boolean process = box.isPresent() && box.get().isWorkflowTrigger();
+
+        // Persist the inbound message + (if the box wants processing) start the default per-tenant
+        // inbox process — both under the tenant's identity scope (webhook has no auth context).
         String messageId;
+        boolean startedInbox = false;
         identityService.setAuthentication(null, null, List.of(tenantId));
         try {
             EmailMessage msg = new EmailMessage();
@@ -74,13 +88,16 @@ public class PublicInboundEmailController {
             msg.setSubject(subject);
             msg.setPostmarkMessageId(postmarkMessageId);
             messageId = messages.save(msg).getId();
+            if (process) {
+                startedInbox = startInboxProcess(tenantId, box.get().getAddress(), messageId, from, subject, payload.toString());
+            }
         } finally {
             identityService.clearAuthentication();
         }
 
+        // User-designed workflows subscribed to email.inbound (in addition to the default inbox).
         int workflows = 0;
-        boolean matched = box.isPresent();
-        if (box.isPresent() && box.get().isWorkflowTrigger()) {
+        if (process) {
             try {
                 workflows = correlator.correlate(tenantId, box.get().getAddress(), messageId, from, subject, payload.toString());
             } catch (RuntimeException e) {
@@ -89,8 +106,30 @@ public class PublicInboundEmailController {
                         tenantId, box.get().getAddress(), e.getMessage());
             }
         }
-        log.info("Inbound email for tenant {} → {} (matched={}, workflows={})", tenantId, recipient, matched, workflows);
-        return Map.of("received", true, "matched", matched, "workflows", workflows);
+        log.info("Inbound email for tenant {} → {} (matched={}, inbox={}, workflows={})",
+                tenantId, recipient, box.isPresent(), startedInbox, workflows);
+        return Map.of("received", true, "matched", box.isPresent(), "inboxProcess", startedInbox, "workflows", workflows);
+    }
+
+    /** Start the default per-tenant inbox process for one inbound message (best-effort). */
+    private boolean startInboxProcess(String tenantId, String boxAddress, String messageId, String from, String subject, String rawJson) {
+        try {
+            Map<String, Object> vars = new HashMap<>();
+            vars.put("emailMessageId", messageId);
+            vars.put("emailBox", boxAddress);
+            vars.put("emailFrom", from);
+            vars.put("emailSubject", subject);
+            vars.put("emailEvent", rawJson);
+            runtimeService.createProcessInstanceByKey(inboxProcessKey)
+                    .processDefinitionTenantId(tenantId)
+                    .businessKey("email-inbox-" + messageId)
+                    .setVariables(vars)
+                    .execute();
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Default email-inbox process start failed for tenant {} box {}: {}", tenantId, boxAddress, e.getMessage());
+            return false;
+        }
     }
 
     // ── Postmark payload helpers ─────────────────────────────────────────────
