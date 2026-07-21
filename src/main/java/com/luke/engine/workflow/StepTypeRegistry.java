@@ -44,6 +44,10 @@ public class StepTypeRegistry {
         register(new StepTypeDescriptor("email.bounced", "Email bounced", "EMAIL", "trigger", "Email"));
         register(new StepTypeDescriptor("email.complained", "Email marked as spam", "EMAIL", "trigger", "Email"));
         register(new StepTypeDescriptor("email.unsubscribed", "Email unsubscribed", "EMAIL", "trigger", "Email"));
+        // Inbound MAIL arriving at a registered inbound box (public webhook → EmailEventCorrelator).
+        // Distinct from email.received above, which is an OUTBOUND delivery/engagement event. This is
+        // the only email trigger currently wired end-to-end; a designed workflow starts on it.
+        register(new StepTypeDescriptor("email.inbound", "Inbound email received", "EMAIL", "trigger", "Email"));
         register(new StepTypeDescriptor("email.send", "Send email", "EMAIL", "action", "Email", List.of(
                 StepFieldDescriptor.req("to", "To"),
                 StepFieldDescriptor.text("subject", "Subject"),
