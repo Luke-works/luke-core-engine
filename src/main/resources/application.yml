@@ -224,6 +224,11 @@ luke:
       code-length: ${EMAIL_VERIFICATION_CODE_LENGTH:6}
       ttl-seconds: ${EMAIL_VERIFICATION_TTL_SECONDS:600}
       max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+    inbound:
+      # Public base URL Postmark POSTs inbound mail to (e.g. https://authdev.lukeflow.com).
+      # Used to build /api/public/email/inbound/{token} when an INBOUND box is registered.
+      # Blank → boxes still register, but the Postmark inbound hook isn't wired (warning returned).
+      public-base-url: ${EMAIL_INBOUND_PUBLIC_BASE_URL:}
     otp:
       # Postmark template alias for the one-time-passcode email (published to the
       # platform server on boot by OtpTemplateInstaller). Sent by alias; falls back

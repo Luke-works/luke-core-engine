@@ -59,6 +59,57 @@ public class PostmarkClient {
         return submit("/email/withTemplate", serverToken, fields);
     }
 
+    /** Outcome of creating a Postmark message stream. */
+    public record StreamResult(boolean ok, String streamId, String error) {}
+
+    /**
+     * Create a Postmark <b>message stream</b> on the server owning {@code serverToken}
+     * (per-stream stats/reputation). {@code type} is {@code Transactional} | {@code Broadcasts}
+     * | {@code Inbound}. The stream {@code id} must be lowercase alphanumeric + hyphens and
+     * unique within the server; a 422 "already exists" is treated as success (idempotent).
+     * Uses the Message Streams API ({@code POST /message-streams}).
+     */
+    public StreamResult createMessageStream(String serverToken, String id, String name, String type) {
+        if (serverToken == null || serverToken.isBlank()) {
+            return new StreamResult(false, null, "No Postmark server token available");
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
+            headers.set("X-Postmark-Server-Token", serverToken);
+
+            Map<String, Object> reqBody = new LinkedHashMap<>();
+            reqBody.put("ID", id);
+            reqBody.put("Name", name);
+            reqBody.put("MessageStreamType", type);
+
+            JsonNode resp = rest.postForObject(
+                    baseUrl + "/message-streams", new HttpEntity<>(reqBody, headers), JsonNode.class);
+            String created = resp != null && resp.hasNonNull("ID") ? resp.get("ID").asText() : id;
+            return new StreamResult(true, created, null);
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            // ErrorCode 1211 = "A message stream with this ID already exists" → idempotent success.
+            try {
+                JsonNode node = MAPPER.readTree(body);
+                int code = node.hasNonNull("ErrorCode") ? node.get("ErrorCode").asInt() : -1;
+                String msg = node.hasNonNull("Message") ? node.get("Message").asText() : body;
+                if (code == 1211 || (msg != null && msg.toLowerCase().contains("already exists"))) {
+                    return new StreamResult(true, id, null);
+                }
+                log.warn("Postmark create-stream failed: {} (code {})", msg, code);
+                return new StreamResult(false, null, msg);
+            } catch (Exception ignored) {
+                return new StreamResult(false, null, "HTTP " + e.getStatusCode().value());
+            }
+        } catch (Exception e) {
+            String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("Postmark create-stream errored: {}", detail);
+            return new StreamResult(false, null, detail);
+        }
+    }
+
     private SendResult submit(String path, String serverToken, Map<String, Object> fields) {
         if (serverToken == null || serverToken.isBlank()) {
             return new SendResult(false, null, null, "No Postmark server token available for this send");

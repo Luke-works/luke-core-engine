@@ -88,6 +88,49 @@ public class PostmarkAccountClient {
         }
     }
 
+    /** Outcome of setting a server's inbound webhook. */
+    public record InboundHookResult(boolean ok, String inboundAddress, String error) {}
+
+    /**
+     * Point a tenant's Postmark server at our public inbound webhook by setting its
+     * {@code InboundHookUrl} (account API, {@code PUT /servers/{id}}). Returns the server's
+     * Postmark inbound address ({@code <hash>@inbound.postmarkapp.com}) so callers can show
+     * where to forward/MX mail. Idempotent — safe to re-set the same URL.
+     */
+    public InboundHookResult setInboundHook(long serverId, String inboundHookUrl) {
+        if (!isConfigured()) {
+            return new InboundHookResult(false, null,
+                    "Postmark account token is not configured (set POSTMARK_ACCOUNT_TOKEN)");
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
+            headers.set("X-Postmark-Account-Token", accountToken);
+
+            Map<String, Object> reqBody = new LinkedHashMap<>();
+            reqBody.put("InboundHookUrl", inboundHookUrl);
+
+            JsonNode resp = rest.exchange(
+                    baseUrl + "/servers/" + serverId,
+                    org.springframework.http.HttpMethod.PUT,
+                    new HttpEntity<>(reqBody, headers),
+                    JsonNode.class).getBody();
+            String inboundAddress = resp != null && resp.hasNonNull("InboundAddress")
+                    ? resp.get("InboundAddress").asText() : null;
+            return new InboundHookResult(true, inboundAddress, null);
+        } catch (HttpStatusCodeException e) {
+            String message = messageFrom(e.getResponseBodyAsString(),
+                    "HTTP " + e.getStatusCode().value() + " — " + e.getStatusText());
+            log.warn("Postmark set-inbound-hook failed: {}", message);
+            return new InboundHookResult(false, null, message);
+        } catch (Exception e) {
+            String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.warn("Postmark set-inbound-hook errored: {}", detail);
+            return new InboundHookResult(false, null, detail);
+        }
+    }
+
     /** The send token is the first entry of "ApiTokens" (legacy: "ServerToken"). */
     private static String extractToken(JsonNode resp) {
         if (resp == null) return null;

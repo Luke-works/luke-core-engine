@@ -96,12 +96,19 @@ public class EmailMessage {
 
     private String createdBy;
 
+    /** OUTBOUND (sent by us) or INBOUND (received via the public inbound webhook). */
+    @Column(nullable = false)
+    private String direction = "OUTBOUND";
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
     private LocalDateTime sentAt;
 
     public EmailMessage() {}
+
+    public String getDirection() { return direction; }
+    public void setDirection(String direction) { this.direction = direction; }
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }

@@ -78,6 +78,14 @@ public class EmailServer {
 
     private LocalDateTime updatedAt;
 
+    /**
+     * Per-tenant unguessable token embedded in the inbound webhook URL
+     * ({@code /api/public/email/inbound/{token}}). Set when inbound is first enabled;
+     * resolves an inbound Postmark POST back to this tenant. Never returned to clients.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String inboundHookToken;
+
     public EmailServer() {}
 
     @PreUpdate
@@ -125,4 +133,7 @@ public class EmailServer {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getInboundHookToken() { return inboundHookToken; }
+    public void setInboundHookToken(String inboundHookToken) { this.inboundHookToken = inboundHookToken; }
 }

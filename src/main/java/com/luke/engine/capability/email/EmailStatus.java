@@ -13,6 +13,8 @@ public final class EmailStatus {
     public static final String SENT = "SENT";
     /** Postmark rejected it, or the call errored; see errorCode / errorMessage. */
     public static final String FAILED = "FAILED";
+    /** An INBOUND message received via the public inbound webhook. */
+    public static final String RECEIVED = "RECEIVED";
 
     private EmailStatus() {}
 }
