@@ -81,11 +81,9 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/api/public/**", publicConfig);
         source.registerCorsConfiguration("/embed-assets/**", publicConfig);
         source.registerCorsConfiguration("/embed/**", publicConfig);
-        // The recipient portal page + its self-contained bundle are served off this same public
-        // origin (FORMS_PUBLIC_BASE_URL) but load the bundle via <script type="module"> (CORS mode,
-        // sends Origin even same-origin), so they need the any-origin/no-credentials carve-out too.
-        source.registerCorsConfiguration("/portal-assets/**", publicConfig);
-        source.registerCorsConfiguration("/portal/**", publicConfig);
+        // NB: the recipient portal is served by its own static site (luke-portal), which calls the
+        // portal API cross-origin under /api/public/portal/** — already covered by the /api/public/**
+        // carve-out above. Core no longer serves the /portal page, so no /portal CORS entry is needed.
 
         source.registerCorsConfiguration("/**", config);
         return source;

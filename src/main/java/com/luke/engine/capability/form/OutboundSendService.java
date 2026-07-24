@@ -37,16 +37,21 @@ public class OutboundSendService {
     private final FormEventPublisher events;
     private final PortalTenantTokens portalTenantTokens;
     private final String recipientBaseUrl;
+    private final String portalBaseUrl;
 
     public OutboundSendService(FormDefinitionRepository forms, FormInstanceRepository instances,
             EmailService emails, FormEventPublisher events, PortalTenantTokens portalTenantTokens,
-            @Value("${luke.forms.recipient-base-url:http://localhost:8080}") String recipientBaseUrl) {
+            @Value("${luke.forms.recipient-base-url:http://localhost:8080}") String recipientBaseUrl,
+            @Value("${luke.forms.portal-base-url:http://localhost:5173}") String portalBaseUrl) {
         this.forms = forms;
         this.instances = instances;
         this.emails = emails;
         this.events = events;
         this.portalTenantTokens = portalTenantTokens;
+        // /respond links are served by core (recipient-base-url); the /portal link is served by the
+        // standalone luke-portal static site (portal-base-url) — set FORMS_PORTAL_BASE_URL per env.
         this.recipientBaseUrl = stripTrailingSlash(recipientBaseUrl);
+        this.portalBaseUrl = stripTrailingSlash(portalBaseUrl);
     }
 
     /** The outcome of a send: the created instance, its opaque token, the direct recipient link, the
@@ -84,7 +89,7 @@ public class OutboundSendService {
         events.emit(inst, "sent"); // forms→workflow "form sent" initiator
 
         String link = recipientBaseUrl + "/respond/" + inst.getToken();
-        String portalLink = recipientBaseUrl + "/portal/" + portalTenantTokens.sign(tenantId);
+        String portalLink = portalBaseUrl + "/portal/" + portalTenantTokens.sign(tenantId);
         String emailStatus = deliver(tenantId, user, form, recipient, email.trim(), link, portalLink);
         return new SendResult(inst.getId(), inst.getToken(), link, portalLink, emailStatus);
     }

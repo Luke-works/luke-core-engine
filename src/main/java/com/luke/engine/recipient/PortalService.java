@@ -55,13 +55,13 @@ public class PortalService {
     private final Map<PortalChannel, PortalOtpSender> senders = new EnumMap<>(PortalChannel.class);
     private final List<RecipientItemProvider> providers;
     private final Executor executor;
-    private final String recipientBaseUrl;
+    private final String portalBaseUrl;
 
     public PortalService(PortalOtpRepository otps, PortalMagicLinkRepository magicLinks,
             PortalTenantTokens tenantTokens, PortalAccessTokens accessTokens, EmailService emails,
             List<PortalOtpSender> senderBeans, List<RecipientItemProvider> providers,
             @Qualifier("applicationTaskExecutor") Executor executor,
-            @Value("${luke.forms.recipient-base-url:http://localhost:8080}") String recipientBaseUrl) {
+            @Value("${luke.forms.portal-base-url:http://localhost:5173}") String portalBaseUrl) {
         this.otps = otps;
         this.magicLinks = magicLinks;
         this.tenantTokens = tenantTokens;
@@ -70,7 +70,8 @@ public class PortalService {
         for (PortalOtpSender s : senderBeans) this.senders.put(s.channel(), s);
         this.providers = providers;
         this.executor = executor;
-        this.recipientBaseUrl = stripTrailingSlash(recipientBaseUrl);
+        // The magic-link URL points at the standalone luke-portal static site (FORMS_PORTAL_BASE_URL).
+        this.portalBaseUrl = stripTrailingSlash(portalBaseUrl);
     }
 
     // ── challenge (OTP) ─────────────────────────────────────────────────────────
@@ -189,7 +190,7 @@ public class PortalService {
                 link.setCreatedAt(LocalDateTime.now());
                 link.setExpiresAt(LocalDateTime.now().plusSeconds(MAGIC_TTL_MS / 1000));
                 magicLinks.save(link);
-                String url = recipientBaseUrl + "/portal/" + tenantToken + "?lt=" + raw;
+                String url = portalBaseUrl + "/portal/" + tenantToken + "?lt=" + raw;
                 executor.execute(() -> deliverMagicLink(tenantId, norm, url));
             }
         }

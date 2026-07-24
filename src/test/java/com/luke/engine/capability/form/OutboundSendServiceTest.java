@@ -27,8 +27,9 @@ class OutboundSendServiceTest {
     private final EmailService emails = mock(EmailService.class);
     private final FormEventPublisher events = mock(FormEventPublisher.class);
     private final PortalTenantTokens portalTenantTokens = new PortalTenantTokens("unit-test-portal-tenant-secret");
-    private final OutboundSendService service =
-            new OutboundSendService(forms, instances, emails, events, portalTenantTokens, "http://localhost:5173/");
+    // recipient-base-url (core, /respond) and portal-base-url (luke-portal site, /portal) are distinct.
+    private final OutboundSendService service = new OutboundSendService(
+            forms, instances, emails, events, portalTenantTokens, "http://localhost:5173/", "http://portal.test/");
 
     private FormDefinition form(String kind, Integer published) {
         FormDefinition f = new FormDefinition();
@@ -57,9 +58,9 @@ class OutboundSendServiceTest {
         assertThat(r.emailStatus()).isEqualTo("SENT");
         assertThat(r.token()).startsWith("inv_");
         assertThat(r.link()).isEqualTo("http://localhost:5173/respond/" + r.token());
-        // Portal link is a signed per-tenant handle that resolves back to the tenant.
-        assertThat(r.portalLink()).startsWith("http://localhost:5173/portal/");
-        assertThat(portalTenantTokens.verify(r.portalLink().substring("http://localhost:5173/portal/".length())))
+        // Portal link uses the portal-base-url (the luke-portal site) — a signed per-tenant handle.
+        assertThat(r.portalLink()).startsWith("http://portal.test/portal/");
+        assertThat(portalTenantTokens.verify(r.portalLink().substring("http://portal.test/portal/".length())))
                 .isEqualTo("t1");
         // The saved instance is SENT, prefilled, and carries the recipient (JSON + denormalised email).
         org.mockito.ArgumentCaptor<FormInstance> captor = org.mockito.ArgumentCaptor.forClass(FormInstance.class);
