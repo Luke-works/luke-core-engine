@@ -2,6 +2,7 @@ package com.luke.engine.capability.form;
 
 import com.luke.engine.capability.email.EmailRequest;
 import com.luke.engine.capability.email.EmailService;
+import com.luke.engine.recipient.PortalTenantTokens;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -34,20 +35,23 @@ public class OutboundSendService {
     private final FormInstanceRepository instances;
     private final EmailService emails;
     private final FormEventPublisher events;
+    private final PortalTenantTokens portalTenantTokens;
     private final String recipientBaseUrl;
 
     public OutboundSendService(FormDefinitionRepository forms, FormInstanceRepository instances,
-            EmailService emails, FormEventPublisher events,
-            @Value("${luke.forms.recipient-base-url:http://localhost:5173}") String recipientBaseUrl) {
+            EmailService emails, FormEventPublisher events, PortalTenantTokens portalTenantTokens,
+            @Value("${luke.forms.recipient-base-url:http://localhost:8080}") String recipientBaseUrl) {
         this.forms = forms;
         this.instances = instances;
         this.emails = emails;
         this.events = events;
+        this.portalTenantTokens = portalTenantTokens;
         this.recipientBaseUrl = stripTrailingSlash(recipientBaseUrl);
     }
 
-    /** The outcome of a send: the created instance, its opaque token, the recipient link, and how the email went. */
-    public record SendResult(String instanceId, String token, String link, String emailStatus) {}
+    /** The outcome of a send: the created instance, its opaque token, the direct recipient link, the
+     *  tenant's shareable portal link ("see all my forms"), and how the email went. */
+    public record SendResult(String instanceId, String token, String link, String portalLink, String emailStatus) {}
 
     @Transactional
     public SendResult send(String tenantId, String formId, Map<String, Object> recipient,
@@ -80,13 +84,14 @@ public class OutboundSendService {
         events.emit(inst, "sent"); // forms→workflow "form sent" initiator
 
         String link = recipientBaseUrl + "/respond/" + inst.getToken();
-        String emailStatus = deliver(tenantId, user, form, recipient, email.trim(), link);
-        return new SendResult(inst.getId(), inst.getToken(), link, emailStatus);
+        String portalLink = recipientBaseUrl + "/portal/" + portalTenantTokens.sign(tenantId);
+        String emailStatus = deliver(tenantId, user, form, recipient, email.trim(), link, portalLink);
+        return new SendResult(inst.getId(), inst.getToken(), link, portalLink, emailStatus);
     }
 
     /** Best-effort email; never fails the send (the link is returned regardless). */
     private String deliver(String tenantId, String user, FormDefinition form,
-            Map<String, Object> recipient, String email, String link) {
+            Map<String, Object> recipient, String email, String link, String portalLink) {
         try {
             String first = recipient == null ? null : str(recipient.get("firstName"));
             String greeting = first == null || first.isBlank() ? "Hi there," : "Hi " + esc(first) + ",";
@@ -95,10 +100,13 @@ public class OutboundSendService {
             String html = "<p>" + greeting + "</p>"
                     + "<p>You've been asked to complete <strong>" + formName + "</strong>.</p>"
                     + "<p><a href=\"" + esc(link) + "\">Open the form</a></p>"
-                    + "<p>To continue you'll confirm your email with a one-time code.</p>";
+                    + "<p>To continue you'll confirm your email with a one-time code.</p>"
+                    + "<p style=\"color:#6b7280;font-size:13px\">Or see every form sent to you: "
+                    + "<a href=\"" + esc(portalLink) + "\">your forms portal</a>.</p>";
             String text = (first == null || first.isBlank() ? "Hi there," : "Hi " + first + ",")
                     + "\n\nYou've been asked to complete " + form.getName() + ".\n\nOpen the form: " + link
-                    + "\n\nTo continue you'll confirm your email with a one-time code.\n";
+                    + "\n\nTo continue you'll confirm your email with a one-time code."
+                    + "\n\nOr see every form sent to you: " + portalLink + "\n";
             Map<String, Object> ctx = new LinkedHashMap<>();
             ctx.put("formCode", form.getCode());
             EmailRequest req = new EmailRequest(

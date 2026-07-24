@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.luke.engine.capability.email.EmailMessage;
 import com.luke.engine.capability.email.EmailRequest;
 import com.luke.engine.capability.email.EmailService;
+import com.luke.engine.recipient.PortalAccessTokens;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
@@ -29,8 +30,11 @@ class PublicFormInstanceServiceTest {
     private final EmailService emails = mock(EmailService.class);
     private final FormSubmissionService submissions = mock(FormSubmissionService.class);
     private final RecipientAccessTokens accessTokens = mock(RecipientAccessTokens.class);
+    // Real portal-session signer (stateless) so authorize()'s portal fallback exercises the true
+    // verify path — a mock would return null and NPE inside the fallback.
+    private final PortalAccessTokens portalTokens = new PortalAccessTokens("unit-test-portal-secret", 1_800_000L);
     private final PublicFormInstanceService service = new PublicFormInstanceService(
-            instances, otps, forms, versions, emails, submissions, accessTokens);
+            instances, otps, forms, versions, emails, submissions, accessTokens, portalTokens);
 
     private FormInstance instance(String state) {
         FormInstance i = new FormInstance();
@@ -131,5 +135,29 @@ class PublicFormInstanceServiceTest {
 
         service.submit("inv_abc", "acc-tok", Map.of("note", "hi"));
         verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+    }
+
+    @Test
+    void portalSessionAuthorizesAnyInstanceMatchingItsEmailAndTenant() {
+        FormInstance inst = instance(FormInstanceStates.IN_PROGRESS); // recipient jo@acme.com, tenant t1
+        when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
+        // The per-instance token check fails (this is not a recipient access token)…
+        when(accessTokens.verify(eq("portal-tok"), anyLong())).thenThrow(new IllegalArgumentException("nope"));
+        // …but a portal session for (t1, jo@acme.com) authorizes it.
+        String portalTok = portalTokens.sign("t1", "jo@acme.com", System.currentTimeMillis());
+
+        service.submit("inv_abc", portalTok, Map.of("note", "hi"));
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+    }
+
+    @Test
+    void portalSessionForADifferentEmailIsRejected() {
+        FormInstance inst = instance(FormInstanceStates.IN_PROGRESS); // recipient jo@acme.com
+        when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
+        when(accessTokens.verify(any(), anyLong())).thenThrow(new IllegalArgumentException("nope"));
+        String otherTenant = portalTokens.sign("t1", "someone-else@acme.com", System.currentTimeMillis());
+
+        assertThatThrownBy(() -> service.submit("inv_abc", otherTenant, Map.of("note", "hi")))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Verify your email");
     }
 }

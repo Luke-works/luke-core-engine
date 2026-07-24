@@ -81,6 +81,11 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/api/public/**", publicConfig);
         source.registerCorsConfiguration("/embed-assets/**", publicConfig);
         source.registerCorsConfiguration("/embed/**", publicConfig);
+        // The recipient portal page + its self-contained bundle are served off this same public
+        // origin (FORMS_PUBLIC_BASE_URL) but load the bundle via <script type="module"> (CORS mode,
+        // sends Origin even same-origin), so they need the any-origin/no-credentials carve-out too.
+        source.registerCorsConfiguration("/portal-assets/**", publicConfig);
+        source.registerCorsConfiguration("/portal/**", publicConfig);
 
         source.registerCorsConfiguration("/**", config);
         return source;

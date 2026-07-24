@@ -2,6 +2,7 @@ package com.luke.engine.capability.form;
 
 import com.luke.engine.capability.email.EmailRequest;
 import com.luke.engine.capability.email.EmailService;
+import com.luke.engine.recipient.PortalAccessTokens;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -42,10 +43,12 @@ public class PublicFormInstanceService {
     private final EmailService emails;
     private final FormSubmissionService submissions;
     private final RecipientAccessTokens accessTokens;
+    private final PortalAccessTokens portalTokens;
 
     public PublicFormInstanceService(FormInstanceRepository instances, FormRecipientOtpRepository otps,
             FormDefinitionRepository forms, FormVersionRepository versions, EmailService emails,
-            FormSubmissionService submissions, RecipientAccessTokens accessTokens) {
+            FormSubmissionService submissions, RecipientAccessTokens accessTokens,
+            PortalAccessTokens portalTokens) {
         this.instances = instances;
         this.otps = otps;
         this.forms = forms;
@@ -53,6 +56,7 @@ public class PublicFormInstanceService {
         this.emails = emails;
         this.submissions = submissions;
         this.accessTokens = accessTokens;
+        this.portalTokens = portalTokens;
     }
 
     /** Mail a fresh OTP to the instance's recipient. Returns the (best-effort) email status. */
@@ -170,18 +174,32 @@ public class PublicFormInstanceService {
         return inst;
     }
 
-    /** Verify the access token, that it matches this instance token, and the instance is still open. */
+    /**
+     * Authorise a fill/save/submit against this instance token. Accepts EITHER of two account-less
+     * sessions: the per-instance recipient token minted by the {@code /respond} OTP flow, OR the
+     * email-scoped PORTAL session (which authorises any open instance whose recipient email + tenant
+     * match). The instance must still be open in both cases.
+     */
     private FormInstance authorize(String token, String accessToken) {
-        String authorized;
+        long now = System.currentTimeMillis();
+        // 1) Per-instance recipient token (the single-link /respond flow).
         try {
-            authorized = accessTokens.verify(accessToken, System.currentTimeMillis());
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Verify your email to continue.");
+            if (token.equals(accessTokens.verify(accessToken, now))) return openInstance(token);
+        } catch (IllegalArgumentException ignore) {
+            /* not an instance token — try the portal session below */
         }
-        if (!token.equals(authorized)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Verify your email to continue.");
+        // 2) Email-scoped portal session (authenticate-once portal).
+        try {
+            PortalAccessTokens.PortalRef ref = portalTokens.verify(accessToken, now);
+            FormInstance inst = openInstance(token);
+            String email = recipientEmail(inst);
+            if (email != null && ref.tenantId().equals(inst.getTenantId()) && ref.email().equalsIgnoreCase(email)) {
+                return inst;
+            }
+        } catch (IllegalArgumentException ignore) {
+            /* not a portal session either → fall through to 401 */
         }
-        return openInstance(token);
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Verify your email to continue.");
     }
 
     private String deliver(String tenantId, String email, String code) {

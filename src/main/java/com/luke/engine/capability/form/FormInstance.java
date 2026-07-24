@@ -67,6 +67,15 @@ public class FormInstance {
     @Column(columnDefinition = "text")
     private Map<String, Object> recipient;
 
+    /** Denormalised, indexed recipient email (lower-cased) — kept in sync by {@link #setRecipient}
+     *  so the portal can list every open instance for a recipient without parsing the JSON blob. */
+    @Column(length = 320)
+    private String recipientEmail;
+
+    /** Denormalised recipient phone (for the SMS portal channel), kept in sync by {@link #setRecipient}. */
+    @Column(length = 40)
+    private String recipientPhone;
+
     /** {@code { processInstanceId, taskId, businessKey, correlation:{messageName} }}. */
     @Convert(converter = JsonMapConverter.class)
     @Column(columnDefinition = "text")
@@ -113,7 +122,29 @@ public class FormInstance {
     public void setData(Map<String, Object> data) { this.data = data; }
 
     public Map<String, Object> getRecipient() { return recipient; }
-    public void setRecipient(Map<String, Object> recipient) { this.recipient = recipient; }
+
+    /** Sets the recipient JSON AND derives the denormalised {@code recipientEmail}/{@code recipientPhone}
+     *  columns, so the two never drift apart no matter which path creates the instance. */
+    public void setRecipient(Map<String, Object> recipient) {
+        this.recipient = recipient;
+        this.recipientEmail = normalizeEmail(recipient == null ? null : recipient.get("email"));
+        this.recipientPhone = trimToNull(recipient == null ? null : recipient.get("phone"));
+    }
+
+    public String getRecipientEmail() { return recipientEmail; }
+
+    public String getRecipientPhone() { return recipientPhone; }
+
+    private static String normalizeEmail(Object v) {
+        String s = trimToNull(v);
+        return s == null ? null : s.toLowerCase();
+    }
+
+    private static String trimToNull(Object v) {
+        if (v == null) return null;
+        String s = v.toString().trim();
+        return s.isEmpty() ? null : s;
+    }
 
     public Map<String, Object> getContext() { return context; }
     public void setContext(Map<String, Object> context) { this.context = context; }

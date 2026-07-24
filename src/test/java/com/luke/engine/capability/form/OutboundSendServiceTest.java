@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.luke.engine.capability.email.EmailMessage;
 import com.luke.engine.capability.email.EmailRequest;
 import com.luke.engine.capability.email.EmailService;
+import com.luke.engine.recipient.PortalTenantTokens;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -25,8 +26,9 @@ class OutboundSendServiceTest {
     private final FormInstanceRepository instances = mock(FormInstanceRepository.class);
     private final EmailService emails = mock(EmailService.class);
     private final FormEventPublisher events = mock(FormEventPublisher.class);
+    private final PortalTenantTokens portalTenantTokens = new PortalTenantTokens("unit-test-portal-tenant-secret");
     private final OutboundSendService service =
-            new OutboundSendService(forms, instances, emails, events, "http://localhost:5173/");
+            new OutboundSendService(forms, instances, emails, events, portalTenantTokens, "http://localhost:5173/");
 
     private FormDefinition form(String kind, Integer published) {
         FormDefinition f = new FormDefinition();
@@ -55,7 +57,11 @@ class OutboundSendServiceTest {
         assertThat(r.emailStatus()).isEqualTo("SENT");
         assertThat(r.token()).startsWith("inv_");
         assertThat(r.link()).isEqualTo("http://localhost:5173/respond/" + r.token());
-        // The saved instance is SENT, prefilled, and carries the recipient.
+        // Portal link is a signed per-tenant handle that resolves back to the tenant.
+        assertThat(r.portalLink()).startsWith("http://localhost:5173/portal/");
+        assertThat(portalTenantTokens.verify(r.portalLink().substring("http://localhost:5173/portal/".length())))
+                .isEqualTo("t1");
+        // The saved instance is SENT, prefilled, and carries the recipient (JSON + denormalised email).
         org.mockito.ArgumentCaptor<FormInstance> captor = org.mockito.ArgumentCaptor.forClass(FormInstance.class);
         verify(instances).save(captor.capture());
         FormInstance saved = captor.getValue();
@@ -63,6 +69,7 @@ class OutboundSendServiceTest {
         assertThat(saved.getVersion()).isEqualTo(2);
         assertThat(saved.getPrefill()).containsEntry("amount", "10");
         assertThat(saved.getRecipient()).containsEntry("email", "jo@acme.com");
+        assertThat(saved.getRecipientEmail()).isEqualTo("jo@acme.com");
         verify(events).emit(any(), eq("sent"));
     }
 
