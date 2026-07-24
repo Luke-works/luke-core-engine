@@ -2,6 +2,7 @@ package com.luke.engine.admin;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.finos.fluxnova.bpm.engine.identity.Group;
@@ -44,9 +45,11 @@ public class OnboardingController {
     private String parentClusterId;
 
     private final IdentityService identityService;
+    private final UserDeprovisioningService deprovisioning;
 
-    public OnboardingController(IdentityService identityService) {
+    public OnboardingController(IdentityService identityService, UserDeprovisioningService deprovisioning) {
         this.identityService = identityService;
+        this.deprovisioning = deprovisioning;
     }
 
     public record OnboardUserRequest(
@@ -99,6 +102,39 @@ public class OnboardingController {
         byte[] bytes = new byte[48];
         new java.security.SecureRandom().nextBytes(bytes);
         return "clerk-nologin-" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** Operator-driven deprovisioning by engine userId (SCIM / directory-sync leaver, auth-engine #38). */
+    public record DeprovisionUserRequest(String id) {}
+
+    /**
+     * Revoke all engine access for a user by id — the operator/IdP counterpart to the user's own
+     * {@code DELETE /api/me/account}. luke-auth-engine's WorkOS deprovisioning webhook calls this
+     * (operator Basic auth) when a user is removed in the IdP, so their engine membership doesn't
+     * outlive their identity. Idempotent: an unknown user is a successful no-op.
+     */
+    @PostMapping("/deprovision-user")
+    public ResponseEntity<?> deprovisionUser(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody DeprovisionUserRequest req) {
+
+        String caller = authenticate(authHeader);
+        if (caller == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Unauthorized", "message", "Valid credentials required"));
+        }
+        if (!isPrivileged(caller)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "Forbidden", "message", "Deprovisioning requires an operator (camunda-admin / parent_cluster)"));
+        }
+        if (req == null || !StringUtils.hasText(req.id())) {
+            return badRequest("id is required");
+        }
+
+        List<String> deletedTenants = deprovisioning.deprovision(req.id());
+        log.info("Operator '{}' deprovisioned user '{}' ({} sole-owned tenants deleted)",
+                caller, req.id(), deletedTenants.size());
+        return ResponseEntity.ok(Map.of("id", req.id(), "deletedTenants", deletedTenants, "deprovisioned", true));
     }
 
     @PostMapping("/onboard-user")
