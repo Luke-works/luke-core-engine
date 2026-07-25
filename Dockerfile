@@ -18,11 +18,11 @@ RUN ./mvnw -B clean package -DskipTests
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
-# Run as non-root. Create a real, writable home directory (-m): GraalVM JS
-# (Truffle) unpacks its runtime resources into $HOME on first use, so a system
-# user with no home makes the engine fail to boot with
-# `AccessDeniedException: /home/luke`. FluxNova's GraalJS triggers this on-disk
-# install where CIBSeven's did not.
+# Run as non-root, with a real writable home (-m) as defensive hygiene for any
+# library that writes under $HOME. (Historically REQUIRED by GraalVM JS/Truffle,
+# which unpacked runtime resources into $HOME and crashed a homeless user with
+# `AccessDeniedException: /home/luke`; the scripting engines were removed in #22,
+# but the writable home is cheap and kept.)
 RUN groupadd -r luke && useradd -r -g luke -m -d /home/luke luke
 USER luke
 ENV HOME=/home/luke
@@ -33,12 +33,13 @@ COPY --from=build --chown=luke:luke /app/target/luke-core-engine-*.jar app.jar
 # Render injects $PORT at runtime; 8080 is the local default
 EXPOSE 8080
 
-# Container-aware JVM sizing. Heap is capped at 55% (down from 75%) to leave
-# headroom for the LARGE off-heap/Metaspace footprint of the bundled scripting
-# engines (GraalVM JS, Jython, Groovy) plus thread stacks and direct buffers —
-# Render kills on total RSS, not just heap. On the 512 MB starter plan this
-# reduces OOM-restarts; for real headroom with scripting retained, upgrade the
-# instance and raise MaxRAMPercentage accordingly.
+# Container-aware JVM sizing (#22). Heap is capped at 55% (down from the original
+# 75%) because Render OOM-kills on total RSS, not just heap — the remaining ~45%
+# holds Metaspace, thread stacks, code cache, direct buffers and GC structures.
+# With the scripting engines removed (#22) the off-heap footprint dropped sharply,
+# so 55% now leaves comfortable headroom on the 512 MB starter plan; it can be
+# raised toward 65% if the app ever needs more heap. Upgrade the instance for a
+# larger absolute heap.
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=55.0"
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

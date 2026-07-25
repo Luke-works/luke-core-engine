@@ -36,10 +36,6 @@
              (Bzip2Decoder infinite loop), fixed in 4.1.136. Mirrors auth-engine #41. -->
         <netty.version>4.1.136.Final</netty.version>
         <fluxnova.version>2.0.3</fluxnova.version>
-        <!-- Scripting language engines (JSR-223) -->
-        <groovy.version>4.0.24</groovy.version>
-        <graaljs.version>24.1.1</graaljs.version>
-        <jython.version>2.7.3</jython.version>
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
         <pdfbox.version>3.0.3</pdfbox.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
@@ -115,47 +111,13 @@
             <artifactId>fluxnova-connect-connectors-all</artifactId>
         </dependency>
 
-        <!-- ========================================================= -->
-        <!-- Scripting language engines (JSR-223)                      -->
-        <!-- Discovered automatically by the engine's ScriptEngine     -->
-        <!-- manager; ScriptingEnginePlugin enables GraalVM JS host    -->
-        <!-- access so scripts can use `execution`, etc.               -->
-        <!-- ========================================================= -->
-
-        <!-- Groovy  → script language "groovy" -->
-        <dependency>
-            <groupId>org.apache.groovy</groupId>
-            <artifactId>groovy-jsr223</artifactId>
-            <version>${groovy.version}</version>
-        </dependency>
-
-        <!-- JavaScript (GraalVM JS) → script language "javascript" / "js".
-             Nashorn was removed from the JDK in Java 15, so JS scripting
-             requires GraalVM JS on Java 21. -->
-        <dependency>
-            <groupId>org.graalvm.polyglot</groupId>
-            <artifactId>polyglot</artifactId>
-            <version>${graaljs.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.graalvm.polyglot</groupId>
-            <artifactId>js-community</artifactId>
-            <version>${graaljs.version}</version>
-            <type>pom</type>
-        </dependency>
-        <dependency>
-            <groupId>org.graalvm.js</groupId>
-            <artifactId>js-scriptengine</artifactId>
-            <version>${graaljs.version}</version>
-        </dependency>
-
-        <!-- Python (Jython) → script language "python".
-             NOTE: Jython implements Python 2.7, not Python 3. -->
-        <dependency>
-            <groupId>org.python</groupId>
-            <artifactId>jython-standalone</artifactId>
-            <version>${jython.version}</version>
-        </dependency>
+        <!-- NOTE (#22): the JSR-223 scripting engines (Groovy, GraalVM JS, Jython) were removed to
+             cut the container's off-heap/native footprint on the 512 MB Render starter plan. No
+             deployed or generated BPMN uses a <scriptTask> (the WORKFLOW compiler emits job-worker /
+             outbox steps, not scripts) and Camunda ${...} expressions use the built-in JUEL engine,
+             not these. GraalVM polyglot (large native/Metaspace footprint) + Jython (huge jar) were
+             the worst offenders. If script tasks are ever needed, re-add exactly ONE engine here and
+             restore ScriptingEnginePlugin (git history). -->
 
         <!-- Spring Boot Starters -->
         <dependency>
