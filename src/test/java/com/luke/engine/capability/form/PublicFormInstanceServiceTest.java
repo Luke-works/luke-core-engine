@@ -60,7 +60,7 @@ class PublicFormInstanceServiceTest {
         when(otps.findByInstanceId("i1")).thenReturn(Optional.empty());
         EmailMessage msg = mock(EmailMessage.class);
         when(msg.getStatus()).thenReturn("SENT");
-        when(emails.sendRaw(eq("t1"), any(), any(EmailRequest.class))).thenReturn(msg);
+        when(emails.sendRawSync(eq("t1"), any(), any(EmailRequest.class))).thenReturn(msg);
 
         Map<String, Object> out = service.requestOtp("inv_abc");
 

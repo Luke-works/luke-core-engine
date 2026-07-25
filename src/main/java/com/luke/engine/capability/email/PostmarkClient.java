@@ -38,8 +38,11 @@ public class PostmarkClient {
     @Value("${luke.email.postmark.base-url:https://api.postmarkapp.com}")
     private String baseUrl;
 
-    /** Outcome of a Postmark submission. ok=true → SENT with a messageId. */
-    public record SendResult(boolean ok, String messageId, Integer errorCode, String message) {}
+    /** Outcome of a Postmark submission. ok=true → SENT with a messageId. {@code retryable} marks a
+     *  TRANSIENT failure (network error / Postmark 5xx) that is worth retrying; a business rejection
+     *  (bad recipient, 4xx) or a config problem is NOT retryable — retrying it just fails again and,
+     *  for anything Postmark already accepted, risks a double-send. */
+    public record SendResult(boolean ok, String messageId, Integer errorCode, String message, boolean retryable) {}
 
     /**
      * Send a raw email with the given Postmark Server token. {@code fields} carries
@@ -112,7 +115,7 @@ public class PostmarkClient {
 
     private SendResult submit(String path, String serverToken, Map<String, Object> fields) {
         if (serverToken == null || serverToken.isBlank()) {
-            return new SendResult(false, null, null, "No Postmark server token available for this send");
+            return new SendResult(false, null, null, "No Postmark server token available for this send", false);
         }
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -129,10 +132,11 @@ public class PostmarkClient {
             Object messageId = resp != null ? resp.get("MessageID") : null;
             String message = resp != null && resp.get("Message") != null ? resp.get("Message").toString() : null;
             if (errorCode != null && errorCode == 0 && messageId != null) {
-                return new SendResult(true, messageId.toString(), 0, message);
+                return new SendResult(true, messageId.toString(), 0, message, false);
             }
+            // A 200 with a non-zero ErrorCode is a Postmark business rejection — retrying won't help.
             return new SendResult(false, messageId != null ? messageId.toString() : null,
-                    errorCode, message != null ? message : "Postmark did not confirm delivery");
+                    errorCode, message != null ? message : "Postmark did not confirm delivery", false);
         } catch (HttpStatusCodeException e) {
             // A 422 carries Postmark's ErrorCode/Message JSON; other statuses may not.
             String body = e.getResponseBodyAsString();
@@ -147,11 +151,14 @@ public class PostmarkClient {
             }
             if (message == null) message = "HTTP " + e.getStatusCode().value() + " — " + e.getStatusText();
             log.warn("Postmark send failed: {} (errorCode {})", message, errorCode);
-            return new SendResult(false, null, errorCode, message);
+            // 5xx = Postmark server error → the message wasn't accepted, safe to retry; 4xx = client
+            // error (bad recipient/payload) → permanent.
+            return new SendResult(false, null, errorCode, message, e.getStatusCode().is5xxServerError());
         } catch (Exception e) {
             String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.warn("Postmark send errored: {}", detail);
-            return new SendResult(false, null, null, detail);
+            // Connection/timeout/DNS — no response from Postmark. Transient: retry.
+            return new SendResult(false, null, null, detail, true);
         }
     }
 

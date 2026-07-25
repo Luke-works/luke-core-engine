@@ -193,7 +193,9 @@ public class PublicFormInstanceService {
             EmailRequest req = new EmailRequest(
                     null, email, null, null, null, subject, html, text,
                     null, null, null, "form-recipient-otp", null, null, null);
-            return String.valueOf(emails.sendRaw(tenantId, null, req).getStatus());
+            // OTP must confirm delivery inline (the recipient is waiting on the code), so send
+            // synchronously rather than queueing (#59).
+            return String.valueOf(emails.sendRawSync(tenantId, null, req).getStatus());
         } catch (RuntimeException e) {
             log.warn("Recipient OTP email failed for {}: {}", mask(email), e.getMessage());
             return "FAILED";
