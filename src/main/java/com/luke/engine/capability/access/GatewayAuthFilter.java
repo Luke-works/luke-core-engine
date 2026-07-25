@@ -46,7 +46,18 @@ public class GatewayAuthFilter {
                 "/api/phone-calls/*", "/api/phone-numbers/*", "/api/phone-settings/*",
                 // WORKFLOW — definitions/versions lifecycle, catalog, and the integrations module.
                 "/api/workflow/*",
+                // EMAIL boxes — the authed send-from/receive-at address manager. Its Javadoc claims
+                // "guarded by the EMAIL capability" but it was never wired here or in AccessWebConfig
+                // (#20), so it was reachable with only a spoofable X-Tenant-Id. Also added to the EMAIL
+                // CapabilityAccessInterceptor.
+                "/api/email-boxes/*",
+                // Authenticated minion proxy — runs tenant provider credentials server-side; expects
+                // the gateway to authenticate the user (its Javadoc says so) but was never wired (#20).
+                "/api/minions/*",
                 "/api/my-capabilities",
+                // Sibling of /api/my-capabilities — was missing here, so it returned any tenant's active
+                // subscriptions for a header-supplied X-Tenant-Id (cross-tenant disclosure) (#20).
+                "/api/my-subscriptions",
                 "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*");
         reg.setName("gatewayAuthFilter");
         reg.setOrder(1); // before the capability access interceptor

@@ -27,7 +27,9 @@ public class AccessWebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/form-definitions/**", "/api/form-instances/**");
         registry.addInterceptor(new CapabilityAccessInterceptor(access).forCapability("EMAIL"))
                 .addPathPatterns("/api/emails/**", "/api/email-servers/**", "/api/email-verification/**",
-                        "/api/email-templates/**");
+                        // email-boxes was missing → reachable with only a spoofable X-Tenant-Id (#20).
+                        // Now capability-guarded like the rest of the EMAIL surface.
+                        "/api/email-templates/**", "/api/email-boxes/**");
         // Signatures (merged from luke-signature-engine). The authed design-time +
         // runtime APIs are capability-guarded; the public per-recipient signing routes
         // (/api/public/sign/**, /api/public/sign-instance/**) are token-authenticated by
