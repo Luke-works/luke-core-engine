@@ -1,5 +1,8 @@
 package com.luke.engine.capability.emailtemplate;
 
+import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.capability.access.RequiresCapabilityAction;
+
 import com.luke.engine.capability.email.EmailRequest;
 import com.luke.engine.capability.email.EmailServerService;
 import com.luke.engine.capability.email.EmailService;
@@ -185,6 +188,7 @@ public class EmailTemplateController {
 
     /** Re-push an existing version's doc to Postmark and make it the published one. */
     @PostMapping("/{id}/versions/{v}/publish")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public EmailTemplate publish(@RequestHeader("X-Tenant-Id") String tenantId,
                                  @RequestHeader(value = "X-User-Id", required = false) String userId,
                                  @PathVariable String id, @PathVariable int v,
@@ -207,6 +211,7 @@ public class EmailTemplateController {
     /* ── retire & remove ────────────────────────────────────── */
 
     @PostMapping("/{id}/retire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public EmailTemplate retire(@RequestHeader("X-Tenant-Id") String tenantId,
                                 @RequestHeader(value = "X-User-Id", required = false) String userId,
                                 @PathVariable String id) {
@@ -219,6 +224,7 @@ public class EmailTemplateController {
     }
 
     @PostMapping("/{id}/unretire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public EmailTemplate unretire(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id) {
@@ -255,6 +261,7 @@ public class EmailTemplateController {
 
     @DeleteMapping("/{id}/purge")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @RequiresCapabilityAction(CapabilityLevel.Action.DELETE)
     public void purge(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         EmailTemplate tpl = templates.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> notFound("Unknown email template: " + id));

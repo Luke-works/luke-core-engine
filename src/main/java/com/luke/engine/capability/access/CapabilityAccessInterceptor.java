@@ -2,15 +2,19 @@ package com.luke.engine.capability.access;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.http.MediaType;
+import java.util.Locale;
 import org.springframework.stereotype.Component;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * Gatekeeper for capability routes. Reads the caller (X-Tenant-Id + X-User-Id),
- * derives the required level from the HTTP method (GET/HEAD = read, anything
- * else = write), and checks it against {@link CapabilityAccessService}. Rejects
- * with 401 (no identity) or 403 (insufficient level) before the controller runs.
+ * resolves the required {@link CapabilityLevel.Action} — the HTTP method by default
+ * (GET/HEAD = READ, anything else = WRITE), overridden by a
+ * {@link RequiresCapabilityAction @RequiresCapabilityAction} on the handler method for
+ * privileged operations (publish/delete) — and checks it against
+ * {@link CapabilityAccessService}. Rejects with 401 (no identity) or 403 (insufficient
+ * level) before the controller runs.
  *
  * <p>The capability a path belongs to is set when the interceptor is registered
  * (e.g. the forms routes → "FORMS"), so one instance guards one capability.
@@ -45,14 +49,26 @@ public class CapabilityAccessInterceptor implements HandlerInterceptor {
                     "X-Tenant-Id and X-User-Id are required");
         }
 
-        boolean needWrite = !isReadMethod(req.getMethod());
-        if (!access.isAllowed(tenantId, userId, capabilityCode, needWrite)) {
+        CapabilityLevel.Action action = requiredAction(req, handler);
+        if (!access.permits(tenantId, userId, capabilityCode, action)) {
             String have = access.effectiveLevel(tenantId, userId, capabilityCode);
             return deny(res, HttpServletResponse.SC_FORBIDDEN,
-                    "Requires " + capabilityCode + " " + (needWrite ? "read-write" : "read")
+                    "Requires " + capabilityCode + " " + action.name().toLowerCase(Locale.ROOT)
                             + (have == null ? " — you have no access" : " — you have " + have));
         }
         return true;
+    }
+
+    /** The action this request needs: a handler's {@link RequiresCapabilityAction} if present,
+     *  otherwise the method-derived default (GET/HEAD → READ, everything else → WRITE). */
+    private static CapabilityLevel.Action requiredAction(HttpServletRequest req, Object handler) {
+        if (handler instanceof HandlerMethod hm) {
+            RequiresCapabilityAction ann = hm.getMethodAnnotation(RequiresCapabilityAction.class);
+            if (ann != null) {
+                return ann.value();
+            }
+        }
+        return isReadMethod(req.getMethod()) ? CapabilityLevel.Action.READ : CapabilityLevel.Action.WRITE;
     }
 
     private static boolean isReadMethod(String method) {

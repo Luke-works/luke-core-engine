@@ -1,5 +1,8 @@
 package com.luke.engine.capability.signature;
 
+import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.capability.access.RequiresCapabilityAction;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luke.engine.capability.signature.SignatureInstanceService.CampaignInput;
@@ -85,6 +88,7 @@ public class SignatureInstanceController {
     }
 
     @PostMapping("/{id}/seal")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public InstanceView seal(@RequestHeader("X-Tenant-Id") String tenantId,
                              @RequestHeader(value = "X-User-Id", required = false) String userId,
                              @PathVariable String id) {

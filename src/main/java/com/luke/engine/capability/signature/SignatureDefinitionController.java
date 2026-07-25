@@ -1,5 +1,8 @@
 package com.luke.engine.capability.signature;
 
+import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.capability.access.RequiresCapabilityAction;
+
 import com.luke.engine.tenant.UserDirectory;
 import java.util.List;
 import java.util.Optional;
@@ -112,6 +115,7 @@ public class SignatureDefinitionController {
     }
 
     @PostMapping("/{id}/versions/{v}/publish")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public void publish(@RequestHeader("X-Tenant-Id") String tenantId,
                         @RequestHeader(value = "X-User-Id", required = false) String userId,
                         @PathVariable String id, @PathVariable int v) {
@@ -129,6 +133,7 @@ public class SignatureDefinitionController {
 
     // ── legal review + lifecycle ────────────────────────────────────────────────────────
     @PostMapping("/{id}/sign-off")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public DefinitionView signOff(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id) {
@@ -163,6 +168,7 @@ public class SignatureDefinitionController {
     }
 
     @PostMapping("/{id}/retire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public void retire(@RequestHeader("X-Tenant-Id") String tenantId,
                        @RequestHeader(value = "X-User-Id", required = false) String userId,
                        @PathVariable String id) {
@@ -171,6 +177,7 @@ public class SignatureDefinitionController {
     }
 
     @PostMapping("/{id}/unretire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public void unretire(@RequestHeader("X-Tenant-Id") String tenantId,
                          @RequestHeader(value = "X-User-Id", required = false) String userId,
                          @PathVariable String id) {
@@ -187,6 +194,7 @@ public class SignatureDefinitionController {
     }
 
     @DeleteMapping("/{id}/purge")
+    @RequiresCapabilityAction(CapabilityLevel.Action.DELETE)
     public void purge(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         requireTenant(tenantId);
         service.purge(tenantId, id);

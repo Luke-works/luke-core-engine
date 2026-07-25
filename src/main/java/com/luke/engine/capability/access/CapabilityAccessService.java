@@ -45,9 +45,14 @@ public class CapabilityAccessService {
                 .orElse(null);
     }
 
-    /** True if the user may perform the action; {@code needWrite} → requires read-write. */
+    /** True if the user may perform the action; {@code needWrite} → requires ordinary write. */
     public boolean isAllowed(String tenantId, String userId, String capabilityCode, boolean needWrite) {
         return CapabilityLevel.satisfies(effectiveLevel(tenantId, userId, capabilityCode), needWrite);
+    }
+
+    /** True if the user's effective level permits the named {@link CapabilityLevel.Action} (#104). */
+    public boolean permits(String tenantId, String userId, String capabilityCode, CapabilityLevel.Action action) {
+        return CapabilityLevel.permits(effectiveLevel(tenantId, userId, capabilityCode), action);
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.luke.engine.workflow;
 
+import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.capability.access.RequiresCapabilityAction;
+
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -70,6 +73,7 @@ public class WorkflowDefinitionController {
     }
 
     @PostMapping("/{id}/versions/{version}/sign-off")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public WorkflowVersion signOff(@RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @PathVariable String id, @PathVariable int version) {
@@ -77,6 +81,7 @@ public class WorkflowDefinitionController {
     }
 
     @PostMapping("/{id}/publish")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public WorkflowDefinition publish(@RequestHeader("X-Tenant-Id") String tenantId,
             @RequestHeader(value = "X-User-Id", required = false) String userId,
             @PathVariable String id, @RequestBody PublishRequest body) {

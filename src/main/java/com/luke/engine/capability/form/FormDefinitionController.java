@@ -1,5 +1,8 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.capability.access.RequiresCapabilityAction;
+
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -350,6 +353,7 @@ public class FormDefinitionController {
 
     /** Promote a checked-in version to live. Gated: the version must be SIGNED OFF (tested) first. */
     @PostMapping("/{id}/versions/{v}/publish")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public FormDefinition publish(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id, @PathVariable int v) {
@@ -383,6 +387,7 @@ public class FormDefinitionController {
     /* ── retire & remove ────────────────────────────────────── */
 
     @PostMapping("/{id}/retire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public FormDefinition retire(@RequestHeader("X-Tenant-Id") String tenantId,
                                  @RequestHeader(value = "X-User-Id", required = false) String userId,
                                  @PathVariable String id) {
@@ -395,6 +400,7 @@ public class FormDefinitionController {
     }
 
     @PostMapping("/{id}/unretire")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public FormDefinition unretire(@RequestHeader("X-Tenant-Id") String tenantId,
                                    @RequestHeader(value = "X-User-Id", required = false) String userId,
                                    @PathVariable String id) {
@@ -413,6 +419,7 @@ public class FormDefinitionController {
      * 422 if the form has no versions yet — check in before signing off.
      */
     @PostMapping("/{id}/sign-off")
+    @RequiresCapabilityAction(CapabilityLevel.Action.PUBLISH)
     public FormDefinition signOff(@RequestHeader("X-Tenant-Id") String tenantId,
                                   @RequestHeader(value = "X-User-Id", required = false) String userId,
                                   @PathVariable String id) {
@@ -457,6 +464,7 @@ public class FormDefinitionController {
 
     @DeleteMapping("/{id}/purge")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @RequiresCapabilityAction(CapabilityLevel.Action.DELETE)
     @Transactional // #62: versions + audit + form deletes are atomic (no orphaned child rows).
     public void purge(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
         FormDefinition form = forms.findByIdAndTenantId(id, tenantId)
