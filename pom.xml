@@ -31,6 +31,10 @@
     <!-- ============================================================= -->
     <properties>
         <java.version>21</java.version>
+        <!-- Override the BOM-managed netty (pulled transitively by lettuce-core, added for the
+             #55 shared rate limiter) to the patched version: 4.1.135 has CVE-2026-59901
+             (Bzip2Decoder infinite loop), fixed in 4.1.136. Mirrors auth-engine #41. -->
+        <netty.version>4.1.136.Final</netty.version>
         <fluxnova.version>2.0.3</fluxnova.version>
         <!-- Scripting language engines (JSR-223) -->
         <groovy.version>4.0.24</groovy.version>
@@ -166,6 +170,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Lettuce (Redis client) for the shared, cross-replica embed rate limiter (#55). Used
+             ONLY when REDIS_URL is set; the limiter falls back to the in-memory per-instance store
+             otherwise (default-lenient). Version managed by the Spring Boot BOM. -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+        </dependency>
         <!-- JWT verification (NimbusJwtDecoder) for consumer-gateway Bearer tokens
              minted by luke-auth-engine; verified against its published JWKS. -->
         <dependency>
@@ -263,6 +274,13 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Embedded Redis for the shared-limiter integration test (#55; no Docker needed). -->
+        <dependency>
+            <groupId>com.github.codemonstur</groupId>
+            <artifactId>embedded-redis</artifactId>
+            <version>1.4.3</version>
             <scope>test</scope>
         </dependency>
 

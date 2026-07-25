@@ -1,31 +1,34 @@
 package com.luke.engine.web;
 
 import jakarta.servlet.http.HttpServletResponse;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Shared fixed 1-minute-window rate limiter (#55) — consolidates the identical logic that was
- * copy-pasted into {@code FormEmbedController} and {@code MinionRateLimiter}. Per key: at most
- * {@code max} hits per minute; further hits get a {@code Retry-After}.
+ * Shared fixed 1-minute-window rate limiter (#55) used by the public embed surface
+ * ({@code FormEmbedController}). Per key: at most {@code max} hits per minute; further hits get a
+ * {@code Retry-After}.
  *
- * <p>In-memory and therefore <b>per-instance</b>. Eviction drops only STALE windows (never the
- * current minute's counters) so a flood of fresh keys can't reset live counters — a global-bypass
- * an attacker could otherwise trigger.
- *
- * <p>A cross-replica (Redis-backed) store is the same {@code REDIS_URL} pattern shipped on the
- * gateway (luke-auth-engine #56); this class is the seam it would slot behind.
+ * <p>This is a thin facade over a {@link RateLimitStore}: {@link InMemoryRateLimitStore} per-instance
+ * by default, or a {@link RedisRateLimitStore} shared across every replica when {@code REDIS_URL} is
+ * set (chosen in {@code RateLimitConfig}) — so horizontal scale-out can't dilute the limit.
  */
 @Component
 public class FixedWindowRateLimiter {
 
-    private static final long WINDOW_MILLIS = 60_000L;
-    private static final int MAX_KEYS = 50_000;
+    private final RateLimitStore store;
 
-    private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
+    @Autowired
+    public FixedWindowRateLimiter(RateLimitStore store) {
+        this.store = store;
+    }
+
+    /** Convenience for tests / standalone use: an in-memory per-instance store. */
+    public FixedWindowRateLimiter() {
+        this(new InMemoryRateLimitStore(50_000));
+    }
 
     /**
      * Count a hit against {@code key}.
@@ -33,18 +36,7 @@ public class FixedWindowRateLimiter {
      * @return {@code -1} if allowed; otherwise the Retry-After in seconds (&ge; 1).
      */
     public long retryAfterSeconds(String key, int max) {
-        long now = System.currentTimeMillis();
-        long minute = now / WINDOW_MILLIS;
-        Window w = windows.compute(key, (k, cur) -> (cur == null || cur.minute != minute) ? new Window(minute) : cur);
-        long count = w.count.incrementAndGet();
-        if (windows.size() > MAX_KEYS) {
-            windows.values().removeIf(win -> win.minute != minute); // evict only stale windows
-        }
-        if (count > max) {
-            long resetInMillis = (minute + 1) * WINDOW_MILLIS - now;
-            return Math.max(1, (resetInMillis + 999) / 1000); // ceil to seconds, min 1
-        }
-        return -1;
+        return store.retryAfterSeconds(key, max, System.currentTimeMillis());
     }
 
     /**
@@ -56,15 +48,6 @@ public class FixedWindowRateLimiter {
         if (retryAfter >= 0) {
             response.setHeader("Retry-After", String.valueOf(retryAfter));
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many requests, try again shortly.");
-        }
-    }
-
-    private static final class Window {
-        final long minute;
-        final AtomicInteger count = new AtomicInteger(0);
-
-        Window(long minute) {
-            this.minute = minute;
         }
     }
 }
