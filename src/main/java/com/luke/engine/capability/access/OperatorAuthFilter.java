@@ -94,9 +94,8 @@ public class OperatorAuthFilter {
 
             String auth = req.getHeader("Authorization");
             if (auth == null || !constantTimeEquals(auth.trim(), expected)) {
-                res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                res.setContentType("application/json");
-                res.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Operator credential required\"}");
+                com.luke.engine.web.ApiError.write(res, HttpServletResponse.SC_UNAUTHORIZED,
+                        "Unauthorized", "Operator credential required");
                 return;
             }
             chain.doFilter(request, response);

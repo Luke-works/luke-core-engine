@@ -85,18 +85,15 @@ public class InternalAuthFilter {
                     chain.doFilter(request, response);
                     return;
                 }
-                res.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-                res.setContentType("application/json");
-                res.getWriter().write("{\"error\":\"Service Unavailable\",\"message\":\""
-                        + "Internal auth is not configured; set LUKE_INTERNAL_SHARED_SECRET\"}");
+                com.luke.engine.web.ApiError.write(res, HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+                        "Service Unavailable", "Internal auth is not configured; set LUKE_INTERNAL_SHARED_SECRET");
                 return;
             }
 
             String key = req.getHeader("X-Internal-Key");
             if (key == null || !constantTimeEquals(key, expected)) {
-                res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                res.setContentType("application/json");
-                res.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Internal shared secret required\"}");
+                com.luke.engine.web.ApiError.write(res, HttpServletResponse.SC_UNAUTHORIZED,
+                        "Unauthorized", "Internal shared secret required");
                 return;
             }
             chain.doFilter(request, response);

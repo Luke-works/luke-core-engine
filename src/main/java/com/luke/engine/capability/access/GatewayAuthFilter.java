@@ -76,9 +76,8 @@ public class GatewayAuthFilter {
                     ? auth.substring(7).trim() : null;
             GatewayTokenVerifier.Identity id = token == null ? null : verifier.verify(token);
             if (id == null) {
-                res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                res.setContentType("application/json");
-                res.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Valid gateway token required\"}");
+                com.luke.engine.web.ApiError.write(res, HttpServletResponse.SC_UNAUTHORIZED,
+                        "Unauthorized", "Valid gateway token required");
                 return;
             }
 

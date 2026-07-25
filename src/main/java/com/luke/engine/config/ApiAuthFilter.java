@@ -247,28 +247,24 @@ public class ApiAuthFilter {
 
         private void sendUnauthorized(HttpServletResponse response) throws IOException {
             response.setHeader("WWW-Authenticate", "Basic realm=\"Luke Core Engine\"");
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"Valid credentials required\"}");
+            // Shared {error, message, status, correlationId} shape; Jackson-escaped (#63).
+            com.luke.engine.web.ApiError.write(response, HttpServletResponse.SC_UNAUTHORIZED,
+                    "Unauthorized", "Valid credentials required");
         }
 
         private void sendForbidden(HttpServletResponse response, String tenantId) throws IOException {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"Not a member of tenant '" + tenantId + "'\"}");
+            // tenantId is a raw client header — Jackson escaping (via ApiError) closes the JSON-injection hole.
+            com.luke.engine.web.ApiError.write(response, HttpServletResponse.SC_FORBIDDEN,
+                    "Forbidden", "Not a member of tenant '" + tenantId + "'");
         }
 
         private void sendForbiddenMessage(HttpServletResponse response, String message) throws IOException {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"" + message + "\"}");
+            com.luke.engine.web.ApiError.write(response, HttpServletResponse.SC_FORBIDDEN, "Forbidden", message);
         }
 
         private void sendNotProvisioned(HttpServletResponse response, String userId) throws IOException {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Forbidden\",\"message\":\"User '" + userId
-                    + "' is authenticated but not yet onboarded to the engine\"}");
+            com.luke.engine.web.ApiError.write(response, HttpServletResponse.SC_FORBIDDEN,
+                    "Forbidden", "User '" + userId + "' is authenticated but not yet onboarded to the engine");
         }
     }
 }

@@ -64,10 +64,8 @@ public class CapabilityAccessInterceptor implements HandlerInterceptor {
     }
 
     private boolean deny(HttpServletResponse res, int status, String message) throws Exception {
-        res.setStatus(status);
-        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        res.getWriter().write("{\"error\":\"" + (status == 401 ? "Unauthorized" : "Forbidden")
-                + "\",\"message\":\"" + message + "\"}");
+        // Shared error shape ({error, message, status, correlationId}); Jackson-escaped (#63).
+        com.luke.engine.web.ApiError.write(res, status, status == 401 ? "Unauthorized" : "Forbidden", message);
         return false;
     }
 }
