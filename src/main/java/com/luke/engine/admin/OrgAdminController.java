@@ -1,6 +1,7 @@
 package com.luke.engine.admin;
 
 import com.luke.engine.config.ApiCallerResolver;
+import com.luke.engine.config.RoleCatalog;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,12 +41,12 @@ public class OrgAdminController {
 
     private static final String TENANT_ADMIN = "tenant-admin";
 
-    /** Roles an org owner may assign. Includes {@code tenant-admin} so an owner can
-     *  promote co-owners — guarded so the last owner can never be removed. */
-    private static final Map<String, String> ROLE_DIM = Map.of(
-            "tenant-admin", "tenantAdmin",
-            "tenant-user", "tenantUser", "process-operator", "processUser", "task-worker", "taskUser");
-    private static final Set<String> ASSIGNABLE_ROLES = ROLE_DIM.keySet();
+    /** Roles an org owner may assign + their management dimension — sourced from the single
+     *  {@link RoleCatalog} (#43). Includes {@code tenant-admin} so an owner can promote co-owners
+     *  (guarded so the last owner can never be removed); excludes internal-only roles like
+     *  {@code deployer}. */
+    private static final Map<String, String> ROLE_DIM = RoleCatalog.assignableDimensions();
+    private static final Set<String> ASSIGNABLE_ROLES = RoleCatalog.assignableIds();
 
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")
     private String parentClusterId;
@@ -485,11 +486,11 @@ public class OrgAdminController {
     }
 
     private Map<String, String> rolesOf(List<Group> groups) {
+        // Pre-seed each management dimension (from the catalog) to "none" (#43).
         Map<String, String> roles = new LinkedHashMap<>();
-        roles.put("tenantAdmin", "none");
-        roles.put("tenantUser", "none");
-        roles.put("processUser", "none");
-        roles.put("taskUser", "none");
+        for (String dim : ROLE_DIM.values()) {
+            roles.putIfAbsent(dim, "none");
+        }
         for (Group g : groups) {
             if (!ROLE_TYPE.equals(g.getType())) continue;
             boolean ro = g.getId().endsWith(READONLY);

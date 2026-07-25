@@ -91,7 +91,7 @@ public class RoleAuthorizationInitializer {
         log.info("RBAC role authorization spaces ensured (read-write + read-only tiers).");
     }
 
-    private List<RoleDef> roleDefinitions() {
+    private static List<RoleDef> roleDefinitions() {
         List<RoleDef> roles = new ArrayList<>();
 
         // tenant-admin — full control of the tenant's runtime data
@@ -137,11 +137,21 @@ public class RoleAuthorizationInitializer {
         return roles;
     }
 
-    static final String TENANT_ADMIN = "tenant-admin";
-    static final String TENANT_USER = "tenant-user";
-    static final String TASK_WORKER = "task-worker";
-    static final String PROCESS_OPERATOR = "process-operator";
-    static final String DEPLOYER = "deployer";
+    // Ids sourced from the single RoleCatalog (#43) so the seeded set can't drift from it.
+    static final String TENANT_ADMIN = RoleCatalog.TENANT_ADMIN.id();
+    static final String TENANT_USER = RoleCatalog.TENANT_USER.id();
+    static final String TASK_WORKER = RoleCatalog.TASK_WORKER.id();
+    static final String PROCESS_OPERATOR = RoleCatalog.PROCESS_OPERATOR.id();
+    static final String DEPLOYER = RoleCatalog.DEPLOYER.id();
+
+    /** The role ids this initializer actually seeds — pinned to {@link RoleCatalog} by RoleCatalogTest. */
+    static java.util.Set<String> seededRoleIds() {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        for (RoleDef r : roleDefinitions()) {
+            ids.add(r.id());
+        }
+        return ids;
+    }
 
     private static List<Permission> reads(Permission... perms) {
         return List.of(perms);

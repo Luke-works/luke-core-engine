@@ -1,6 +1,7 @@
 package com.luke.engine.admin;
 
 import com.luke.engine.config.ApiCallerResolver;
+import com.luke.engine.config.RoleCatalog;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,13 +45,11 @@ public class PermissionsController {
     private static final String READ = "read";
     private static final String READ_WRITE = "read-write";
 
-    /** Engine role group → the platform dimension it rolls up into. */
-    private static final Map<String, String> ROLE_DIMENSION = Map.of(
-            "tenant-admin", "tenantUser",
-            "tenant-user", "tenantUser",
-            "process-operator", "processUser",
-            "deployer", "processUser",
-            "task-worker", "taskUser");
+    /** Engine role group → the effective-access dimension it rolls up into — sourced from the single
+     *  {@link RoleCatalog} (#43). Coarser than the org-admin management view: {@code tenant-admin}
+     *  folds into {@code tenantUser} (admin status is surfaced separately as the {@code tenantAdmin}
+     *  boolean), and internal roles like {@code deployer} still project (→ {@code processUser}). */
+    private static final Map<String, String> ROLE_DIMENSION = RoleCatalog.accessDimensions();
 
     @Value("${luke.tenant.parent-cluster-id:parent_cluster}")
     private String parentClusterId;
@@ -85,10 +84,11 @@ public class PermissionsController {
         boolean operator = groups.stream().anyMatch(g -> CAMUNDA_ADMIN_GROUP.equals(g.getId()))
                 || tenants.contains(parentClusterId);
 
+        // Pre-seed each effective-access dimension (from the catalog) to "none" (#43).
         Map<String, String> roles = new LinkedHashMap<>();
-        roles.put("tenantUser", NONE);
-        roles.put("processUser", NONE);
-        roles.put("taskUser", NONE);
+        for (String dim : ROLE_DIMENSION.values()) {
+            roles.putIfAbsent(dim, NONE);
+        }
         List<String> candidateGroups = new ArrayList<>();
         List<Map<String, String>> rawGroups = new ArrayList<>();
         boolean tenantAdmin = false;
