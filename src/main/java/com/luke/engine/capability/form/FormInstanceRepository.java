@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +17,25 @@ public interface FormInstanceRepository
     /** Open instances whose expiry has lapsed — swept to EXPIRED (#54). Bounded per run. */
     List<FormInstance> findByStateInAndExpiresAtBefore(
             Collection<String> states, LocalDateTime cutoff, Limit limit);
+
+    /* ── retention (#53): ANONYMIZE submissions past the window — null the PII payload
+     *    (data/prefill/recipient) while keeping the non-PII lifecycle row for metrics/audit.
+     *    Idempotent: only matches rows that still hold PII. ── */
+
+    @Query("select count(i) from FormInstance i where i.createdAt < :cutoff "
+            + "and (i.data is not null or i.prefill is not null or i.recipient is not null)")
+    long countAnonymizableBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    @Modifying
+    @Query("update FormInstance i set i.data = null, i.prefill = null, i.recipient = null "
+            + "where i.createdAt < :cutoff "
+            + "and (i.data is not null or i.prefill is not null or i.recipient is not null)")
+    int anonymizeCreatedBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    /** Tenant-deletion cascade (#53): a deleted tenant leaves no submission PII behind. */
+    @Modifying
+    @Query("delete from FormInstance i where i.tenantId = :tenantId")
+    int deleteByTenant(@Param("tenantId") String tenantId);
 
     Optional<FormInstance> findByIdAndTenantId(String id, String tenantId);
 

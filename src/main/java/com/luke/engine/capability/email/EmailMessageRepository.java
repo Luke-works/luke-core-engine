@@ -1,12 +1,29 @@
 package com.luke.engine.capability.email;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface EmailMessageRepository extends JpaRepository<EmailMessage, String> {
 
     Optional<EmailMessage> findByIdAndTenantId(String id, String tenantId);
+
+    /* ── retention purge (#53): send logs carry recipient PII, delete past the window ── */
+
+    long countByCreatedAtBefore(LocalDateTime cutoff);
+
+    @Modifying
+    @Query("delete from EmailMessage e where e.createdAt < :cutoff")
+    int deleteCreatedBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    /** Tenant-deletion cascade (#53): a deleted tenant leaves no email PII behind. */
+    @Modifying
+    @Query("delete from EmailMessage e where e.tenantId = :tenantId")
+    int deleteByTenant(@Param("tenantId") String tenantId);
 
     List<EmailMessage> findByTenantIdOrderByCreatedAtDesc(String tenantId);
 

@@ -1,6 +1,10 @@
 package com.luke.engine.capability.access;
 
 import com.luke.engine.capability.capability.CapabilitySubscriptionRepository;
+import com.luke.engine.capability.email.EmailMessageRepository;
+import com.luke.engine.capability.email.EmailVerificationRepository;
+import com.luke.engine.capability.form.FormAuditEventRepository;
+import com.luke.engine.capability.form.FormInstanceRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Destructive cleanup used by core-engine's account/tenant deletion cascade.
  *
- *   DELETE /api/tenants/{tenantId}  → purge a tenant's subscriptions AND all of its grants
+ *   DELETE /api/tenants/{tenantId}  → purge a tenant's subscriptions, grants, and PII/audit trails
  *   DELETE /api/users/{userId}      → purge a user's grants across every tenant
  *
  * <p>Server-to-server only: core-engine calls these after it has authorized and
@@ -24,19 +28,38 @@ public class CapabilityAdminController {
 
     private final CapabilityGrantRepository grants;
     private final CapabilitySubscriptionRepository subscriptions;
+    // #53: a deleted tenant must leave no personal data — cascade the PII/audit trails too.
+    private final EmailMessageRepository emailMessages;
+    private final FormInstanceRepository formInstances;
+    private final FormAuditEventRepository formAuditEvents;
+    private final EmailVerificationRepository emailVerifications;
 
     public CapabilityAdminController(CapabilityGrantRepository grants,
-                                     CapabilitySubscriptionRepository subscriptions) {
+                                     CapabilitySubscriptionRepository subscriptions,
+                                     EmailMessageRepository emailMessages,
+                                     FormInstanceRepository formInstances,
+                                     FormAuditEventRepository formAuditEvents,
+                                     EmailVerificationRepository emailVerifications) {
         this.grants = grants;
         this.subscriptions = subscriptions;
+        this.emailMessages = emailMessages;
+        this.formInstances = formInstances;
+        this.formAuditEvents = formAuditEvents;
+        this.emailVerifications = emailVerifications;
     }
 
-    /** Wipe everything tied to a deleted tenant: its subscriptions and every grant under it. */
+    /** Wipe everything tied to a deleted tenant: subscriptions, grants, and its PII/audit trails
+     *  (email sends, form submissions + lifecycle events, OTP challenges) — so no personal data
+     *  outlives the tenant (#53 right-to-erasure). */
     @DeleteMapping("/tenants/{tenantId}")
-    @Transactional // #62: grants + subscriptions deletes are one atomic unit (all-or-nothing).
+    @Transactional // #62: the whole cascade is one atomic unit (all-or-nothing).
     public ResponseEntity<Void> purgeTenant(@PathVariable String tenantId) {
         grants.deleteAll(grants.findByTenantId(tenantId));
         subscriptions.deleteAll(subscriptions.findByTenantId(tenantId));
+        emailMessages.deleteByTenant(tenantId);
+        formInstances.deleteByTenant(tenantId);
+        formAuditEvents.deleteByTenant(tenantId);
+        emailVerifications.deleteByTenant(tenantId);
         return ResponseEntity.noContent().build();
     }
 
