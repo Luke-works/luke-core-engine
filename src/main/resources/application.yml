@@ -50,6 +50,13 @@ spring:
       max-file-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
       max-request-size: ${LUKE_SIGN_MAX_UPLOAD:25MB}
 
+# OpenAPI (#35): document ONLY the custom /api/** surface at /v3/api-docs; the JAX-RS
+# /engine-rest surface is Camunda's own (documented upstream) and actuator is excluded.
+springdoc:
+  paths-to-match: /api/**
+  api-docs:
+    path: /v3/api-docs
+
 # FluxNova (FINOS) / Camunda 7 Engine Configuration
 fluxnova:
   bpm:

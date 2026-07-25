@@ -139,6 +139,17 @@
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>
         </dependency>
+
+        <!-- OpenAPI: machine-readable spec of the custom /api/** surface at /v3/api-docs (#35).
+             springdoc auto-derives operations from the Spring @RestController mappings (the
+             JAX-RS /engine-rest surface is Camunda's own and not scanned). The -api variant is
+             JSON-only (no Swagger UI webjars) to keep the dependency + CVE surface small, mirroring
+             auth-engine #59. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>2.8.9</version>
+        </dependency>
         <!-- JWT verification (NimbusJwtDecoder) for consumer-gateway Bearer tokens
              minted by luke-auth-engine; verified against its published JWKS. -->
         <dependency>
