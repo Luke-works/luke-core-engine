@@ -48,13 +48,15 @@ public class OrganizationController {
     // In-process capability data store (was server-to-server HTTP via the proxy + operator cred).
     private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
     private final com.luke.engine.capability.access.CapabilityGrantController grants;
+    private final com.luke.engine.audit.AdminAuditService audit;
 
     public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
                                  com.luke.engine.form.FormProcessDeployer formProcessDeployer,
                                  com.luke.engine.capability.signature.SignatureProcessDeployer signatureProcessDeployer,
                                  com.luke.engine.capability.email.EmailInboxProcessDeployer emailInboxProcessDeployer,
                                  com.luke.engine.capability.capability.SubscriptionController subscriptions,
-                                 com.luke.engine.capability.access.CapabilityGrantController grants) {
+                                 com.luke.engine.capability.access.CapabilityGrantController grants,
+                                 com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
         this.formProcessDeployer = formProcessDeployer;
@@ -62,6 +64,7 @@ public class OrganizationController {
         this.emailInboxProcessDeployer = emailInboxProcessDeployer;
         this.subscriptions = subscriptions;
         this.grants = grants;
+        this.audit = audit;
     }
 
     public record CreateOrg(String name, String firstName, String lastName, String email) {}
@@ -158,6 +161,12 @@ public class OrganizationController {
             grantCapability(tenantId, userId, "EMAIL");
         }
         // SECRETS is internal-only for now (no tenant-facing API), so it is not granted here.
+
+        java.util.List<String> granted = PersonalEmail.isPersonal(body.email())
+                ? java.util.List.of("FORMS", "SIGNATURES")
+                : java.util.List.of("FORMS", "SIGNATURES", "EMAIL");
+        audit.record("tenant.create", "tenant", tenantId, tenantId, userId, false,
+                Map.of("name", name, "capabilities", granted));
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("tenantId", tenantId, "name", name, "role", TENANT_ADMIN));

@@ -64,6 +64,12 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     baseline-description: "pre-luke_* baseline (Camunda-only state)"
+    # Parallel feature branches each add migrations, so a lower-versioned migration can land in a
+    # deployed env AFTER a higher one already applied (e.g. this branch's V16 deploys, then a sibling
+    # branch's V15 merges). out-of-order lets Flyway apply that straggler instead of failing validation
+    # on the next boot. Safe here: our migrations are additive, independent CREATE TABLEs — order between
+    # unrelated tables doesn't matter — and it only ever applies MORE migrations, never fewer.
+    out-of-order: true
     # Put flyway_schema_history in (and migrate) THIS env's schema, matching the
     # per-env shared-Postgres isolation used by Hibernate/Camunda above.
     schemas: ${DB_SCHEMA:public}

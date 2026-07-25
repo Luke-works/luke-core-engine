@@ -46,10 +46,13 @@ public class OnboardingController {
 
     private final IdentityService identityService;
     private final UserDeprovisioningService deprovisioning;
+    private final com.luke.engine.audit.AdminAuditService audit;
 
-    public OnboardingController(IdentityService identityService, UserDeprovisioningService deprovisioning) {
+    public OnboardingController(IdentityService identityService, UserDeprovisioningService deprovisioning,
+                               com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
         this.deprovisioning = deprovisioning;
+        this.audit = audit;
     }
 
     public record OnboardUserRequest(
@@ -134,6 +137,8 @@ public class OnboardingController {
         List<String> deletedTenants = deprovisioning.deprovision(req.id());
         log.info("Operator '{}' deprovisioned user '{}' ({} sole-owned tenants deleted)",
                 caller, req.id(), deletedTenants.size());
+        audit.record("user.deprovision", "user", req.id(), null, caller, true,
+                Map.of("deletedTenants", deletedTenants));
         return ResponseEntity.ok(Map.of("id", req.id(), "deletedTenants", deletedTenants, "deprovisioned", true));
     }
 
@@ -206,6 +211,8 @@ public class OnboardingController {
 
         log.info("Onboarded user '{}' into tenant '{}' as '{}' ({}, created={})",
                 req.id(), req.tenantId(), roleGroup, accessLevel(req.accessLevel()), createdUser);
+        audit.record("user.onboard", "user", req.id(), req.tenantId(), caller, true,
+                Map.of("role", roleGroup, "created", createdUser));
         return ResponseEntity.ok(Map.of(
                 "id", req.id(),
                 "tenantId", req.tenantId(),

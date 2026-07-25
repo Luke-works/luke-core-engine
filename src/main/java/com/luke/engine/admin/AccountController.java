@@ -32,12 +32,14 @@ public class AccountController {
     private final GatewayJwtAuthenticator gatewayAuth;
     // Shared with operator/IdP-driven deprovisioning (#38) so the cleanup can't drift.
     private final UserDeprovisioningService deprovisioning;
+    private final com.luke.engine.audit.AdminAuditService audit;
 
     public AccountController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-                            UserDeprovisioningService deprovisioning) {
+                            UserDeprovisioningService deprovisioning, com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
         this.deprovisioning = deprovisioning;
+        this.audit = audit;
     }
 
     @DeleteMapping("/me/account")
@@ -50,6 +52,9 @@ public class AccountController {
         }
         // Same cleanup as operator/IdP-driven deprovisioning — the caller here is the user itself.
         List<String> deletedTenants = deprovisioning.deprovision(userId);
+        // tenant scope is null: an account deletion spans every tenant the user belonged to.
+        audit.record("account.delete", "account", userId, null, userId, false,
+                Map.of("deletedTenants", deletedTenants));
         return ResponseEntity.ok(Map.of("deletedTenants", deletedTenants));
     }
 

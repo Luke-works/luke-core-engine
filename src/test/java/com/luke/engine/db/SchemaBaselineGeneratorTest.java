@@ -79,6 +79,8 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.workflow.integrations.IntegrationUsageEvent.class,
         // Start-on-event registry (forms→workflow) → V10 migration.
         com.luke.engine.workflow.WorkflowTriggerSubscription.class,
+        // Admin audit trail (privileged user/role/capability/tenant actions) → V16 migration.
+        com.luke.engine.audit.AuditEvent.class,
     };
 
     @Test

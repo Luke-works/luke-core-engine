@@ -58,16 +58,19 @@ public class OrgAdminController {
     private final com.luke.engine.capability.capability.CapabilityController capabilities;
     private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
     private final com.luke.engine.capability.access.CapabilityGrantController grants;
+    private final com.luke.engine.audit.AdminAuditService audit;
 
     public OrgAdminController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
                              com.luke.engine.capability.capability.CapabilityController capabilities,
                              com.luke.engine.capability.capability.SubscriptionController subscriptions,
-                             com.luke.engine.capability.access.CapabilityGrantController grants) {
+                             com.luke.engine.capability.access.CapabilityGrantController grants,
+                             com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
         this.gatewayAuth = gatewayAuth;
         this.capabilities = capabilities;
         this.subscriptions = subscriptions;
         this.grants = grants;
+        this.audit = audit;
     }
 
     public record NewUser(String id, String firstName, String lastName, String email, String password,
@@ -131,6 +134,8 @@ public class OrgAdminController {
         if (TENANT_ADMIN.equals(body.role())) {
             com.luke.engine.tenant.TenantOwnership.grant(identityService, body.id(), ctx.tenant);
         }
+        audit.record("user.create", "user", body.id(), ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("role", String.valueOf(body.role()), "accessLevel", String.valueOf(body.accessLevel())));
         return Map.of("id", body.id(), "tenant", ctx.tenant);
     }
 
@@ -150,6 +155,7 @@ public class OrgAdminController {
         if (body.firstName() != null) u.setFirstName(body.firstName().trim());
         if (body.lastName() != null) u.setLastName(body.lastName().trim());
         identityService.saveUser(u);
+        audit.record("user.profile.update", "user", userId, ctx.tenant, ctx.userId, ctx.operator);
         return Map.of("id", userId,
                 "firstName", u.getFirstName() != null ? u.getFirstName() : "",
                 "lastName", u.getLastName() != null ? u.getLastName() : "");
@@ -187,6 +193,8 @@ public class OrgAdminController {
                 com.luke.engine.tenant.TenantOwnership.grant(identityService, userId, ctx.tenant);
             }
         }
+        audit.record("user.role.set", "user", userId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("role", role, "level", String.valueOf(body.level())));
         return Map.of("userId", userId, "role", role, "level", body.level());
     }
 
@@ -217,6 +225,8 @@ public class OrgAdminController {
             g.setType(ORGANIZATIONAL_TYPE);
             identityService.saveGroup(g);
         }
+        audit.record("candidate_group.create", "candidate_group", id, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("name", body.name().trim()));
         return Map.of("id", id, "name", body.name().trim());
     }
 
@@ -234,6 +244,8 @@ public class OrgAdminController {
         Group g = identityService.createGroupQuery().groupId(groupId).singleResult();
         g.setName(body.name().trim());
         identityService.saveGroup(g);
+        audit.record("candidate_group.rename", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("name", body.name().trim()));
         return Map.of("id", groupId, "name", body.name().trim());
     }
 
@@ -253,6 +265,7 @@ public class OrgAdminController {
         } catch (RuntimeException ignored) {
             /* already gone — idempotent */
         }
+        audit.record("candidate_group.delete", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator);
     }
 
     // Managing a candidate group's MEMBERS is allowed for a tenant owner OR a manager of that specific
@@ -269,6 +282,8 @@ public class OrgAdminController {
         if (identityService.createGroupQuery().groupId(groupId).groupMember(userId).count() == 0) {
             identityService.createMembership(userId, groupId);
         }
+        audit.record("candidate_group.member.add", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
     }
 
     @DeleteMapping("/users/{userId}/candidate-groups/{groupId}")
@@ -279,6 +294,8 @@ public class OrgAdminController {
         Ctx ctx = requireCandidateGroupAccess(auth, tenant, groupId);
         requireTenantGroup(groupId, ctx.tenant);
         deleteMembership(userId, groupId);
+        audit.record("candidate_group.member.remove", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
     }
 
     /* ── candidate-group managers (delegated management; appoint/remove is OWNER-only) ── */
@@ -316,6 +333,8 @@ public class OrgAdminController {
         requireCandidateGroupExists(groupId);
         requireTenantMember(userId, ctx.tenant);
         com.luke.engine.tenant.CandidateGroupOwnership.grant(identityService, userId, groupId);
+        audit.record("candidate_group.manager.add", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
     }
 
     /** Remove {@code userId} as a manager of candidate group {@code groupId}. OWNER-only. */
@@ -327,6 +346,8 @@ public class OrgAdminController {
         Ctx ctx = requireAdmin(auth, tenant); // owner-only
         requireTenantGroup(groupId, ctx.tenant);
         com.luke.engine.tenant.CandidateGroupOwnership.revoke(identityService, userId, groupId);
+        audit.record("candidate_group.manager.remove", "candidate_group", groupId, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
     }
 
     /* ── capabilities (delegated to capability-engine, after authz) ──── */
@@ -355,6 +376,8 @@ public class OrgAdminController {
         requireTenantMember(userId, ctx.tenant);
         if ("none".equals(body.level())) {
             grants.revoke(ctx.tenant, userId, code);
+            audit.record("capability.revoke", "capability", code, ctx.tenant, ctx.userId, ctx.operator,
+                    Map.of("userId", userId));
             return Map.of("removed", true);
         }
         // EMAIL is a company-sending capability: a personal/free mailbox account can't
@@ -374,8 +397,11 @@ public class OrgAdminController {
         // capability beans throw ResponseStatusException (404/409) which Spring surfaces
         // with the right status — no downstream-error translation needed.
         subscriptions.enable(ctx.tenant, code);
-        return grants.setGrant(ctx.tenant, userId, code, ctx.userId,
+        Object result = grants.setGrant(ctx.tenant, userId, code, ctx.userId,
                 new com.luke.engine.capability.access.CapabilityGrantController.GrantBody(body.level()));
+        audit.record("capability.grant", "capability", code, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId, "level", String.valueOf(body.level())));
+        return result;
     }
 
     /* ── authorization + helpers ─────────────────────────────────────── */
