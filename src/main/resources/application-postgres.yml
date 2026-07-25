@@ -95,3 +95,23 @@ fluxnova:
       schema-update: true
       schema-name: ${DB_SCHEMA:public}
       table-prefix: ${DB_SCHEMA:public}.
+    # Job executor sizing (#28). Each RUNNING job holds a DB connection, so the executor is sized
+    # against the Hikari pool (maximum-pool-size: 8 above) — a job pool of 5 leaves headroom for
+    # request threads (which hold connections only briefly). INVARIANT: job max-pool-size must stay
+    # below the Hikari maximum-pool-size so background jobs can never starve the request path of
+    # connections. Sized for the small Render instance (512 MB / limited CPU), not the engine defaults.
+    job-execution:
+      enabled: true
+      core-pool-size: 3
+      max-pool-size: 5
+      queue-capacity: 10
+      # Acquire a small batch per poll; lock long enough to finish a job; poll every 5s when idle.
+      max-jobs-per-acquisition: 3
+      lock-time-in-millis: 300000
+      wait-time-in-millis: 5000
+      # deployment-aware = FALSE (documented rationale, AC-2): these are N instances of the SAME
+      # application with IDENTICAL process definitions on every node, so every node can and should
+      # acquire ANY due job — balanced load + failover (a job isn't stranded if the node that
+      # deployed it is down). deployment-aware is for HETEROGENEOUS apps sharing one engine DB (each
+      # running only its own deployments), which is not this topology. See runbooks/scaling-and-ha.
+      deployment-aware: false

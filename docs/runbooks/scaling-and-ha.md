@@ -64,3 +64,35 @@ Operational guidance:
   hard regulatory retention *limit* is ever mandated should a cleanup window + TTL be
   introduced (and that decision recorded on #29).
 
+
+## Job executor & horizontal-scaling model (#28)
+
+The engine runs as **N identical instances of the same application** against **one shared
+Postgres**. Every instance runs the same process definitions, so any instance can execute any
+due job.
+
+**Sizing (`fluxnova.bpm.job-execution` in `application-postgres.yml`).** Each *running* job holds
+a DB connection, so the job executor is sized against the Hikari pool:
+
+| Setting | Value | Why |
+|---|---|---|
+| `core-pool-size` / `max-pool-size` | 3 / **5** | fits the 512 MB / small-CPU instance |
+| `queue-capacity` | 10 | short buffer for bursts |
+| `max-jobs-per-acquisition` | 3 | small batch per poll |
+| `lock-time-in-millis` | 300000 (5 min) | long enough to finish a job before re-acquisition |
+| `wait-time-in-millis` | 5000 (5 s) | idle poll interval |
+| Hikari `maximum-pool-size` | 8 | connection pool |
+
+**Invariant (enforced by `JobExecutorConfigTest`):** job-executor `max-pool-size` **< Hikari
+`maximum-pool-size`**, so at most 5 of the 8 connections are held by running jobs and background
+work can never starve the request path. Request (Tomcat) threads hold a connection only briefly
+per query, so the practical peak is well within 8.
+
+**`deployment-aware: false` (deliberate).** Because every node runs identical deployments, each
+node should acquire **any** due job — this gives balanced load and failover: a job is never
+stranded on a node that has gone away. `deployment-aware: true` is for *heterogeneous* apps sharing
+one engine DB (each running only its own deployments), which is not this topology.
+
+**History:** `history-level: full` is retained by design (#29); growth is handled by expanding
+storage / archival (above), not a cleanup window — so the executor + history writes are not
+throttled by a background cleanup batch.
