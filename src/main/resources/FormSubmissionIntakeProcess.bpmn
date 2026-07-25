@@ -21,6 +21,25 @@
     <bpmn:endEvent id="Event_08s3r75">
       <bpmn:incoming>Flow_wb_end</bpmn:incoming>
     </bpmn:endEvent>
+    <!-- SLA / escalation (#46): a NON-INTERRUPTING boundary timer on the review task. If the review
+         isn't completed within the SLA (P3D) — and every 3 days thereafter — it fires WITHOUT
+         cancelling the task and flags the submission overdue (metric + log), so nothing sits
+         unreviewed silently. The reviewer can still complete the task at any point. -->
+    <bpmn:boundaryEvent id="Event_review_overdue" name="Review overdue" cancelActivity="false" attachedToRef="Activity_1c3gauj">
+      <bpmn:outgoing>Flow_overdue</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_overdue">
+        <bpmn:timeCycle>R/P3D</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="Flow_overdue" sourceRef="Event_review_overdue" targetRef="Activity_flag_overdue" />
+    <bpmn:serviceTask id="Activity_flag_overdue" name="Flag Overdue" camunda:delegateExpression="${overdueReviewDelegate}">
+      <bpmn:incoming>Flow_overdue</bpmn:incoming>
+      <bpmn:outgoing>Flow_overdue_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_overdue_end" sourceRef="Activity_flag_overdue" targetRef="Event_overdue_handled" />
+    <bpmn:endEvent id="Event_overdue_handled" name="Overdue flagged">
+      <bpmn:incoming>Flow_overdue_end</bpmn:incoming>
+    </bpmn:endEvent>
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="FormSubmissionIntakeProcess">
@@ -49,6 +68,30 @@
       <bpmndi:BPMNEdge id="Flow_wb_end_di" bpmnElement="Flow_wb_end">
         <di:waypoint x="560" y="120" />
         <di:waypoint x="632" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Event_review_overdue_di" bpmnElement="Event_review_overdue">
+        <dc:Bounds x="332" y="142" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="373" y="176" width="72" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_flag_overdue_di" bpmnElement="Activity_flag_overdue">
+        <dc:Bounds x="300" y="240" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_overdue_handled_di" bpmnElement="Event_overdue_handled">
+        <dc:Bounds x="332" y="382" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="316" y="425" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_overdue_di" bpmnElement="Flow_overdue">
+        <di:waypoint x="350" y="178" />
+        <di:waypoint x="350" y="240" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_overdue_end_di" bpmnElement="Flow_overdue_end">
+        <di:waypoint x="350" y="320" />
+        <di:waypoint x="350" y="382" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
