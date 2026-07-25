@@ -1,11 +1,9 @@
 package com.luke.engine.admin;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.List;
 import java.util.Map;
 import org.finos.fluxnova.bpm.engine.IdentityService;
-import org.finos.fluxnova.bpm.engine.identity.Group;
 import org.finos.fluxnova.bpm.engine.identity.Tenant;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -34,14 +32,16 @@ public class MeController {
     private String parentClusterId;
 
     private final IdentityService identityService;
+    private final ApiCallerResolver callers;
 
-    public MeController(IdentityService identityService) {
+    public MeController(IdentityService identityService, ApiCallerResolver callers) {
         this.identityService = identityService;
+        this.callers = callers;
     }
 
     @GetMapping("/me")
     public ResponseEntity<?> me(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String userId = authenticate(authHeader);
+        String userId = callers.basicUsername(authHeader); // /api/me is Basic-only (server-to-server)
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Unauthorized", "message", "Valid credentials required"));
@@ -63,24 +63,5 @@ public class MeController {
                 "operator", operator,
                 "groups", groups,
                 "tenants", tenants));
-    }
-
-    /** Returns the authenticated username, or null if Basic auth is missing/invalid. */
-    private String authenticate(String authHeader) {
-        if (authHeader == null || !authHeader.toLowerCase().startsWith("basic ")) {
-            return null;
-        }
-        try {
-            String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-            int colon = decoded.indexOf(':');
-            if (colon < 0) {
-                return null;
-            }
-            String username = decoded.substring(0, colon);
-            String password = decoded.substring(colon + 1);
-            return identityService.checkPassword(username, password) ? username : null;
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 }

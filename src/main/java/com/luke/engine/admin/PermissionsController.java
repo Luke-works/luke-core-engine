@@ -1,9 +1,7 @@
 package com.luke.engine.admin;
 
-import com.luke.engine.config.GatewayJwtAuthenticator;
-import java.nio.charset.StandardCharsets;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,11 +56,11 @@ public class PermissionsController {
     private String parentClusterId;
 
     private final IdentityService identityService;
-    private final GatewayJwtAuthenticator gatewayAuth;
+    private final ApiCallerResolver callers;
 
-    public PermissionsController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth) {
+    public PermissionsController(IdentityService identityService, ApiCallerResolver callers) {
         this.identityService = identityService;
-        this.gatewayAuth = gatewayAuth;
+        this.callers = callers;
     }
 
     @GetMapping("/me/permissions")
@@ -128,29 +126,22 @@ public class PermissionsController {
         if (authHeader == null) {
             throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
         }
-        String lower = authHeader.toLowerCase();
-        if (lower.startsWith("bearer ")) {
-            String userId = gatewayAuth.authenticate(authHeader.substring(7).trim());
+        // Bearer keeps its distinct not-yet-onboarded 403 (vs the generic 401), so it resolves the
+        // sub first and checks existence itself rather than using resolve(header, requireProvisioned).
+        if (authHeader.regionMatches(true, 0, "bearer ", 0, 7)) {
+            String userId = callers.bearerSub(authHeader);
             if (userId == null) {
                 throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid or expired token");
             }
-            if (identityService.createUserQuery().userId(userId).count() == 0) {
+            if (!callers.userExists(userId)) {
                 throw new AuthException(HttpStatus.FORBIDDEN, "Forbidden",
                         "User '" + userId + "' is authenticated but not yet onboarded to the engine");
             }
             return userId;
         }
-        if (lower.startsWith("basic ")) {
-            try {
-                String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-                int colon = decoded.indexOf(':');
-                if (colon >= 0 && identityService.checkPassword(decoded.substring(0, colon), decoded.substring(colon + 1))) {
-                    return decoded.substring(0, colon);
-                }
-            } catch (IllegalArgumentException ignored) {
-                // fall through to 401
-            }
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
+        String basicUser = callers.basicUsername(authHeader);
+        if (basicUser != null) {
+            return basicUser;
         }
         throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
     }

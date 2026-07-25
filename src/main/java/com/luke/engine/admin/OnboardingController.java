@@ -1,6 +1,6 @@
 package com.luke.engine.admin;
 
-import java.nio.charset.StandardCharsets;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -47,12 +47,15 @@ public class OnboardingController {
     private final IdentityService identityService;
     private final UserDeprovisioningService deprovisioning;
     private final com.luke.engine.audit.AdminAuditService audit;
+    private final com.luke.engine.config.ApiCallerResolver callers;
 
     public OnboardingController(IdentityService identityService, UserDeprovisioningService deprovisioning,
-                               com.luke.engine.audit.AdminAuditService audit) {
+                               com.luke.engine.audit.AdminAuditService audit,
+                               com.luke.engine.config.ApiCallerResolver callers) {
         this.identityService = identityService;
         this.deprovisioning = deprovisioning;
         this.audit = audit;
+        this.callers = callers;
     }
 
     public record OnboardUserRequest(
@@ -235,23 +238,10 @@ public class OnboardingController {
         return "READ_ONLY".equalsIgnoreCase(value) ? "READ_ONLY" : "READ_WRITE";
     }
 
-    /** Returns the authenticated username, or null if Basic auth is missing/invalid. */
+    /** Returns the authenticated username, or null if Basic auth is missing/invalid.
+     *  Onboarding is operator-only and server-to-server → Basic only (see {@link ApiCallerResolver}). */
     private String authenticate(String authHeader) {
-        if (authHeader == null || !authHeader.toLowerCase().startsWith("basic ")) {
-            return null;
-        }
-        try {
-            String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-            int colon = decoded.indexOf(':');
-            if (colon < 0) {
-                return null;
-            }
-            String username = decoded.substring(0, colon);
-            String password = decoded.substring(colon + 1);
-            return identityService.checkPassword(username, password) ? username : null;
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+        return callers.basicUsername(authHeader);
     }
 
     private boolean isPrivileged(String username) {

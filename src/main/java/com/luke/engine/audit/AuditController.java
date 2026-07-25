@@ -1,8 +1,6 @@
 package com.luke.engine.audit;
 
-import com.luke.engine.config.GatewayJwtAuthenticator;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,13 +44,13 @@ public class AuditController {
 
     private final AuditEventRepository repository;
     private final IdentityService identityService;
-    private final GatewayJwtAuthenticator gatewayAuth;
+    private final ApiCallerResolver callers;
 
     public AuditController(AuditEventRepository repository, IdentityService identityService,
-                          GatewayJwtAuthenticator gatewayAuth) {
+                          ApiCallerResolver callers) {
         this.repository = repository;
         this.identityService = identityService;
-        this.gatewayAuth = gatewayAuth;
+        this.callers = callers;
     }
 
     /** Events for the active tenant. Operator or owner of that tenant. */
@@ -124,24 +122,10 @@ public class AuditController {
     }
 
     private String resolveUserId(String authHeader) {
-        if (authHeader != null) {
-            String lower = authHeader.toLowerCase();
-            if (lower.startsWith("bearer ")) {
-                String sub = gatewayAuth.authenticate(authHeader.substring(7).trim());
-                if (sub != null && identityService.createUserQuery().userId(sub).count() > 0) {
-                    return sub;
-                }
-            } else if (lower.startsWith("basic ")) {
-                try {
-                    String dec = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-                    int c = dec.indexOf(':');
-                    if (c >= 0 && identityService.checkPassword(dec.substring(0, c), dec.substring(c + 1))) {
-                        return dec.substring(0, c);
-                    }
-                } catch (IllegalArgumentException ignored) {
-                    // fall through to 401
-                }
-            }
+        // Reading the audit trail requires an existing engine user: a Bearer sub must be provisioned.
+        String resolved = callers.resolve(authHeader, true);
+        if (resolved != null) {
+            return resolved;
         }
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid credentials required");
     }

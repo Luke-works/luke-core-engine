@@ -1,9 +1,7 @@
 package com.luke.engine.admin;
 
-import com.luke.engine.config.GatewayJwtAuthenticator;
-import java.nio.charset.StandardCharsets;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,20 +51,20 @@ public class OrgAdminController {
     private String parentClusterId;
 
     private final IdentityService identityService;
-    private final GatewayJwtAuthenticator gatewayAuth;
+    private final ApiCallerResolver callers;
     // In-process capability data store (was server-to-server HTTP via the proxy + operator cred).
     private final com.luke.engine.capability.capability.CapabilityController capabilities;
     private final com.luke.engine.capability.capability.SubscriptionController subscriptions;
     private final com.luke.engine.capability.access.CapabilityGrantController grants;
     private final com.luke.engine.audit.AdminAuditService audit;
 
-    public OrgAdminController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+    public OrgAdminController(IdentityService identityService, ApiCallerResolver callers,
                              com.luke.engine.capability.capability.CapabilityController capabilities,
                              com.luke.engine.capability.capability.SubscriptionController subscriptions,
                              com.luke.engine.capability.access.CapabilityGrantController grants,
                              com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
-        this.gatewayAuth = gatewayAuth;
+        this.callers = callers;
         this.capabilities = capabilities;
         this.subscriptions = subscriptions;
         this.grants = grants;
@@ -523,20 +521,12 @@ public class OrgAdminController {
     }
 
     private String resolveUserId(String authHeader) {
-        if (authHeader != null) {
-            String lower = authHeader.toLowerCase();
-            if (lower.startsWith("bearer ")) {
-                String sub = gatewayAuth.authenticate(authHeader.substring(7).trim());
-                if (sub != null && identityService.createUserQuery().userId(sub).count() > 0) return sub;
-            } else if (lower.startsWith("basic ")) {
-                try {
-                    String dec = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-                    int c = dec.indexOf(':');
-                    if (c >= 0 && identityService.checkPassword(dec.substring(0, c), dec.substring(c + 1))) return dec.substring(0, c);
-                } catch (IllegalArgumentException ignored) {}
-            }
+        // Org-admin acts as an existing engine user: a gateway Bearer sub must be provisioned.
+        String userId = callers.resolve(authHeader, true);
+        if (userId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid credentials required");
         }
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Valid credentials required");
+        return userId;
     }
 
     private static ResponseStatusException bad(String msg) {

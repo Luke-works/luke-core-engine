@@ -1,8 +1,6 @@
 package com.luke.engine.admin;
 
-import com.luke.engine.config.GatewayJwtAuthenticator;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.Map;
 import java.util.UUID;
 import org.finos.fluxnova.bpm.engine.IdentityService;
@@ -41,7 +39,7 @@ public class OrganizationController {
     private String adminUserId;
 
     private final IdentityService identityService;
-    private final GatewayJwtAuthenticator gatewayAuth;
+    private final ApiCallerResolver callers;
     private final com.luke.engine.form.FormProcessDeployer formProcessDeployer;
     private final com.luke.engine.capability.signature.SignatureProcessDeployer signatureProcessDeployer;
     private final com.luke.engine.capability.email.EmailInboxProcessDeployer emailInboxProcessDeployer;
@@ -50,7 +48,7 @@ public class OrganizationController {
     private final com.luke.engine.capability.access.CapabilityGrantController grants;
     private final com.luke.engine.audit.AdminAuditService audit;
 
-    public OrganizationController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
+    public OrganizationController(IdentityService identityService, ApiCallerResolver callers,
                                  com.luke.engine.form.FormProcessDeployer formProcessDeployer,
                                  com.luke.engine.capability.signature.SignatureProcessDeployer signatureProcessDeployer,
                                  com.luke.engine.capability.email.EmailInboxProcessDeployer emailInboxProcessDeployer,
@@ -58,7 +56,7 @@ public class OrganizationController {
                                  com.luke.engine.capability.access.CapabilityGrantController grants,
                                  com.luke.engine.audit.AdminAuditService audit) {
         this.identityService = identityService;
-        this.gatewayAuth = gatewayAuth;
+        this.callers = callers;
         this.formProcessDeployer = formProcessDeployer;
         this.signatureProcessDeployer = signatureProcessDeployer;
         this.emailInboxProcessDeployer = emailInboxProcessDeployer;
@@ -192,26 +190,13 @@ public class OrganizationController {
 
     /* ── auth (Bearer act-as | Basic); NO provisioning requirement ────── */
     private String resolveUserId(String authHeader) {
-        if (authHeader == null) throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
-        String lower = authHeader.toLowerCase();
-        if (lower.startsWith("bearer ")) {
-            String sub = gatewayAuth.authenticate(authHeader.substring(7).trim());
-            if (sub == null) throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid or expired token");
-            return sub;
-        }
-        if (lower.startsWith("basic ")) {
-            try {
-                String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-                int colon = decoded.indexOf(':');
-                if (colon >= 0 && identityService.checkPassword(decoded.substring(0, colon), decoded.substring(colon + 1))) {
-                    return decoded.substring(0, colon);
-                }
-            } catch (IllegalArgumentException ignored) {
-                // fall through
-            }
+        // Creating an org PROVISIONS a brand-new user, so a valid Bearer sub is accepted without
+        // requiring a pre-existing engine user (requireProvisioned=false).
+        String userId = callers.resolve(authHeader, false);
+        if (userId == null) {
             throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
         }
-        throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
+        return userId;
     }
 
     private boolean isMember(String userId, String groupId) {

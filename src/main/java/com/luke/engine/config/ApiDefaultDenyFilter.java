@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
-import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,15 +51,14 @@ public class ApiDefaultDenyFilter {
 
     @Bean
     public FilterRegistrationBean<Filter> apiDefaultDenyFilterRegistration(
-            IdentityService identityService,
-            GatewayJwtAuthenticator gatewayAuth,
+            ApiCallerResolver callers,
             @Value("${luke.auth.operator.user:}") String operatorUser,
             @Value("${luke.auth.operator.password:}") String operatorPassword,
             @Value("${luke.auth.api-default-deny:false}") boolean flag,
             Environment environment) {
         boolean enforce = flag || StrictProfile.isActive(environment);
         FilterRegistrationBean<Filter> reg = new FilterRegistrationBean<>();
-        reg.setFilter(new Impl(identityService, gatewayAuth, operatorUser, operatorPassword, enforce));
+        reg.setFilter(new Impl(callers, operatorUser, operatorPassword, enforce));
         reg.addUrlPatterns("/api/*");
         reg.setName("apiDefaultDenyFilter");
         // Last — after InternalAuthFilter/OperatorAuthFilter (0) and GatewayAuthFilter/ApiAuthFilter (1),
@@ -81,15 +79,12 @@ public class ApiDefaultDenyFilter {
         /** Request attribute holding the resolved caller id, for handlers that want it. */
         public static final String PRINCIPAL_ATTRIBUTE = "luke.api.principal";
 
-        private final IdentityService identityService;
-        private final GatewayJwtAuthenticator gatewayAuth;
+        private final ApiCallerResolver callers;
         private final String operatorBasic; // "Basic base64(user:pass)" or null when unconfigured
         private final boolean enforce;
 
-        Impl(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-             String operatorUser, String operatorPassword, boolean enforce) {
-            this.identityService = identityService;
-            this.gatewayAuth = gatewayAuth;
+        Impl(ApiCallerResolver callers, String operatorUser, String operatorPassword, boolean enforce) {
+            this.callers = callers;
             this.enforce = enforce;
             this.operatorBasic = (operatorUser != null && !operatorUser.isBlank())
                     ? "Basic " + Base64.getEncoder().encodeToString(
@@ -146,34 +141,22 @@ public class ApiDefaultDenyFilter {
             return catalogRead;
         }
 
-        /** Resolve the caller from the Authorization header, or null if none is valid. */
+        /** Resolve the caller from the Authorization header, or null if none is valid. Uses the same
+         *  {@link ApiCallerResolver} the controllers do, plus the operator credential the filter alone
+         *  recognizes (controllers use their own operator checks). */
         private String resolvePrincipal(String authHeader) {
             if (authHeader == null) {
                 return null;
             }
-            String trimmed = authHeader.trim();
-            String lower = trimmed.toLowerCase();
-            if (lower.startsWith("bearer ")) {
-                return gatewayAuth.authenticate(trimmed.substring(7).trim()); // verified sub, or null
+            String sub = callers.bearerSub(authHeader);
+            if (sub != null) {
+                return sub;
             }
-            if (lower.startsWith("basic ")) {
-                // Operator credential (server-to-server), constant-time.
-                if (operatorBasic != null && constantTimeEquals(trimmed, operatorBasic)) {
-                    return "operator";
-                }
-                // Engine username/password.
-                try {
-                    String dec = new String(Base64.getDecoder().decode(trimmed.substring(6).trim()),
-                            StandardCharsets.UTF_8);
-                    int c = dec.indexOf(':');
-                    if (c >= 0 && identityService.checkPassword(dec.substring(0, c), dec.substring(c + 1))) {
-                        return dec.substring(0, c);
-                    }
-                } catch (IllegalArgumentException ignored) {
-                    // malformed Base64 → unauthenticated
-                }
+            // Operator credential (server-to-server), constant-time — before engine Basic.
+            if (operatorBasic != null && constantTimeEquals(authHeader.trim(), operatorBasic)) {
+                return "operator";
             }
-            return null;
+            return callers.basicUsername(authHeader);
         }
 
         private static boolean constantTimeEquals(String a, String b) {

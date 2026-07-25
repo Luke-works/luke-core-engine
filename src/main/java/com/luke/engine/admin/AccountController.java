@@ -1,11 +1,8 @@
 package com.luke.engine.admin;
 
-import com.luke.engine.config.GatewayJwtAuthenticator;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import com.luke.engine.config.ApiCallerResolver;
 import java.util.List;
 import java.util.Map;
-import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,18 +25,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 public class AccountController {
 
-    private final IdentityService identityService;
-    private final GatewayJwtAuthenticator gatewayAuth;
     // Shared with operator/IdP-driven deprovisioning (#38) so the cleanup can't drift.
     private final UserDeprovisioningService deprovisioning;
     private final com.luke.engine.audit.AdminAuditService audit;
+    private final ApiCallerResolver callers;
 
-    public AccountController(IdentityService identityService, GatewayJwtAuthenticator gatewayAuth,
-                            UserDeprovisioningService deprovisioning, com.luke.engine.audit.AdminAuditService audit) {
-        this.identityService = identityService;
-        this.gatewayAuth = gatewayAuth;
+    public AccountController(UserDeprovisioningService deprovisioning,
+                            com.luke.engine.audit.AdminAuditService audit, ApiCallerResolver callers) {
         this.deprovisioning = deprovisioning;
         this.audit = audit;
+        this.callers = callers;
     }
 
     @DeleteMapping("/me/account")
@@ -61,30 +56,13 @@ public class AccountController {
     /* ── auth (Bearer act-as | Basic), mirroring /engine-rest ─────────── */
 
     private String resolveUserId(String authHeader) {
-        if (authHeader == null) {
+        // Account deletion may run for a not-yet-provisioned user (idempotent no-op), so a valid
+        // Bearer sub is accepted as-is (requireProvisioned=false).
+        String userId = callers.resolve(authHeader, false);
+        if (userId == null) {
             throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
         }
-        String lower = authHeader.toLowerCase();
-        if (lower.startsWith("bearer ")) {
-            String userId = gatewayAuth.authenticate(authHeader.substring(7).trim());
-            if (userId == null) {
-                throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Invalid or expired token");
-            }
-            return userId;
-        }
-        if (lower.startsWith("basic ")) {
-            try {
-                String decoded = new String(Base64.getDecoder().decode(authHeader.substring(6)), StandardCharsets.UTF_8);
-                int colon = decoded.indexOf(':');
-                if (colon >= 0 && identityService.checkPassword(decoded.substring(0, colon), decoded.substring(colon + 1))) {
-                    return decoded.substring(0, colon);
-                }
-            } catch (IllegalArgumentException ignored) {
-                // fall through to 401
-            }
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
-        }
-        throw new AuthException(HttpStatus.UNAUTHORIZED, "Unauthorized", "Valid credentials required");
+        return userId;
     }
 
     private static class AuthException extends RuntimeException {

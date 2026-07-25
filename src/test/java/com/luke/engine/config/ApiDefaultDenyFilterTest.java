@@ -24,12 +24,14 @@ class ApiDefaultDenyFilterTest {
     private final IdentityService identity = mock(IdentityService.class);
     private final GatewayJwtAuthenticator gateway = mock(GatewayJwtAuthenticator.class);
 
+    private final ApiCallerResolver callers = new ApiCallerResolver(identity, gateway);
+
     private Impl enforcing() {
-        return new Impl(identity, gateway, "op", "oppw", true);
+        return new Impl(callers, "op", "oppw", true);
     }
 
     private Impl lenient() {
-        return new Impl(identity, gateway, "op", "oppw", false);
+        return new Impl(callers, "op", "oppw", false);
     }
 
     /** Runs the filter and returns whether the chain proceeded (true) or was denied. */
