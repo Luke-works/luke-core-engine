@@ -1,11 +1,10 @@
 package com.luke.engine.capability.form;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,13 +31,30 @@ public class FormEmbedController {
     private final FormVersionRepository versions;
     private final FormInstanceRepository instances;
     private final FormSubmissionService submissions;
+    private final com.luke.engine.web.FixedWindowRateLimiter rateLimiter;
+
+    // Configurable per-minute caps for the PUBLIC embed surface (#55), keyed per token AND per IP.
+    private final int renderMaxPerToken;
+    private final int renderMaxPerIp;
+    private final int submitMaxPerToken;
+    private final int submitMaxPerIp;
 
     public FormEmbedController(EmbedFormResolver resolver, FormVersionRepository versions,
-                               FormInstanceRepository instances, FormSubmissionService submissions) {
+                               FormInstanceRepository instances, FormSubmissionService submissions,
+                               com.luke.engine.web.FixedWindowRateLimiter rateLimiter,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-token-per-min:60}") int renderMaxPerToken,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-ip-per-min:120}") int renderMaxPerIp,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-token-per-min:20}") int submitMaxPerToken,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-ip-per-min:40}") int submitMaxPerIp) {
         this.resolver = resolver;
         this.versions = versions;
         this.instances = instances;
         this.submissions = submissions;
+        this.rateLimiter = rateLimiter;
+        this.renderMaxPerToken = renderMaxPerToken;
+        this.renderMaxPerIp = renderMaxPerIp;
+        this.submitMaxPerToken = submitMaxPerToken;
+        this.submitMaxPerIp = submitMaxPerIp;
     }
 
     /** {@code attachmentRef} is the client-minted high-entropy processRef the browser uploaded
@@ -48,7 +64,12 @@ public class FormEmbedController {
 
     /** Public render: resolve the token to the form's published schema. */
     @GetMapping("/{token}")
-    public Map<String, Object> render(@PathVariable String token) {
+    public Map<String, Object> render(@PathVariable String token, HttpServletRequest request,
+                                      HttpServletResponse response) {
+        // Throttle the UNAUTHENTICATED render (#55): each call does a token verify + 2 DB lookups +
+        // schema load, so an uncapped GET is cheap resource-exhaustion + cross-token schema scraping.
+        rateLimiter.enforce("embed-render-ip:" + clientIp(request), renderMaxPerIp, response);
+        rateLimiter.enforce("embed-render-t:" + token, renderMaxPerToken, response);
         FormDefinition form = resolver.resolve(token).form();
         int v = form.getPublishedVersion();
         String schema = versions.findByFormIdAndVersion(form.getId(), v)
@@ -67,9 +88,9 @@ public class FormEmbedController {
     @PostMapping("/{token}/submit")
     public Map<String, Object> submit(@PathVariable String token,
                                       @RequestBody(required = false) SubmitBody body,
-                                      HttpServletRequest request) {
+                                      HttpServletRequest request, HttpServletResponse response) {
         // Per-IP cap first (M5): bounds ALL submit traffic from one source across every token.
-        rateLimit("ip:" + clientIp(request), MAX_PER_IP_PER_MIN);
+        rateLimiter.enforce("embed-submit-ip:" + clientIp(request), submitMaxPerIp, response);
         EmbedFormResolver.Resolved r = resolver.resolve(token);
 
         // Bot trap (M5): real users never fill the hidden honeypot field. Drop silently — return a
@@ -78,7 +99,7 @@ public class FormEmbedController {
             return Map.of("ok", true, "instanceId", "", "processStatus", "DROPPED");
         }
 
-        rateLimit("t:" + token, MAX_PER_TOKEN_PER_MIN);
+        rateLimiter.enforce("embed-submit-t:" + token, submitMaxPerToken, response);
         FormDefinition form = r.form();
         int v = form.getPublishedVersion();
 
@@ -117,26 +138,6 @@ public class FormEmbedController {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, msg);
     }
 
-    // ── Abuse guards (M5): fixed 1-minute windows, keyed per token AND per client IP ─────────
-    private static final int MAX_PER_TOKEN_PER_MIN = 20;
-    private static final int MAX_PER_IP_PER_MIN = 40;
-    private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
-
-    private void rateLimit(String key, int max) {
-        long minute = System.currentTimeMillis() / 60_000L;
-        Window w = windows.compute(key, (k, cur) ->
-                (cur == null || cur.minute != minute) ? new Window(minute) : cur);
-        if (w.count.incrementAndGet() > max) {
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many submissions, try again shortly.");
-        }
-        // Bound growth by evicting only STALE windows (from earlier minutes), never the current
-        // minute's counters. Clearing the whole map would reset every counter at once — a global
-        // rate-limit bypass an attacker could trigger by flooding fresh keys past the threshold.
-        if (windows.size() > 50_000) {
-            windows.values().removeIf(win -> win.minute != minute);
-        }
-    }
-
     /** Best-effort client IP for rate-limiting: the left-most X-Forwarded-For hop (set by the
      *  gateway/edge), then X-Real-IP, then the socket address. Not used for authz — spoofing it only
      *  changes which bucket the caller rate-limits themselves into. */
@@ -147,11 +148,5 @@ public class FormEmbedController {
         if (real != null && !real.isBlank()) return real.trim();
         String remote = req.getRemoteAddr();
         return (remote == null || remote.isBlank()) ? "unknown" : remote;
-    }
-
-    private static final class Window {
-        final long minute;
-        final AtomicInteger count = new AtomicInteger(0);
-        Window(long minute) { this.minute = minute; }
     }
 }
