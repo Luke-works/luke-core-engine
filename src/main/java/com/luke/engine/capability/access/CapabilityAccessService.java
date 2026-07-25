@@ -2,10 +2,12 @@ package com.luke.engine.capability.access;
 
 import com.luke.engine.capability.capability.CapabilitySubscription;
 import com.luke.engine.capability.capability.CapabilitySubscriptionRepository;
+import com.luke.engine.tenant.TenantOwnership;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,11 +22,14 @@ public class CapabilityAccessService {
 
     private final CapabilityGrantRepository grants;
     private final CapabilitySubscriptionRepository subscriptions;
+    private final IdentityService identityService;
 
     public CapabilityAccessService(CapabilityGrantRepository grants,
-                                   CapabilitySubscriptionRepository subscriptions) {
+                                   CapabilitySubscriptionRepository subscriptions,
+                                   IdentityService identityService) {
         this.grants = grants;
         this.subscriptions = subscriptions;
+        this.identityService = identityService;
     }
 
     /** Whether the tenant currently has the capability switched on. */
@@ -40,9 +45,17 @@ public class CapabilityAccessService {
      */
     public String effectiveLevel(String tenantId, String userId, String capabilityCode) {
         if (!tenantHasCapability(tenantId, capabilityCode)) return null;
-        return grants.findByTenantIdAndUserIdAndCapabilityCode(tenantId, userId, capabilityCode)
+        String granted = grants.findByTenantIdAndUserIdAndCapabilityCode(tenantId, userId, capabilityCode)
                 .map(CapabilityGrant::getLevel)
                 .orElse(null);
+        if (granted != null) return granted;
+        // #104 AC-2: a tenant OWNER (tenant-admin) implicitly holds read-write on every capability the
+        // tenant is subscribed to — so onboarding an owner needs no per-capability grant admin. An explicit
+        // per-user grant above still overrides this (the auto-access is a floor, not a ceiling).
+        if (TenantOwnership.isOwner(identityService, userId, tenantId)) {
+            return CapabilityLevel.READ_WRITE;
+        }
+        return null;
     }
 
     /** True if the user may perform the action; {@code needWrite} → requires ordinary write. */
@@ -66,6 +79,13 @@ public class CapabilityAccessService {
         Set<String> activeCaps = subscriptions.findByTenantIdAndStatus(tenantId, SUBSCRIPTION_ACTIVE)
                 .stream().map(CapabilitySubscription::getCapabilityCode).collect(Collectors.toSet());
         Map<String, String> out = new LinkedHashMap<>();
+        // #104 AC-2: a tenant owner floors at read-write on every active subscription...
+        if (TenantOwnership.isOwner(identityService, userId, tenantId)) {
+            for (String cap : activeCaps) {
+                out.put(cap, CapabilityLevel.READ_WRITE);
+            }
+        }
+        // ...then explicit per-user grants override (they win over the owner floor).
         for (CapabilityGrant g : grants.findByTenantIdAndUserId(tenantId, userId)) {
             if (activeCaps.contains(g.getCapabilityCode())) {
                 out.put(g.getCapabilityCode(), g.getLevel());
