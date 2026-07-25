@@ -49,4 +49,39 @@ class RoleCatalogTest {
         assertThat(RoleCatalog.assignableDimensions().values()).allMatch(managementDims::contains);
         assertThat(RoleCatalog.accessDimensions().values()).allMatch(accessDims::contains);
     }
+
+    // ── #61: WorkOS role slug → catalog mapping (the IdP→engine SSOT) ──────────────────────
+
+    @Test
+    void fromWorkosSlug_mapsTheFourMirrorSlugsByIdentity() {
+        // The WorkOS control plane mirrors these slugs 1:1, so they map to themselves.
+        assertThat(RoleCatalog.fromWorkosSlug("tenant-admin")).contains(RoleCatalog.TENANT_ADMIN);
+        assertThat(RoleCatalog.fromWorkosSlug("tenant-user")).contains(RoleCatalog.TENANT_USER);
+        assertThat(RoleCatalog.fromWorkosSlug("process-operator")).contains(RoleCatalog.PROCESS_OPERATOR);
+        assertThat(RoleCatalog.fromWorkosSlug("task-worker")).contains(RoleCatalog.TASK_WORKER);
+    }
+
+    @Test
+    void fromWorkosSlug_aliasesWorkosBuiltInsToTheNearestCatalogRole() {
+        // WorkOS's undeletable built-ins have no 1:1 engine equivalent → nearest role.
+        assertThat(RoleCatalog.fromWorkosSlug("member")).contains(RoleCatalog.TENANT_USER);
+        assertThat(RoleCatalog.fromWorkosSlug("admin")).contains(RoleCatalog.TENANT_ADMIN);
+    }
+
+    @Test
+    void fromWorkosSlug_isCaseInsensitiveAndTrims() {
+        assertThat(RoleCatalog.fromWorkosSlug("  Tenant-Admin ")).contains(RoleCatalog.TENANT_ADMIN);
+        assertThat(RoleCatalog.fromWorkosSlug("MEMBER")).contains(RoleCatalog.TENANT_USER);
+    }
+
+    @Test
+    void fromWorkosSlug_deniesUnknownBlankNullAndInternalOnlyDeployer() {
+        // Unknown IdP role grants nothing (fail-closed).
+        assertThat(RoleCatalog.fromWorkosSlug("superadmin")).isEmpty();
+        assertThat(RoleCatalog.fromWorkosSlug("")).isEmpty();
+        assertThat(RoleCatalog.fromWorkosSlug("   ")).isEmpty();
+        assertThat(RoleCatalog.fromWorkosSlug(null)).isEmpty();
+        // deployer is internal-only and NOT in the WorkOS mirror set → never reachable from a claim.
+        assertThat(RoleCatalog.fromWorkosSlug("deployer")).isEmpty();
+    }
 }

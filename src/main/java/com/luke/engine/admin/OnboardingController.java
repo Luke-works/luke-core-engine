@@ -169,8 +169,16 @@ public class OnboardingController {
         if (identityService.createTenantQuery().tenantId(req.tenantId()).count() == 0) {
             return badRequest("Unknown tenant '" + req.tenantId() + "'");
         }
+        // Normalize an incoming WorkOS role slug to the canonical RoleCatalog id first (#61): the
+        // gateway may forward an IdP-assigned role, and WorkOS's built-in `member`/`admin` roles must
+        // alias to `tenant-user`/`tenant-admin`. The four mirror slugs map to themselves (identity), so
+        // existing callers are unaffected; a genuinely-unknown slug falls through unchanged and hits the
+        // "Unknown role" 400 below — fail-closed, exactly as before.
+        String canonicalRole = com.luke.engine.config.RoleCatalog.fromWorkosSlug(req.role())
+                .map(com.luke.engine.config.RoleCatalog::id)
+                .orElse(req.role());
         // Resolve the role to the right access tier (Read-Only uses the -readonly variant).
-        String roleGroup = resolveRoleGroup(req.role(), req.accessLevel());
+        String roleGroup = resolveRoleGroup(canonicalRole, req.accessLevel());
         if (identityService.createGroupQuery().groupId(roleGroup).count() == 0) {
             return badRequest("Unknown role '" + req.role() + "'");
         }

@@ -2,7 +2,9 @@ package com.luke.engine.config;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -98,5 +100,45 @@ public enum RoleCatalog {
             m.put(r.id, r.accessDimension);
         }
         return m;
+    }
+
+    /**
+     * Map a WorkOS role slug to this catalog (#61) — the single source of truth for the
+     * IdP→engine role mapping, so an SSO/directory-sync-assigned role provisions the right
+     * engine role instead of a hand-maintained lookup that could drift from the WorkOS side.
+     *
+     * <p>The four assignable role slugs are configured in the WorkOS control plane to be
+     * <b>identical</b> to these catalog ids (a deliberate 1:1 mirror), so they map by identity.
+     * WorkOS's two built-in roles — which cannot be deleted — alias to the nearest catalog role:
+     * {@code member} → {@link #TENANT_USER} (the baseline org member) and {@code admin} →
+     * {@link #TENANT_ADMIN}. Matching is case-insensitive and trims surrounding whitespace.
+     *
+     * <p>Only <b>assignable</b> roles are reachable this way: {@code deployer} is internal-only and
+     * intentionally not in the WorkOS mirror set, so it never resolves from an IdP claim. An unknown,
+     * blank, or null slug returns {@link Optional#empty()} — callers fail closed (decision: unknown
+     * IdP role grants nothing; a genuinely-absent role is defaulted upstream, not here).
+     */
+    public static Optional<RoleCatalog> fromWorkosSlug(String slug) {
+        if (slug == null) {
+            return Optional.empty();
+        }
+        String s = slug.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) {
+            return Optional.empty();
+        }
+        // WorkOS built-ins (undeletable) → nearest catalog role.
+        if ("member".equals(s)) {
+            return Optional.of(TENANT_USER);
+        }
+        if ("admin".equals(s)) {
+            return Optional.of(TENANT_ADMIN);
+        }
+        // The 1:1 mirror set — assignable roles only (deployer is not IdP-reachable).
+        for (RoleCatalog r : values()) {
+            if (r.assignable && r.id.equals(s)) {
+                return Optional.of(r);
+            }
+        }
+        return Optional.empty();
     }
 }
