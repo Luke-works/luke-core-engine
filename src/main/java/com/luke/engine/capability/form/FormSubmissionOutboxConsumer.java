@@ -35,6 +35,11 @@ public class FormSubmissionOutboxConsumer {
     @Value("${luke.forms.outbox-enabled:true}")
     private boolean enabled;
 
+    /** Retry budget for a TRANSIENT start failure before the row is marked terminally FAILED.
+     *  A blip (Camunda/DB hiccup) must not permanently strand an MVP form intake on the first miss. */
+    @Value("${luke.forms.outbox-max-retries:10}")
+    private int maxRetries;
+
     public FormSubmissionOutboxConsumer(FormSubmissionOutboxRepository outbox,
                                         FormInstanceRepository instances,
                                         InternalProcessService processService,
@@ -83,12 +88,29 @@ public class FormSubmissionOutboxConsumer {
             documentMirror.mirrorFormProcess(row.getTenantId(), row.getFormInstanceId(), pid);
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            row.setStatus("FAILED");
+            // If the process already STARTED (row flipped to PUBLISHED) and a best-effort post-step
+            // (pdf / mirror) threw, do NOT re-drive the intake — it is live. Just log.
+            if ("PUBLISHED".equals(row.getStatus())) {
+                log.warn("Post-start best-effort step failed for instance {} (tenant {}): {}",
+                        row.getFormInstanceId(), row.getTenantId(), msg);
+                return;
+            }
+            row.setRetryCount(row.getRetryCount() + 1);
             row.setErrorMessage(msg);
-            outbox.save(row);
-            recordOutcome(row.getFormInstanceId(), "FAILED", null, row.getProcessBusinessKey(), msg);
-            log.warn("Outbox start failed for instance {} (tenant {}): {}",
-                    row.getFormInstanceId(), row.getTenantId(), msg);
+            if (row.getRetryCount() >= maxRetries) {
+                // Retry budget exhausted → terminal FAILED (stops draining; surfaces on the tracker).
+                row.setStatus("FAILED");
+                outbox.save(row);
+                recordOutcome(row.getFormInstanceId(), "FAILED", null, row.getProcessBusinessKey(), msg);
+                log.warn("Outbox start permanently FAILED after {} attempts for instance {} (tenant {}): {}",
+                        row.getRetryCount(), row.getFormInstanceId(), row.getTenantId(), msg);
+            } else {
+                // Transient blip: keep the row QUEUED so the next poll retries it. A double-start is
+                // prevented by InternalProcessService's businessKey idempotency (#31).
+                outbox.save(row);
+                log.warn("Outbox start failed (attempt {}/{}); will retry for instance {} (tenant {}): {}",
+                        row.getRetryCount(), maxRetries, row.getFormInstanceId(), row.getTenantId(), msg);
+            }
         }
     }
 
