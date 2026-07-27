@@ -78,6 +78,10 @@ services:
       # no config). Roll out: set on the gateway FIRST, verify embed works, then set here to arm the lock.
       - key: GATEWAY_VOUCH_SECRET
         sync: false
+      # OBS-2: scrape token for /actuator/prometheus. Unset ⇒ the endpoint is 404 (never public);
+      # set it (and give the same value to the Grafana Alloy collector) to enable metric scraping.
+      - key: MANAGEMENT_METRICS_TOKEN
+        sync: false
       # Postmark transactional email (EMAIL capability).
       - key: POSTMARK_ACCOUNT_TOKEN
         sync: false

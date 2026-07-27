@@ -299,7 +299,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # prometheus (OBS-2) is guarded by MetricsScrapeAuthFilter — 404 unless MANAGEMENT_METRICS_TOKEN
+        # is set, then Bearer-token required — so it is never public without an explicit scrape token.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
