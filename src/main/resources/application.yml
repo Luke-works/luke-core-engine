@@ -319,6 +319,14 @@ management:
         readiness:
           include: readinessState,db
 
+# Sentry backend error tracking (OBS-4). DSN-gated: no dsn here — the SENTRY_DSN env var (Spring
+# relaxed binding → sentry.dsn) activates it; unset ⇒ disabled, no calls out (dev/qa run clean).
+sentry:
+  send-default-pii: false                                  # never send PII to Sentry
+  environment: ${SENTRY_ENVIRONMENT:}                      # e.g. dev|qa|prod (set per env)
+  release: ${SENTRY_RELEASE:}                              # optional build ref for grouping
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.1}     # 10% perf traces by default
+
 # Logging
 logging:
   # Tag every log line with the per-request correlation id (set by CorrelationIdFilter,

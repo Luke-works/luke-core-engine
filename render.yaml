@@ -82,6 +82,10 @@ services:
       # set it (and give the same value to the Grafana Alloy collector) to enable metric scraping.
       - key: MANAGEMENT_METRICS_TOKEN
         sync: false
+      # OBS-4: Sentry backend error tracking. Unset ⇒ disabled (no calls out). Set the DSN from your
+      # Sentry project to activate; SENTRY_ENVIRONMENT (dev|qa|prod) tags events, SENTRY_RELEASE groups them.
+      - key: SENTRY_DSN
+        sync: false
       # Postmark transactional email (EMAIL capability).
       - key: POSTMARK_ACCOUNT_TOKEN
         sync: false
