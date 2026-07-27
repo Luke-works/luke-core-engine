@@ -71,6 +71,13 @@ services:
       # secrets, emails). Unset → those endpoints fail closed.
       - key: LUKE_INTERNAL_SHARED_SECRET
         sync: false
+      # Proof-of-origin secret that locks the PUBLIC surface (/api/public/**, /embed*, /embed-assets/*)
+      # to the gateway. When set, PublicGatewayAuthFilter requires the gateway-stamped X-Gateway-Auth on
+      # those paths, so a direct-to-core hit (incl. the raw *.onrender.com URL) is refused. Must be the
+      # SAME value set on the auth-engine gateway. Unset → OPEN (default-lenient; dev/qa serve embed with
+      # no config). Roll out: set on the gateway FIRST, verify embed works, then set here to arm the lock.
+      - key: GATEWAY_VOUCH_SECRET
+        sync: false
       # Postmark transactional email (EMAIL capability).
       - key: POSTMARK_ACCOUNT_TOKEN
         sync: false
