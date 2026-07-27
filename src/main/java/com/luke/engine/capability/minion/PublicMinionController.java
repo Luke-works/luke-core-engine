@@ -54,9 +54,14 @@ public class PublicMinionController {
         return m.handle(tenantId, params != null ? params : Map.of());
     }
 
-    /** Best-effort client IP for rate-limiting: the left-most X-Forwarded-For hop, then X-Real-IP,
-     *  then the socket address. Not used for authz — spoofing only changes one's own rate bucket. */
+    /** Best-effort client IP for rate-limiting. Prefers X-Real-Client-IP — the gateway resolves the
+     *  true client IP spoof-resistantly (trusted-proxy-hops from the right) and stamps it, stripping any
+     *  client-supplied value first, so when this surface is reached only through the gateway it is
+     *  authoritative and NOT spoofable. Falls back to the left-most X-Forwarded-For hop, then X-Real-IP,
+     *  then the socket. Not used for authz — spoofing only changes one's own rate bucket. */
     private static String clientIp(HttpServletRequest req) {
+        String vouched = req.getHeader("X-Real-Client-IP");
+        if (vouched != null && !vouched.isBlank()) return vouched.trim();
         String xff = req.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
         String real = req.getHeader("X-Real-IP");

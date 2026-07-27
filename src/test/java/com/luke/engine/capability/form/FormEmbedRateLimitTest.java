@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.luke.engine.web.FixedWindowRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -60,5 +61,22 @@ class FormEmbedRateLimitTest {
         assertThrows(ResponseStatusException.class, () -> controller().render("tok", req, res));
 
         verify(limiter).enforce(startsWith("embed-render-ip:"), eq(120), any());
+    }
+
+    @Test
+    void ipCapKeysOffTheGatewayVouchedIpNotTheSpoofableXff() {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse res = mock(HttpServletResponse.class);
+        // The gateway resolves the true client IP and stamps X-Real-Client-IP; it must WIN over the
+        // spoofable left-most X-Forwarded-For so an abuser can't rotate XFF to mint fresh IP buckets.
+        when(req.getHeader("X-Real-Client-IP")).thenReturn("9.9.9.9");
+        when(req.getHeader("X-Forwarded-For")).thenReturn("1.1.1.1, 10.0.0.1");
+        doThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "x"))
+                .when(limiter).enforce(startsWith("embed-render-ip:9.9.9.9"), eq(120), any());
+
+        assertThrows(ResponseStatusException.class, () -> controller().render("tok", req, res));
+
+        // The IP bucket used the gateway-vouched 9.9.9.9, NOT the forwarded-for 1.1.1.1.
+        verify(limiter).enforce(startsWith("embed-render-ip:9.9.9.9"), eq(120), any());
     }
 }

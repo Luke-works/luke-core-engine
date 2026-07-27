@@ -138,10 +138,14 @@ public class FormEmbedController {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, msg);
     }
 
-    /** Best-effort client IP for rate-limiting: the left-most X-Forwarded-For hop (set by the
-     *  gateway/edge), then X-Real-IP, then the socket address. Not used for authz — spoofing it only
-     *  changes which bucket the caller rate-limits themselves into. */
+    /** Best-effort client IP for rate-limiting. Prefers X-Real-Client-IP — the gateway resolves the
+     *  true client IP spoof-resistantly (trusted-proxy-hops from the right) and stamps it, stripping
+     *  any client-supplied value first, so when this surface is reached only through the gateway it is
+     *  authoritative and NOT spoofable. Falls back to the left-most X-Forwarded-For hop, then X-Real-IP,
+     *  then the socket. Not used for authz — spoofing only changes which bucket the caller lands in. */
     private static String clientIp(HttpServletRequest req) {
+        String vouched = req.getHeader("X-Real-Client-IP");
+        if (vouched != null && !vouched.isBlank()) return vouched.trim();
         String xff = req.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
         String real = req.getHeader("X-Real-IP");
