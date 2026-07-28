@@ -121,6 +121,20 @@ luke:
     recipient-hmac-secret: ${FORMS_RECIPIENT_HMAC_SECRET:dev-recipient-secret-change-me}
     # How long a recipient fill session (post-OTP access token) stays valid.
     recipient-session-ttl-ms: ${FORMS_RECIPIENT_SESSION_TTL_MS:1800000}
+    # Recipient PORTAL ("authenticate once, see all my items"): the per-tenant portal handle in
+    # /portal/{token} is signed with portal-tenant-secret; the email-scoped session minted after an
+    # OTP/magic-link is signed with portal-hmac-secret and lives for portal-session-ttl-ms. CHANGE IN PROD.
+    # The portal is served by the standalone luke-portal static site — portal-base-url is that site's
+    # public origin (used to build the /portal + magic-link URLs emailed to recipients). Distinct from
+    # recipient-base-url, which is core's own origin for the single-link /respond page.
+    portal-base-url: ${FORMS_PORTAL_BASE_URL:http://localhost:5173}
+    portal-tenant-secret: ${FORMS_PORTAL_TENANT_SECRET:dev-portal-tenant-secret-change-me}
+    portal-hmac-secret: ${FORMS_PORTAL_HMAC_SECRET:dev-portal-secret-change-me}
+    portal-session-ttl-ms: ${FORMS_PORTAL_SESSION_TTL_MS:1800000}
+    sms:
+      # SMS OTP channel is wired behind a seam but has NO gateway yet. Set true only once a provider
+      # (e.g. Twilio) is implemented in SmsPortalOtpSender; until then SMS challenges are refused.
+      enabled: ${FORMS_SMS_ENABLED:false}
     # BPMN process key started for each form submission (deployed per tenant).
     intake-process-key: ${LUKE_FORMS_INTAKE_PROCESS_KEY:FormSubmissionIntakeProcess}
     # Global kill-switch for the "Save submission as Attachment" PDF render (per-form opt-in still

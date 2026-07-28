@@ -81,6 +81,9 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/api/public/**", publicConfig);
         source.registerCorsConfiguration("/embed-assets/**", publicConfig);
         source.registerCorsConfiguration("/embed/**", publicConfig);
+        // NB: the recipient portal is served by its own static site (luke-portal), which calls the
+        // portal API cross-origin under /api/public/portal/** — already covered by the /api/public/**
+        // carve-out above. Core no longer serves the /portal page, so no /portal CORS entry is needed.
 
         source.registerCorsConfiguration("/**", config);
         return source;

@@ -53,6 +53,12 @@ public interface FormInstanceRepository
 
     List<FormInstance> findByTenantIdAndDefinitionCodeOrderByCreatedAtDesc(String tenantId, String definitionCode);
 
+    /** The recipient portal's "forms assigned to me" list: every instance for a recipient email in a
+     *  tenant whose state is in the given set (the open states), newest first. Email is stored
+     *  normalised (lower-cased) on write, so callers must pass a normalised email. */
+    List<FormInstance> findByTenantIdAndRecipientEmailAndStateInOrderByCreatedAtDesc(
+            String tenantId, String recipientEmail, Collection<String> states);
+
     // The paged list (#52) + filter/search/sort (#26) is served via
     // JpaSpecificationExecutor.findAll(Specification, Pageable) — see
     // FormInstanceController.list / FormInstanceSpecs — so the page is bounded and
