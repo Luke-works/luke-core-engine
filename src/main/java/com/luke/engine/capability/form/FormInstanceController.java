@@ -191,10 +191,14 @@ public class FormInstanceController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instance is not open for edits (state " + inst.getState() + ")");
         }
         rejectIfExpired(inst);
-        inst.setData(merge(inst.getData(), body.data()));
+        // Draft mode: strip undeclared keys + bound size, but do NOT enforce required — a
+        // half-filled autosave legitimately has empty required fields. The required backstop
+        // runs at submit, in FormSubmissionService.
+        String schema = schemaFor(tenantId, inst);
+        inst.setData(SubmissionValidator.cleanPartial(schema, merge(inst.getData(), body.data())));
         inst.setState(FormInstanceStates.IN_PROGRESS);
         instances.save(inst);
-        return view(inst, schemaFor(tenantId, inst));
+        return view(inst, schema);
     }
 
     @PostMapping("/{id}/submit")

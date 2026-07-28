@@ -89,6 +89,48 @@ public final class FormSupport {
         return fields;
     }
 
+    /**
+     * One field's server-enforceable contract: its key, its entity type, whether it is required,
+     * whether the server may hard-enforce that (see {@link #extractFields}), and the raw attribute
+     * bag the declarative validation rules read.
+     *
+     * <p>Carries {@code attributes} rather than pre-extracting every bound so the rule set can grow
+     * without changing this shape — and so the Java rules read the SAME attribute names the
+     * TypeScript ones do, which is what makes the parity fixture meaningful.
+     */
+    public record FieldRule(String key, String type, boolean required, boolean conditional, JsonNode attributes) {}
+
+    /**
+     * Flatten a schema into {@link FieldRule}s — the richer sibling of {@link #extractFields}, used
+     * by {@link SubmissionValidator} to enforce declarative validation server-side.
+     *
+     * <p>Deliberately separate from {@code extractFields}, which is the shape a public endpoint
+     * returns to the UI; widening that response to carry validation internals would couple the two.
+     * Same best-effort contract: a blank or unparseable schema yields an empty list, never a throw.
+     */
+    public static List<FieldRule> extractFieldRules(String schema) {
+        List<FieldRule> rules = new ArrayList<>();
+        if (schema == null || schema.isBlank()) return rules;
+        try {
+            JsonNode entities = MAPPER.readTree(schema).path("entities");
+            entities.fields().forEachRemaining(entry -> {
+                JsonNode entity = entry.getValue();
+                JsonNode attrs = entity.path("attributes");
+                String key = attrs.path("key").asText("");
+                if (key.isBlank()) return; // not an input field
+                rules.add(new FieldRule(
+                        key,
+                        entity.path("type").asText(""),
+                        attrs.path("required").asBoolean(false),
+                        isConditionallyControlled(attrs),
+                        attrs));
+            });
+        } catch (Exception ignored) {
+            // best-effort: a malformed draft just yields no contract
+        }
+        return rules;
+    }
+
     /** Field actions (in {@code logic[]}) that make a field's visibility / editability / required
      *  state dynamic, so the server can't know whether it was shown / must be filled. */
     private static final Set<String> DYNAMIC_ACTIONS =

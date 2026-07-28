@@ -5,7 +5,10 @@ import com.luke.engine.document.DocumentService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -17,10 +20,16 @@ import org.springframework.util.StringUtils;
  * {@link FormSubmissionOutboxConsumer} actually starts the process, off-thread.
  *
  * <p>Replaces the old synchronous, best-effort cap→core HTTP {@code ProcessStarter}.
+ *
+ * <p>This is also the SINGLE CHOKE POINT for server-side submission validation: every door
+ * (public embed, the OTP recipient portal, and the authenticated in-app fill) funnels through
+ * {@link #submit}, so {@link SubmissionValidator} runs here rather than in each controller —
+ * a future submit path cannot forget it.
  */
 @Service
 public class FormSubmissionService {
 
+    private static final Logger log = LoggerFactory.getLogger(FormSubmissionService.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
@@ -31,13 +40,18 @@ public class FormSubmissionService {
     private final FormSubmissionOutboxRepository outbox;
     private final DocumentService documents;
     private final FormEventPublisher events;
+    private final FormDefinitionRepository forms;
+    private final FormVersionRepository versions;
 
     public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
-                                 DocumentService documents, FormEventPublisher events) {
+                                 DocumentService documents, FormEventPublisher events,
+                                 FormDefinitionRepository forms, FormVersionRepository versions) {
         this.instances = instances;
         this.outbox = outbox;
         this.documents = documents;
         this.events = events;
+        this.forms = forms;
+        this.versions = versions;
     }
 
     /**
@@ -57,7 +71,13 @@ public class FormSubmissionService {
      */
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef) {
-        if (dataToMerge != null) inst.setData(merge(inst.getData(), dataToMerge));
+        // Server-side backstop, for EVERY door. Validate the MERGED map (stored + incoming), not the
+        // incoming delta: an outbound instance carries preparer-supplied values from an earlier save,
+        // so a delta alone would look like a submission with required fields missing.
+        Map<String, Object> merged = merge(inst.getData(), dataToMerge);
+        Map<String, Object> cleaned = SubmissionValidator.clean(schemaFor(inst), merged);
+        logDroppedKeys(inst, merged, cleaned);
+        inst.setData(cleaned);
         inst.setState(FormInstanceStates.SUBMITTED);
         if (inst.getSubmittedAt() == null) inst.setSubmittedAt(LocalDateTime.now());
         markQueued(inst);
@@ -150,5 +170,32 @@ public class FormSubmissionService {
         Map<String, Object> out = new HashMap<>(base == null ? Map.of() : base);
         if (add != null) out.putAll(add);
         return out;
+    }
+
+    /**
+     * The schema this instance was created against — the instance's PINNED version, never the
+     * definition's current published one, so editing (or re-publishing) a form can't retroactively
+     * invalidate a submission that's already in flight. Null when the version can't be resolved;
+     * {@link SubmissionValidator} then falls back to cleaning-without-a-field-contract rather than
+     * dropping the whole submission.
+     */
+    private String schemaFor(FormInstance inst) {
+        return forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode())
+                .flatMap(f -> versions.findByFormIdAndVersion(f.getId(), inst.getVersion()))
+                .map(FormVersion::getSchema)
+                .orElse(null);
+    }
+
+    /**
+     * Record which keys the backstop discarded. Cleaning is silent by design (a tampered payload
+     * shouldn't get feedback), but an instance whose STORED data carries keys the schema no longer
+     * declares is worth seeing — that's schema drift, not an attack, and this is how we'd notice.
+     */
+    private void logDroppedKeys(FormInstance inst, Map<String, Object> before, Map<String, Object> after) {
+        if (before.size() == after.size()) return;
+        List<String> dropped = before.keySet().stream().filter(k -> !after.containsKey(k)).sorted().toList();
+        if (dropped.isEmpty()) return;
+        log.info("Submission backstop dropped {} undeclared key(s) for instance {} (tenant {}, form {} v{}): {}",
+                dropped.size(), inst.getId(), inst.getTenantId(), inst.getDefinitionCode(), inst.getVersion(), dropped);
     }
 }

@@ -41,9 +41,102 @@ class SubmissionValidatorTest {
         assertThatThrownBy(() -> SubmissionValidator.clean(SCHEMA, map("age", 30)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("fullName");
-        // present-but-blank required also rejected
-        assertThatThrownBy(() -> SubmissionValidator.clean(SCHEMA, map("fullName", "   ")))
+        assertThatThrownBy(() -> SubmissionValidator.clean(SCHEMA, map("fullName", "")))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void whitespaceOnlyCountsAsProvided_matchingTheRenderer() {
+        // CHANGED, deliberately: this used to 400. The renderer accepts "   " in a required field,
+        // so rejecting it server-side meant a submission the user was told was fine came back as an
+        // error with nothing to fix. The parity fixture pins this to form-core's isEmptyValue.
+        assertThat(SubmissionValidator.clean(SCHEMA, map("fullName", "   "))).containsKey("fullName");
+    }
+
+    @Test
+    void requiredIsMoreThanNotBlank() {
+        // The flip side of aligning with form-core: three cases the old not-blank check let through.
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"checkbox","attributes":{"key":"agree","required":true}}
+                }}""";
+        // An unchecked consent box is MISSING, not merely false — this previously passed.
+        assertThatThrownBy(() -> SubmissionValidator.clean(schema, map("agree", false)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("agree");
+        assertThat(SubmissionValidator.clean(schema, map("agree", true))).containsEntry("agree", true);
+
+        String matrixSchema = """
+                {"entities":{
+                  "e1":{"type":"matrix","attributes":{"key":"answers","required":true}}
+                }}""";
+        // An object whose every answer is blank is an empty answer set, not a provided one.
+        assertThatThrownBy(() -> SubmissionValidator.clean(matrixSchema, map("answers", map("r1", "", "r2", ""))))
+                .isInstanceOf(ResponseStatusException.class);
+
+        String addressSchema = """
+                {"entities":{
+                  "e1":{"type":"addressBlock","attributes":{"key":"addr","required":true}}
+                }}""";
+        // A street-only address is non-empty but incomplete.
+        assertThatThrownBy(() -> SubmissionValidator.clean(addressSchema, map("addr", map("streetAddress", "1 Main St"))))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void enforcesDeclarativeValueRules() {
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"email","attributes":{"key":"email"}},
+                  "e2":{"type":"text","attributes":{"key":"code","pattern":"^[0-9]{3}$"}},
+                  "e3":{"type":"select","attributes":{"key":"size","options":["S","M","L"]}}
+                }}""";
+        // Rules the renderer applies but a hand-rolled POST never would.
+        assertThatThrownBy(() -> SubmissionValidator.clean(schema, map("email", "banana")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("email");
+        assertThatThrownBy(() -> SubmissionValidator.clean(schema, map("code", "12a")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("pattern");
+        assertThatThrownBy(() -> SubmissionValidator.clean(schema, map("size", "Gigantic")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("option");
+        // …and a well-formed submission still sails through.
+        assertThat(SubmissionValidator.clean(schema, map("email", "ada@example.com", "code", "123", "size", "M")))
+                .containsOnlyKeys("email", "code", "size");
+    }
+
+    @Test
+    void conditionallyHiddenFieldWithACountBoundDoesNotRejectTheSubmission() {
+        // REGRESSION: count rules read an absent value as "zero items", so a hidden field carrying
+        // minFiles/minRows/minSelected would 400 a submission the renderer considered complete —
+        // it never showed the field, and collect() omits it. Same false-400 that conditionally
+        // -hidden REQUIRED fields once caused on embed submit.
+        String schema = """
+                {"entities":{
+                  "e1":{"type":"text","attributes":{"key":"name"}},
+                  "e2":{"type":"file","attributes":{"key":"docs","minFiles":1,"customConditional":"name == 'x'"}}
+                }}""";
+        assertThat(SubmissionValidator.clean(schema, map("name", "Ada"))).containsOnlyKeys("name");
+
+        // …but when the field DID arrive, it is still held to what the author declared, so a value
+        // smuggled into a conditional field can't dodge validation.
+        String emailSchema = """
+                {"entities":{
+                  "e1":{"type":"text","attributes":{"key":"name"}},
+                  "e2":{"type":"email","attributes":{"key":"alt","customConditional":"name == 'x'"}}
+                }}""";
+        assertThatThrownBy(() -> SubmissionValidator.clean(emailSchema, map("name", "Ada", "alt", "banana")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("alt");
+    }
+
+    @Test
+    void draftModeSkipsValueRulesToo() {
+        // A half-typed email is the normal state of an autosave; only submit judges shape.
+        String schema = """
+                {"entities":{"e1":{"type":"email","attributes":{"key":"email"}}}}""";
+        assertThat(SubmissionValidator.cleanPartial(schema, map("email", "ada@"))).containsEntry("email", "ada@");
     }
 
     @Test
@@ -113,6 +206,34 @@ class SubmissionValidatorTest {
         Map<String, Object> out = SubmissionValidator.clean(
                 SCHEMA, map("fullName", "Ada", "notes", List.of("a" + BEL, "b")));
         assertThat(out.get("notes")).isEqualTo(List.of("a", "b"));
+    }
+
+    @Test
+    void partialModeStripsAndBoundsButNeverEnforcesRequired() {
+        // Autosave of a half-filled form: the required field is legitimately empty, so cleanPartial
+        // must not 400 — otherwise every draft save of an incomplete form fails.
+        Map<String, Object> out = SubmissionValidator.cleanPartial(SCHEMA, map("age", 30, "evil", "injected"));
+        assertThat(out).containsOnlyKeys("age"); // still strips undeclared keys
+    }
+
+    @Test
+    void partialModeStillCleansAndBounds() {
+        Map<String, Object> out = SubmissionValidator.cleanPartial(SCHEMA, map("notes", "a" + BEL + "b"));
+        assertThat(out.get("notes")).isEqualTo("ab");
+
+        Map<String, Object> big = new LinkedHashMap<>();
+        for (int i = 0; i < 600; i++) big.put("k" + i, "v");
+        assertThatThrownBy(() -> SubmissionValidator.cleanPartial(SCHEMA, big))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void cleanIsIdempotent() {
+        // The embed door cleans before creating the instance and the choke point cleans again on
+        // submit; the second pass must be a no-op rather than mangling the first pass's output.
+        Map<String, Object> once = SubmissionValidator.clean(SCHEMA, map("fullName", "Ada" + BEL, "evil", "x"));
+        Map<String, Object> twice = SubmissionValidator.clean(SCHEMA, once);
+        assertThat(twice).isEqualTo(once);
     }
 
     @Test
