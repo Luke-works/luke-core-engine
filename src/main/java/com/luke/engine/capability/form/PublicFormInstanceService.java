@@ -7,10 +7,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -145,7 +149,7 @@ public class PublicFormInstanceService {
     public void save(String token, String accessToken, Map<String, Object> data) {
         FormInstance inst = authorize(token, accessToken);
         Map<String, Object> merged = new HashMap<>(inst.getData() != null ? inst.getData() : Map.of());
-        if (data != null) merged.putAll(data);
+        merged.putAll(recipientWritable(inst, data));
         inst.setData(merged);
         if (!FormInstanceStates.IN_PROGRESS.equals(inst.getState())) inst.setState(FormInstanceStates.IN_PROGRESS);
         instances.save(inst);
@@ -155,8 +159,56 @@ public class PublicFormInstanceService {
     @Transactional
     public Map<String, Object> submit(String token, String accessToken, Map<String, Object> data) {
         FormInstance inst = authorize(token, accessToken);
-        submissions.submit(inst, data);
+        submissions.submit(inst, recipientWritable(inst, data));
         return Map.of("ok", true, "instanceId", inst.getId(), "state", inst.getState());
+    }
+
+    /**
+     * Drop the fields this recipient does not own before their answers touch the instance.
+     *
+     * <p>An outbound form is filled by TWO people: the preparer supplies some fields up front (a
+     * quoted price, a case reference, a policy number) and the recipient answers the rest. The
+     * recipient's browser renders the preparer's fields read-only — but "read-only" is a rendering
+     * decision, and this endpoint is reachable without a browser. Without this, anyone holding a
+     * valid recipient link could POST a new value for a preparer-owned field and silently rewrite
+     * the terms of what they were sent.
+     *
+     * <p>A field is preparer-owned when the form's outbound role map says {@code PREPARER}, or —
+     * for forms authored before roles existed — when the schema marks it {@code disabled}, which is
+     * how preparer fields have always been expressed. {@code EITHER} stays recipient-writable: the
+     * preparer may seed it, the recipient may still change it.
+     *
+     * <p>Rejected keys are dropped silently rather than 400'd: a legitimate client never sends them
+     * (the fields are disabled in its DOM), so a request carrying them is either tampering or a
+     * stale tab, and neither deserves a descriptive error.
+     */
+    private Map<String, Object> recipientWritable(FormInstance inst, Map<String, Object> data) {
+        if (data == null || data.isEmpty()) return Map.of();
+        FormDefinition form = forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode()).orElse(null);
+        if (form == null) return data; // unknown contract — cleaning happens downstream regardless
+
+        Set<String> preparerOwned = new HashSet<>();
+        for (Map.Entry<String, Object> e : parseRoles(form.getOutboundRolesJson()).entrySet()) {
+            if ("PREPARER".equals(String.valueOf(e.getValue()))) preparerOwned.add(e.getKey());
+        }
+        String schema = versions.findByFormIdAndVersion(form.getId(), inst.getVersion())
+                .map(FormVersion::getSchema).orElse(null);
+        for (FormSupport.FieldRule f : FormSupport.extractFieldRules(schema)) {
+            if (f.attributes().path("disabled").asBoolean(false)) preparerOwned.add(f.key());
+        }
+        if (preparerOwned.isEmpty()) return data;
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<String> dropped = new ArrayList<>();
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            if (preparerOwned.contains(e.getKey())) dropped.add(e.getKey());
+            else out.put(e.getKey(), e.getValue());
+        }
+        if (!dropped.isEmpty()) {
+            log.info("Recipient write to preparer-owned field(s) ignored on instance {} (tenant {}): {}",
+                    inst.getId(), inst.getTenantId(), dropped);
+        }
+        return out;
     }
 
     // ── internals ─────────────────────────────────────────────────────────────

@@ -138,6 +138,50 @@ class PublicFormInstanceServiceTest {
     }
 
     @Test
+    void recipientCannotWritePreparerOwnedFields() {
+        // An outbound form is filled by two people. The recipient's browser renders the preparer's
+        // fields read-only, but this endpoint is reachable without a browser — so a tampered request
+        // must not be able to rewrite the terms the recipient was sent (here: the quoted price).
+        FormInstance inst = instance(FormInstanceStates.IN_PROGRESS);
+        when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
+        when(accessTokens.verify(eq("acc-tok"), anyLong())).thenReturn("inv_abc");
+
+        FormDefinition form = new FormDefinition();
+        form.setId("f1");
+        form.setOutboundRolesJson("{\"price\":\"PREPARER\",\"note\":\"RECIPIENT\",\"phone\":\"EITHER\"}");
+        when(forms.findByTenantIdAndCode("t1", "FM-1")).thenReturn(Optional.of(form));
+
+        service.submit("inv_abc", "acc-tok", Map.of("price", "1.00", "note", "hi", "phone", "555"));
+
+        // price is dropped; the recipient's own answers AND the shared EITHER field survive.
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi", "phone", "555")));
+    }
+
+    @Test
+    void preparerFieldsAreAlsoRecognisedFromTheSchemaForFormsAuthoredBeforeRoles() {
+        // Before the role map existed, a preparer field was expressed as `disabled` in the schema.
+        // Those forms must keep their protection without being re-authored.
+        FormInstance inst = instance(FormInstanceStates.IN_PROGRESS);
+        when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
+        when(accessTokens.verify(eq("acc-tok"), anyLong())).thenReturn("inv_abc");
+
+        FormDefinition form = new FormDefinition();
+        form.setId("f1");
+        when(forms.findByTenantIdAndCode("t1", "FM-1")).thenReturn(Optional.of(form)); // no role map
+        FormVersion v = new FormVersion();
+        v.setSchema("""
+                {"entities":{
+                  "e1":{"type":"text","attributes":{"key":"price","disabled":true}},
+                  "e2":{"type":"text","attributes":{"key":"note"}}
+                }}""");
+        when(versions.findByFormIdAndVersion("f1", 1)).thenReturn(Optional.of(v));
+
+        service.submit("inv_abc", "acc-tok", Map.of("price", "1.00", "note", "hi"));
+
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+    }
+
+    @Test
     void portalSessionAuthorizesAnyInstanceMatchingItsEmailAndTenant() {
         FormInstance inst = instance(FormInstanceStates.IN_PROGRESS); // recipient jo@acme.com, tenant t1
         when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
