@@ -62,4 +62,35 @@ public final class FrameAncestors {
     public static boolean isAllInvalid(String raw) {
         return raw != null && !raw.isBlank() && normalizeList(raw) == null;
     }
+
+    /**
+     * Would this allowlist permit {@code origin} to frame the form? Mirrors how the browser reads the
+     * directive we emit, including the single leading wildcard label ({@code https://*.acme.com} matches
+     * {@code https://shop.acme.com} but not {@code https://acme.com} — same as CSP).
+     *
+     * <p>Used ONLY to annotate the observed "Embedded on" list ("this site isn't in your allowlist"). The
+     * enforcement is the CSP header itself, computed by {@link #directive}; this is a read-side
+     * convenience and must never become the gate.
+     */
+    public static boolean allows(String allowlistCsv, String origin) {
+        String norm = normalizeList(allowlistCsv);
+        if (norm == null) return true;                       // no allowlist → any site may embed
+        if (origin == null || origin.isBlank()) return false;
+        String o = origin.trim().toLowerCase();
+        if (o.endsWith("/")) o = o.substring(0, o.length() - 1);
+        for (String allowed : norm.split(",")) {
+            if (allowed.equals(o)) return true;
+            int wildcard = allowed.indexOf("://*.");
+            if (wildcard > 0) {
+                // "https://*.acme.com" → scheme "https://", suffix ".acme.com"
+                String scheme = allowed.substring(0, wildcard + 3);
+                String suffix = allowed.substring(wildcard + 4);
+                if (o.startsWith(scheme) && o.length() > scheme.length() + suffix.length()
+                        && o.endsWith(suffix)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

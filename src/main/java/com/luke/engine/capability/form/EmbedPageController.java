@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -26,14 +27,19 @@ public class EmbedPageController {
 
     private final EmbedTokens embedTokens;
     private final FormDefinitionRepository forms;
+    private final FormEmbedSiteRecorder embedSites;
 
-    public EmbedPageController(EmbedTokens embedTokens, FormDefinitionRepository forms) {
+    public EmbedPageController(EmbedTokens embedTokens, FormDefinitionRepository forms,
+                               FormEmbedSiteRecorder embedSites) {
         this.embedTokens = embedTokens;
         this.forms = forms;
+        this.embedSites = embedSites;
     }
 
     @GetMapping(value = "/embed/{token}", produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity<String> page(@PathVariable String token) {
+    public ResponseEntity<String> page(@PathVariable String token,
+                                       @RequestHeader(value = "Referer", required = false) String referer,
+                                       @RequestHeader(value = "Sec-Fetch-Dest", required = false) String secFetchDest) {
         EmbedTokens.EmbedRef ref;
         try {
             ref = embedTokens.verify(token);
@@ -45,6 +51,12 @@ public class EmbedPageController {
                 .orElse(null);
         if (form == null) return notFound();
         if (ref.keyVersion() != form.getEmbedKeyVersion()) return notFound(); // revoked token (M4)
+
+        // Note where this form is live, for the author's "Embedded on" list. This is the ONE request that
+        // can see it: the iframe's DOCUMENT request carries the embedding page as its Referer, while the
+        // XHRs the bundle makes afterwards carry this page's own URL. Observation only — it never gates
+        // anything, and it can't fail the response (see FormEmbedSiteRecorder).
+        embedSites.record(ref.tenantId(), form.getCode(), referer, secFetchDest);
 
         // The authoritative clickjacking control: only these origins may frame this form (empty
         // allowlist → "*", the public default). Junk in the allowlist was already dropped at write time.

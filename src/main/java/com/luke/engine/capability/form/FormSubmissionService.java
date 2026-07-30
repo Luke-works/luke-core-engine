@@ -60,7 +60,13 @@ public class FormSubmissionService {
      */
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge) {
-        submit(inst, dataToMerge, null);
+        submit(inst, dataToMerge, null, null);
+    }
+
+    /** Retained overload: attachments without provenance. */
+    @Transactional
+    public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef) {
+        submit(inst, dataToMerge, attachmentSourceRef, null);
     }
 
     /**
@@ -70,7 +76,8 @@ public class FormSubmissionService {
      * sees them. Authenticated submits pass {@code null} (their docs already carry the instance id).
      */
     @Transactional
-    public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef) {
+    public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef,
+                       SubmissionSource source) {
         // Server-side backstop, for EVERY door. Validate the MERGED map (stored + incoming), not the
         // incoming delta: an outbound instance carries preparer-supplied values from an earlier save,
         // so a delta alone would look like a submission with required fields missing.
@@ -80,6 +87,15 @@ public class FormSubmissionService {
         inst.setData(cleaned);
         inst.setState(FormInstanceStates.SUBMITTED);
         if (inst.getSubmittedAt() == null) inst.setSubmittedAt(LocalDateTime.now());
+        // Provenance is written HERE, the one choke point every door funnels through, so a submit path
+        // added later inherits it and cannot silently skip it (the same reasoning as the validation
+        // backstop above). Write-once: a re-submit/retry of an already-recorded instance must not
+        // overwrite the original evidence.
+        if (source != null && inst.getSubmittedIp() == null && inst.getSubmittedVia() == null) {
+            inst.setSubmittedIp(source.ip());
+            inst.setSubmittedUserAgent(source.userAgent());
+            inst.setSubmittedVia(source.via());
+        }
         markQueued(inst);
         instances.save(inst);          // assigns the id for a new (embed) instance
         if (StringUtils.hasText(attachmentSourceRef) && !attachmentSourceRef.equals(inst.getId())) {
@@ -145,6 +161,14 @@ public class FormSubmissionService {
         // Audit snapshot of what was attached at submission: docId -> [filename, "sha256:"+hash, size].
         // Immutable once written (snapshot semantics); a later add/remove does not rewrite formMetaData.
         meta.put("attachments", documents.attachmentAudit(inst.getTenantId(), FORMS_CAPABILITY, inst.getId()));
+        // Submission provenance travels WITH the submission into the process instance, so the evidence
+        // survives even if the instance row is later purged by retention.
+        Map<String, Object> submitted = new LinkedHashMap<>();
+        submitted.put("at", inst.getSubmittedAt() != null ? inst.getSubmittedAt().toString() : null);
+        submitted.put("ip", inst.getSubmittedIp());
+        submitted.put("userAgent", inst.getSubmittedUserAgent());
+        submitted.put("via", inst.getSubmittedVia());
+        meta.put("submittedBy", submitted);
         return json(meta);
     }
 

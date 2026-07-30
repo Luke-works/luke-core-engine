@@ -26,7 +26,10 @@ class EmbedPageControllerTest {
     @BeforeEach
     void setup() {
         forms = Mockito.mock(FormDefinitionRepository.class);
-        mvc = MockMvcBuilders.standaloneSetup(new EmbedPageController(tokens, forms)).build();
+        // The embed-site recorder is pure bookkeeping for the author's "Embedded on" list; a mock keeps
+        // these CSP tests about the header they assert.
+        FormEmbedSiteRecorder embedSites = Mockito.mock(FormEmbedSiteRecorder.class);
+        mvc = MockMvcBuilders.standaloneSetup(new EmbedPageController(tokens, forms, embedSites)).build();
     }
 
     private FormDefinition form(String tenant, String code, String allowedOrigins) {

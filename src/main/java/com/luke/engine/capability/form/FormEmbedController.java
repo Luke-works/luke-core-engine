@@ -32,6 +32,7 @@ public class FormEmbedController {
     private final FormInstanceRepository instances;
     private final FormSubmissionService submissions;
     private final com.luke.engine.web.FixedWindowRateLimiter rateLimiter;
+    private final com.luke.engine.branding.BrandingPolicy branding;
 
     // Configurable per-minute caps for the PUBLIC embed surface (#55), keyed per token AND per IP.
     private final int renderMaxPerToken;
@@ -42,6 +43,7 @@ public class FormEmbedController {
     public FormEmbedController(EmbedFormResolver resolver, FormVersionRepository versions,
                                FormInstanceRepository instances, FormSubmissionService submissions,
                                com.luke.engine.web.FixedWindowRateLimiter rateLimiter,
+                               com.luke.engine.branding.BrandingPolicy branding,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-token-per-min:60}") int renderMaxPerToken,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-ip-per-min:120}") int renderMaxPerIp,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-token-per-min:20}") int submitMaxPerToken,
@@ -51,6 +53,7 @@ public class FormEmbedController {
         this.instances = instances;
         this.submissions = submissions;
         this.rateLimiter = rateLimiter;
+        this.branding = branding;
         this.renderMaxPerToken = renderMaxPerToken;
         this.renderMaxPerIp = renderMaxPerIp;
         this.submitMaxPerToken = submitMaxPerToken;
@@ -70,8 +73,11 @@ public class FormEmbedController {
         // schema load, so an uncapped GET is cheap resource-exhaustion + cross-token schema scraping.
         rateLimiter.enforce("embed-render-ip:" + clientIp(request), renderMaxPerIp, response);
         rateLimiter.enforce("embed-render-t:" + token, renderMaxPerToken, response);
-        FormDefinition form = resolver.resolve(token).form();
-        int v = form.getPublishedVersion();
+        EmbedFormResolver.Resolved resolved = resolver.resolve(token);
+        FormDefinition form = resolved.form();
+        // AUTO → the published version (publishing reaches every embed instantly); PINNED → the version
+        // the author pinned, so a publish does not change what fillers see until they update the embed.
+        int v = embedVersion(form);
         String schema = versions.findByFormIdAndVersion(form.getId(), v)
                 .map(FormVersion::getSchema)
                 .orElseThrow(() -> notFound("This form is no longer available."));
@@ -81,6 +87,10 @@ public class FormEmbedController {
         out.put("version", v);
         out.put("schema", schema);
         out.put("allowedEmbedOrigins", form.getAllowedEmbedOrigins()); // null = any site (public default)
+        // "Developed at Lukeflow" attribution. Resolved SERVER-SIDE against the tenant's plan, so a free
+        // tenant can't suppress it by editing the payload/DOM contract — the flag the iframe receives is
+        // already the effective answer.
+        out.put("showBranding", branding.showBadge(resolved.tenantId(), form.isShowBranding()));
         return out;
     }
 
@@ -101,7 +111,9 @@ public class FormEmbedController {
 
         rateLimiter.enforce("embed-submit-t:" + token, submitMaxPerToken, response);
         FormDefinition form = r.form();
-        int v = form.getPublishedVersion();
+        // MUST be the same resolution the render used: validating a pinned embed's answers against a
+        // newer published schema would drop fields the filler was actually shown.
+        int v = embedVersion(form);
 
         // Server-side backstop (M3): the public submit endpoint cannot trust the client. Validate +
         // clean against the published schema — strip unknown fields, enforce required, bound size,
@@ -122,7 +134,9 @@ public class FormEmbedController {
         // Persist the submission + enqueue the process start in ONE transaction
         // (durable, no HTTP hop). The outbox consumer starts the process off-thread. Passing the
         // attachmentRef binds this session's uploads to the instance BEFORE the formMetaData snapshot.
-        submissions.submit(inst, null, body != null ? body.attachmentRef() : null);
+        // The SubmissionSource records who submitted from where — evidence for enforceability.
+        submissions.submit(inst, null, body != null ? body.attachmentRef() : null,
+                SubmissionSource.from(request, SubmissionSource.VIA_EMBED));
         return Map.of("ok", true, "instanceId", inst.getId(), "processStatus", "QUEUED");
     }
 
@@ -143,14 +157,19 @@ public class FormEmbedController {
      *  any client-supplied value first, so when this surface is reached only through the gateway it is
      *  authoritative and NOT spoofable. Falls back to the left-most X-Forwarded-For hop, then X-Real-IP,
      *  then the socket. Not used for authz — spoofing only changes which bucket the caller lands in. */
+    /** The version this form's embeds serve (AUTO → published, PINNED → the pin). A pin that points at a
+     *  version with no stored schema falls back to published, so an embed can never go dark. */
+    private int embedVersion(FormDefinition form) {
+        Integer v = EmbedVersions.resolve(form,
+                pinned -> versions.findByFormIdAndVersion(form.getId(), pinned).isPresent());
+        if (v == null) throw notFound("This form is not published.");
+        return v;
+    }
+
+    /** The rate-limit bucket key. Delegates to {@link SubmissionSource#clientIp} so throttling and the
+     *  recorded submission provenance can never disagree about who a caller is. */
     private static String clientIp(HttpServletRequest req) {
-        String vouched = req.getHeader("X-Real-Client-IP");
-        if (vouched != null && !vouched.isBlank()) return vouched.trim();
-        String xff = req.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
-        String real = req.getHeader("X-Real-IP");
-        if (real != null && !real.isBlank()) return real.trim();
-        String remote = req.getRemoteAddr();
-        return (remote == null || remote.isBlank()) ? "unknown" : remote;
+        String ip = SubmissionSource.clientIp(req);
+        return ip == null ? "unknown" : ip;
     }
 }

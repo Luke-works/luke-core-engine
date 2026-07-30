@@ -68,7 +68,19 @@ public class FormSubmissionPdfService {
             String storageKey = processRef + "/" + instanceId + "-submission.pdf";
             Map<String, Object> data = inst.getData() != null ? inst.getData() : Map.of();
 
-            FormPdfRenderClient.Result r = renderClient.render(tenantId, storageKey, schema, data, null);
+            // The provenance block makes the PDF self-contained evidence: it records WHEN the form was
+            // submitted, from which IP and device, and through which door — the same values captured on
+            // the instance and in formMetaData, so the three can be reconciled.
+            Map<String, Object> provenance = new java.util.LinkedHashMap<>();
+            provenance.put("instanceId", instanceId);
+            provenance.put("formCode", inst.getDefinitionCode());
+            provenance.put("version", inst.getVersion());
+            provenance.put("submittedAt", inst.getSubmittedAt() != null ? inst.getSubmittedAt().toString() : null);
+            provenance.put("ip", inst.getSubmittedIp());
+            provenance.put("userAgent", inst.getSubmittedUserAgent());
+            provenance.put("via", inst.getSubmittedVia());
+
+            FormPdfRenderClient.Result r = renderClient.render(tenantId, storageKey, schema, data, null, provenance);
 
             documents.registerStored(new DocumentRegistration(
                     tenantId, processRef, processInstanceId, null,

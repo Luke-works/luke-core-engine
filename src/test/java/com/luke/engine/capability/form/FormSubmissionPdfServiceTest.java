@@ -1,6 +1,7 @@
 package com.luke.engine.capability.form;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -58,13 +59,24 @@ class FormSubmissionPdfServiceTest {
     @Test
     void rendersAndRegisters_whenOptedIn() {
         stubInstance("{\"root\":[],\"entities\":{},\"settings\":{\"saveSubmissionAsPdf\":true}}");
-        when(render.render(eq("t1"), anyString(), anyString(), any(), any()))
+        when(render.render(eq("t1"), anyString(), anyString(), any(), any(), any()))
                 .thenReturn(new FormPdfRenderClient.Result(1234L, "sha-abc"));
 
         service(true, true).maybeGenerate("t1", "inst-1", "pid-9", "SM-KEY");
 
         // Renders into a deterministic, tenant-relative key under the process business key folder.
-        verify(render).render(eq("t1"), eq("SM-KEY/inst-1-submission.pdf"), anyString(), any(), isNull());
+        // theme is null (the form's font travels in the schema), provenance carries the submission record.
+        ArgumentCaptor<Object> prov = ArgumentCaptor.forClass(Object.class);
+        verify(render).render(eq("t1"), eq("SM-KEY/inst-1-submission.pdf"), anyString(), any(), isNull(),
+                prov.capture());
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> record = (java.util.Map<String, Object>) prov.getValue();
+        assertEquals("inst-1", record.get("instanceId"));
+        // The evidence keys must be present even when null, so the harness renders a stable block.
+        assertTrue(record.containsKey("ip"));
+        assertTrue(record.containsKey("userAgent"));
+        assertTrue(record.containsKey("via"));
+        assertTrue(record.containsKey("submittedAt"));
         ArgumentCaptor<DocumentRegistration> cap = ArgumentCaptor.forClass(DocumentRegistration.class);
         verify(documents).registerStored(cap.capture());
         DocumentRegistration r = cap.getValue();
@@ -81,7 +93,7 @@ class FormSubmissionPdfServiceTest {
     void skips_whenNotOptedIn() {
         stubInstance("{\"settings\":{\"saveSubmissionAsPdf\":false}}");
         service(true, true).maybeGenerate("t1", "inst-1", "pid-9", "SM-KEY");
-        verify(render, never()).render(any(), any(), any(), any(), any());
+        verify(render, never()).render(any(), any(), any(), any(), any(), any());
         verifyNoInteractions(documents);
     }
 
@@ -94,7 +106,7 @@ class FormSubmissionPdfServiceTest {
     @Test
     void swallowsErrors_neverThrows() {
         stubInstance("{\"settings\":{\"saveSubmissionAsPdf\":true}}");
-        when(render.render(any(), any(), any(), any(), any())).thenThrow(new RuntimeException("boom"));
+        when(render.render(any(), any(), any(), any(), any(), any())).thenThrow(new RuntimeException("boom"));
         service(true, true).maybeGenerate("t1", "inst-1", "pid-9", "SM-KEY"); // must not throw
         verify(documents, never()).registerStored(any());
     }
