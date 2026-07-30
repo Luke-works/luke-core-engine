@@ -62,8 +62,13 @@ public class FormEmbedController {
 
     /** {@code attachmentRef} is the client-minted high-entropy processRef the browser uploaded
      *  attachments under (Flow-A); on submit we bind them to the created instance so they're captured
-     *  in the {@code formMetaData} snapshot. Optional (absent → no attachments). */
-    public record SubmitBody(Map<String, Object> data, String attachmentRef) {}
+     *  in the {@code formMetaData} snapshot. Optional (absent → no attachments).
+     *
+     *  <p>{@code consentAgreed} is the filler ticking the form's agreement. Only the ACTION comes from
+     *  here — the wording recorded is read server-side from the served version's schema. Absent is
+     *  treated as "not agreed", so a consent-requiring form refuses an old client rather than recording
+     *  a submission with no evidence. */
+    public record SubmitBody(Map<String, Object> data, String attachmentRef, Boolean consentAgreed) {}
 
     /** Public render: resolve the token to the form's published schema. */
     @GetMapping("/{token}")
@@ -136,7 +141,8 @@ public class FormEmbedController {
         // attachmentRef binds this session's uploads to the instance BEFORE the formMetaData snapshot.
         // The SubmissionSource records who submitted from where — evidence for enforceability.
         submissions.submit(inst, null, body != null ? body.attachmentRef() : null,
-                SubmissionSource.from(request, SubmissionSource.VIA_EMBED));
+                SubmissionSource.from(request, SubmissionSource.VIA_EMBED,
+                        body != null && Boolean.TRUE.equals(body.consentAgreed())));
         return Map.of("ok", true, "instanceId", inst.getId(), "processStatus", "QUEUED");
     }
 

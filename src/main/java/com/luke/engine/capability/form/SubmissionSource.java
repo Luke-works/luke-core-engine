@@ -3,12 +3,20 @@ package com.luke.engine.capability.form;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * WHO submitted, from WHERE — the provenance a form submission needs to stand up as evidence.
+ * WHAT WE OBSERVED AT THE REQUEST EDGE when a form was submitted — who submitted, from where, through
+ * which door, and whether they ticked the form's consent statement. The provenance a form submission
+ * needs to stand up as evidence.
  *
  * <p>Captured at the request edge (the only place the servlet request exists) and handed to
  * {@link FormSubmissionService#submit}, which is the single choke point every door funnels through.
  * It is written onto the {@link FormInstance} AND into the immutable {@code formMetaData} snapshot, so
  * the record travels with the submission into the process instance and onto the submission PDF.
+ *
+ * <p><b>Consent.</b> {@link #consentAgreed} is only the filler's ACTION ("I ticked the box"); the
+ * wording they agreed to is resolved server-side from the served version's schema
+ * ({@link ConsentTerms}), never from the request. There is deliberately no constructor or factory
+ * that omits it, so a submit door added later must state its answer rather than inheriting a
+ * permissive default.
  *
  * <p><b>Trust.</b> {@link #clientIp} prefers {@code X-Real-Client-IP} — the value the gateway resolves
  * and stamps, stripping any client-supplied one — which is spoof-resistant once core's public surface
@@ -21,7 +29,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * needs it for enforceability, and it inherits the instance's retention — purging an instance purges
  * its provenance with it.
  */
-public record SubmissionSource(String ip, String userAgent, String via) {
+public record SubmissionSource(String ip, String userAgent, String via, boolean consentAgreed) {
 
     /** The public embed iframe on a third-party site. */
     public static final String VIA_EMBED = "EMBED";
@@ -33,10 +41,16 @@ public record SubmissionSource(String ip, String userAgent, String via) {
     /** A user-agent longer than this is a bot or an attack; store the prefix (the column is bounded). */
     private static final int UA_MAX = 512;
 
-    /** Capture from the in-flight request. Never throws — a missing header just records null. */
-    public static SubmissionSource from(HttpServletRequest request, String via) {
-        if (request == null) return new SubmissionSource(null, null, via);
-        return new SubmissionSource(clientIp(request), userAgent(request), via);
+    /**
+     * Capture from the in-flight request. Never throws — a missing header just records null.
+     *
+     * <p>{@code consentAgreed} must come from the submit body of the door calling this; pass
+     * {@code false} when the door has no way to collect it, so a consent-requiring form is refused
+     * rather than recorded without evidence.
+     */
+    public static SubmissionSource from(HttpServletRequest request, String via, boolean consentAgreed) {
+        if (request == null) return new SubmissionSource(null, null, via, consentAgreed);
+        return new SubmissionSource(clientIp(request), userAgent(request), via, consentAgreed);
     }
 
     /**

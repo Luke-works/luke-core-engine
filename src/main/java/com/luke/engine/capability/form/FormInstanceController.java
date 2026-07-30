@@ -56,7 +56,9 @@ public class FormInstanceController {
     public record CreateInstance(String definitionCode, Integer version,
                                  Map<String, Object> prefill, Map<String, Object> recipient,
                                  Map<String, Object> context, Long expiresAt) {}
-    public record DataBody(Map<String, Object> data) {}
+    /** {@code consentAgreed} is only read by the submit endpoint (autosave never needs it) and carries
+     *  only the filler's tick — the wording recorded comes from the served schema. Absent → not agreed. */
+    public record DataBody(Map<String, Object> data, Boolean consentAgreed) {}
     public record StateBody(String state, String reason) {}
 
     /* ── create / read ──────────────────────────────────────── */
@@ -214,7 +216,8 @@ public class FormInstanceController {
         // outbox consumer starts the Camunda process off-thread (durable, no HTTP hop). Provenance is
         // captured for the in-app door too, so every submission carries the same evidence shape.
         submissions.submit(inst, body != null ? body.data() : null, null,
-                SubmissionSource.from(request, SubmissionSource.VIA_APP));
+                SubmissionSource.from(request, SubmissionSource.VIA_APP,
+                        body != null && Boolean.TRUE.equals(body.consentAgreed())));
         return view(inst, schemaFor(tenantId, inst));
     }
 

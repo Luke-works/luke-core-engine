@@ -9,9 +9,11 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Durable submit→process bridge. Marks a form instance SUBMITTED and enqueues its
@@ -57,16 +59,15 @@ public class FormSubmissionService {
     /**
      * Mark an instance SUBMITTED (merging any final data) and enqueue its process
      * start. Atomic: the instance state change and the outbox row commit together.
+     *
+     * <p><b>Records no provenance</b> — every real door should call
+     * {@link #submit(FormInstance, Map, String, SubmissionSource)} with a {@link SubmissionSource}
+     * captured at the request edge. This overload exists for tests and callers with no request in scope;
+     * a form that requires consent is REFUSED through it, since a null source cannot report agreement.
      */
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge) {
         submit(inst, dataToMerge, null, null);
-    }
-
-    /** Retained overload: attachments without provenance. */
-    @Transactional
-    public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef) {
-        submit(inst, dataToMerge, attachmentSourceRef, null);
     }
 
     /**
@@ -78,11 +79,19 @@ public class FormSubmissionService {
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef,
                        SubmissionSource source) {
+        // The contract this submission is judged against: the schema of the version the instance is
+        // PINNED to. Used for both the field backstop and the consent statement, so what we validate and
+        // what we record agree by construction.
+        String schemaJson = schemaFor(inst);
+        // Consent gate, BEFORE anything is written. A form that asks for agreement must not be able to
+        // record a submission without it — via any door, including one added later, which is why this
+        // lives at the choke point and not in the controllers.
+        requireConsent(inst, schemaJson, source);
         // Server-side backstop, for EVERY door. Validate the MERGED map (stored + incoming), not the
         // incoming delta: an outbound instance carries preparer-supplied values from an earlier save,
         // so a delta alone would look like a submission with required fields missing.
         Map<String, Object> merged = merge(inst.getData(), dataToMerge);
-        Map<String, Object> cleaned = SubmissionValidator.clean(schemaFor(inst), merged);
+        Map<String, Object> cleaned = SubmissionValidator.clean(schemaJson, merged);
         logDroppedKeys(inst, merged, cleaned);
         inst.setData(cleaned);
         inst.setState(FormInstanceStates.SUBMITTED);
@@ -108,6 +117,35 @@ public class FormSubmissionService {
         // Emit the forms→workflow lifecycle event on the same transaction, so a
         // submission and its "form submitted" event commit together.
         events.emit(inst, "submitted");
+    }
+
+    /**
+     * Enforce the form's consent requirement and snapshot the agreement onto the instance.
+     *
+     * <p>The wording is read from {@code schemaJson} — the version the filler was actually served — so
+     * the stored statement is what the form asked, not what the client claims it asked. The request only
+     * contributes the tick ({@link SubmissionSource#consentAgreed()}).
+     *
+     * <p>Refuses with 400 when the form requires consent and the door either cannot report it
+     * ({@code source == null}) or reports it unticked. Fail-closed on purpose: silently accepting such a
+     * submission would hand the tenant a record that looks complete and isn't.
+     *
+     * <p>Write-once, like the rest of the provenance — a retry of an already-recorded submission keeps
+     * the original agreement timestamp.
+     */
+    private void requireConsent(FormInstance inst, String schemaJson, SubmissionSource source) {
+        String required = ConsentTerms.requiredText(schemaJson);
+        if (required == null) return; // form asks for no agreement
+        if (source == null || !source.consentAgreed()) {
+            log.info("Submission refused for instance {} (tenant {}, form {} v{}): consent required but not given",
+                    inst.getId(), inst.getTenantId(), inst.getDefinitionCode(), inst.getVersion());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "This form can only be submitted once you accept the agreement shown with it.");
+        }
+        if (inst.getConsentAgreedAt() == null) {
+            inst.setConsentText(required);
+            inst.setConsentAgreedAt(LocalDateTime.now());
+        }
     }
 
     /**
@@ -169,6 +207,15 @@ public class FormSubmissionService {
         submitted.put("userAgent", inst.getSubmittedUserAgent());
         submitted.put("via", inst.getSubmittedVia());
         meta.put("submittedBy", submitted);
+        // The consent record travels with the submission too — the process (and anything downstream of
+        // it) can then show what was agreed without reading back the instance row. Omitted entirely for
+        // forms that ask for no agreement, so an absent key means "not required", not "not captured".
+        if (inst.getConsentText() != null) {
+            Map<String, Object> consent = new LinkedHashMap<>();
+            consent.put("text", inst.getConsentText());
+            consent.put("agreedAt", inst.getConsentAgreedAt() != null ? inst.getConsentAgreedAt().toString() : null);
+            meta.put("consent", consent);
+        }
         return json(meta);
     }
 

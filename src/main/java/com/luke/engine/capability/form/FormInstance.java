@@ -106,6 +106,19 @@ public class FormInstance {
     @Column(length = 32)
     private String submittedVia;
 
+    /** The consent record: the EXACT statement the filler agreed to, and when they agreed. Resolved
+     *  server-side from the schema of the version the instance is pinned to ({@link ConsentTerms}) — the
+     *  request only ever carries the filler's tick — and written once, alongside the rest of the
+     *  provenance. Null on instances whose form did not require consent.
+     *
+     *  <p>This is the part that makes a submission provable: an IP says where a packet came from, this
+     *  says what the person accepted. Copied into {@code formMetaData} and printed on the submission PDF
+     *  so the evidence outlives the row. */
+    @Column(columnDefinition = "text")
+    private String consentText;
+
+    private LocalDateTime consentAgreedAt;
+
     public FormInstance() {}
 
     @PreUpdate
@@ -193,4 +206,10 @@ public class FormInstance {
 
     public String getSubmittedVia() { return submittedVia; }
     public void setSubmittedVia(String submittedVia) { this.submittedVia = submittedVia; }
+
+    public String getConsentText() { return consentText; }
+    public void setConsentText(String consentText) { this.consentText = consentText; }
+
+    public LocalDateTime getConsentAgreedAt() { return consentAgreedAt; }
+    public void setConsentAgreedAt(LocalDateTime consentAgreedAt) { this.consentAgreedAt = consentAgreedAt; }
 }

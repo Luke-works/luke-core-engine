@@ -79,6 +79,11 @@ public class FormSubmissionPdfService {
             provenance.put("ip", inst.getSubmittedIp());
             provenance.put("userAgent", inst.getSubmittedUserAgent());
             provenance.put("via", inst.getSubmittedVia());
+            // The agreement itself — printed verbatim so the PDF alone shows what the filler accepted,
+            // which is the difference between a record of a submission and evidence of a commitment.
+            provenance.put("consentText", inst.getConsentText());
+            provenance.put("consentAgreedAt",
+                    inst.getConsentAgreedAt() != null ? inst.getConsentAgreedAt().toString() : null);
 
             FormPdfRenderClient.Result r = renderClient.render(tenantId, storageKey, schema, data, null, provenance);
 

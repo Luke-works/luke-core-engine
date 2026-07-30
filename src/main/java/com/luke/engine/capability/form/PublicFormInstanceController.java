@@ -27,7 +27,10 @@ public class PublicFormInstanceController {
     }
 
     public record CodeBody(String code) {}
-    public record DataBody(Map<String, Object> data) {}
+
+    /** {@code consentAgreed} is only read by the submit endpoint (autosave never needs it) and carries
+     *  only the filler's tick — the wording recorded comes from the served schema. Absent → not agreed. */
+    public record DataBody(Map<String, Object> data, Boolean consentAgreed) {}
 
     /** Mail a one-time code to the recipient. */
     @PostMapping("/{token}/otp")
@@ -65,7 +68,8 @@ public class PublicFormInstanceController {
                                       @RequestBody(required = false) DataBody body,
                                       jakarta.servlet.http.HttpServletRequest request) {
         return service.submit(token, bearer(auth), body != null ? body.data() : null,
-                SubmissionSource.from(request, SubmissionSource.VIA_RESPOND));
+                SubmissionSource.from(request, SubmissionSource.VIA_RESPOND,
+                        body != null && Boolean.TRUE.equals(body.consentAgreed())));
     }
 
     private static String bearer(String header) {

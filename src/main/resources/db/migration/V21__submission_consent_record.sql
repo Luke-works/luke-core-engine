@@ -1,0 +1,31 @@
+-- Flyway V21 — SUBMISSION CONSENT RECORD: what the filler actually agreed to.
+--
+-- V20 recorded WHERE a submission came from (IP / user-agent / door). That is weak evidence on its own:
+-- an IP is shared, proxied and reassigned, and it says nothing about what the person accepted. These two
+-- columns close that gap.
+--
+--   consent_text      — the EXACT statement the filler agreed to, resolved SERVER-SIDE from the schema of
+--                       the version the instance is pinned to (ConsentTerms reads settings.consent), never
+--                       taken from the request. A tampered client can change what it displays but not what
+--                       we record, so the snapshot always says what the served form asked. `text` rather
+--                       than a bounded varchar because tenants paste real legal wording; ConsentTerms caps
+--                       it at 2000 chars on the way in.
+--   consent_agreed_at — when they agreed. Written once, with the rest of the provenance; a retry of an
+--                       already-recorded submission keeps the original timestamp.
+--
+-- Both NULLABLE, and null is meaningful in two ways that must not be conflated with each other by anything
+-- reading these rows: the form did not ask for consent, or the row predates this migration. Neither is
+-- "they declined" — a submission that required consent and didn't have it was REFUSED (400) at
+-- FormSubmissionService, the single choke point every door funnels through, so no such row exists.
+--
+-- No backfill: inventing an agreement nobody made would be the one change here capable of doing real
+-- harm. Historic submissions honestly have no consent record.
+--
+-- Under the postgres profile Hibernate ddl-auto is `none`, so this migration is the schema source of
+-- truth and MUST stay faithful to com.luke.engine.capability.form.FormInstance
+-- (PostgresSchemaValidationTest boots a real Postgres + these migrations and runs Hibernate `validate`).
+-- Conventions mirror V18–V20: timestamp(6) for LocalDateTime, snake_case via
+-- CamelCaseToUnderscoresNamingStrategy.
+
+    alter table luke_form_instances add column if not exists consent_text text;
+    alter table luke_form_instances add column if not exists consent_agreed_at timestamp(6);
