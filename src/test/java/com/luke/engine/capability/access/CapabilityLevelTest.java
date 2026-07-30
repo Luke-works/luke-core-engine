@@ -64,4 +64,31 @@ class CapabilityLevelTest {
         assertThat(CapabilityLevel.satisfies("read-write", true)).isTrue();
         assertThat(CapabilityLevel.satisfies("contributor", true)).isTrue();
     }
+
+    @Test
+    void rankOrdersTheLevels() {
+        assertThat(CapabilityLevel.rank(null)).isZero();
+        assertThat(CapabilityLevel.rank("nonsense")).isZero();
+        assertThat(CapabilityLevel.rank("read")).isEqualTo(1);
+        assertThat(CapabilityLevel.rank("contributor")).isEqualTo(2);
+        assertThat(CapabilityLevel.rank("read-write")).isEqualTo(3);
+    }
+
+    /**
+     * The access-request duplicate check compares by rank, because {@code satisfies} collapses
+     * levels into action classes and so rejects every upgrade THROUGH contributor. These four
+     * cases are exactly the ones it used to get wrong.
+     */
+    @Test
+    void atLeastAllowsUpgradesThroughTheMiddleLevel() {
+        // read → contributor is a real upgrade (satisfies() called this "already have it").
+        assertThat(CapabilityLevel.atLeast("read", "contributor")).isFalse();
+        // contributor → read-write is a real upgrade (satisfies() also called this "already have it").
+        assertThat(CapabilityLevel.atLeast("contributor", "read-write")).isFalse();
+        // ...while genuine no-ops are still caught.
+        assertThat(CapabilityLevel.atLeast("contributor", "read")).isTrue();
+        assertThat(CapabilityLevel.atLeast("read-write", "contributor")).isTrue();
+        assertThat(CapabilityLevel.atLeast("read", "read")).isTrue();
+        assertThat(CapabilityLevel.atLeast(null, "read")).isFalse();
+    }
 }

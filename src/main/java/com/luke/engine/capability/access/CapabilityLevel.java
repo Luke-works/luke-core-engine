@@ -67,9 +67,31 @@ public final class CapabilityLevel {
         }
     }
 
-    /** Legacy read/write gate kept for callers that only distinguish the two (Documents, email assets,
-     *  access-request short-circuit). {@code needWrite} → ordinary {@link Action#WRITE}. */
+    /** Legacy read/write gate kept for callers that only distinguish the two (Documents, email assets).
+     *  {@code needWrite} → ordinary {@link Action#WRITE}. */
     public static boolean satisfies(String level, boolean needWrite) {
         return permits(level, needWrite ? Action.WRITE : Action.READ);
+    }
+
+    /** Ascending privilege order: none(0) &lt; read(1) &lt; contributor(2) &lt; read-write(3). */
+    public static int rank(String level) {
+        if (READ_WRITE.equals(level)) return 3;
+        if (CONTRIBUTOR.equals(level)) return 2;
+        if (READ.equals(level)) return 1;
+        return 0;
+    }
+
+    /**
+     * Does {@code current} already include everything {@code requested} would grant?
+     *
+     * <p>Compares by RANK, which {@link #satisfies} cannot: it collapses levels into read/write
+     * action classes, so it reports that a {@code read} holder already has what a
+     * {@code contributor} request would give (both are non-write for its purposes), and that a
+     * {@code contributor} already has {@code read-write} (both permit WRITE). Used by the
+     * access-request duplicate check, where that collapse rejected every legitimate upgrade
+     * through the middle level.
+     */
+    public static boolean atLeast(String current, String requested) {
+        return rank(current) >= rank(requested);
     }
 }

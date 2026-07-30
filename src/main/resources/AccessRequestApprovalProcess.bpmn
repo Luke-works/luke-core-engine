@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_access_request"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+
+  <!--
+    Access request approval.
+
+    A member asks for a capability level; the request is handed to the RESOURCE OWNER GROUP for
+    that capability (capowner:<tenant>:<CODE>, falling back to the tenant owner group when the
+    capability has no owners — see CapabilityOwnership). Approval provisions the grant; rejection
+    goes BACK TO THE REQUESTER, who revises and resubmits (returning to the owners) or withdraws.
+
+    Process variables (set at start by AccessApprovalProcessService):
+      accessRequestId  - the luke_capability_access_requests row this instance orchestrates
+      tenantId         - owning tenant
+      requesterId      - engine userId of the requester (assignee of the rework task)
+      capabilityCode   - e.g. FORMS
+      requestedLevel   - read | contributor | read-write
+      approverGroup    - resolved candidate group for the approval task
+    Set by the approval task:
+      approved         - Boolean decision
+      grantLevel       - level the owner actually grants (may differ from requestedLevel)
+      decisionNote     - reason, shown to the requester on a return
+      decidedBy        - engine userId of the deciding owner
+    Set by the rework task:
+      resubmit         - Boolean: true = try again, false = withdraw
+  -->
+  <bpmn:process id="AccessRequestApprovalProcess" name="Access Request Approval" isExecutable="true">
+
+    <bpmn:startEvent id="StartEvent_1" name="Access requested">
+      <bpmn:outgoing>Flow_to_approval</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:sequenceFlow id="Flow_to_approval" sourceRef="StartEvent_1" targetRef="Activity_approve" />
+
+    <!-- The resource owners decide. candidateGroups is an expression so each instance routes to
+         the group resolved for ITS capability at start time. -->
+    <bpmn:userTask id="Activity_approve" name="Approve access request"
+                   camunda:candidateGroups="${approverGroup}"
+                   camunda:formKey="access-request-approval">
+      <bpmn:incoming>Flow_to_approval</bpmn:incoming>
+      <bpmn:incoming>Flow_reopen_to_approval</bpmn:incoming>
+      <bpmn:outgoing>Flow_to_decision</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="Flow_to_decision" sourceRef="Activity_approve" targetRef="Gateway_decision" />
+
+    <bpmn:exclusiveGateway id="Gateway_decision" name="Approved?">
+      <bpmn:incoming>Flow_to_decision</bpmn:incoming>
+      <bpmn:outgoing>Flow_approved</bpmn:outgoing>
+      <bpmn:outgoing>Flow_rejected</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- ── Approved: provision the access ──────────────────────────────────── -->
+    <bpmn:sequenceFlow id="Flow_approved" name="Yes" sourceRef="Gateway_decision" targetRef="Activity_provision">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+                                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${approved}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <!-- Grants the capability AND marks the request APPROVED, in one transaction with the
+         process step. Unlike the best-effort write-backs elsewhere, THIS one must throw on
+         failure: a process that reports "approved" without provisioning would be a silent
+         privilege gap. A failure leaves an incident on this task, to be retried. -->
+    <bpmn:serviceTask id="Activity_provision" name="Provision access"
+                      camunda:delegateExpression="${accessProvisioningDelegate}">
+      <bpmn:incoming>Flow_approved</bpmn:incoming>
+      <bpmn:outgoing>Flow_provisioned</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="Flow_provisioned" sourceRef="Activity_provision" targetRef="Event_granted" />
+
+    <bpmn:endEvent id="Event_granted" name="Access granted">
+      <bpmn:incoming>Flow_provisioned</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ── Rejected: hand it back to the requester ─────────────────────────── -->
+    <bpmn:sequenceFlow id="Flow_rejected" name="No" sourceRef="Gateway_decision" targetRef="Activity_return" />
+
+    <bpmn:serviceTask id="Activity_return" name="Return to requester"
+                      camunda:delegateExpression="${accessRequestStateDelegate}">
+      <bpmn:extensionElements>
+        <!-- Input mapping, NOT camunda:field: field injection writes onto the delegate bean
+             itself, which is a Spring singleton here and would be shared across concurrent
+             executions. A local input variable is per-execution and therefore safe. -->
+        <camunda:inputOutput>
+          <camunda:inputParameter name="targetState">RETURNED</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_rejected</bpmn:incoming>
+      <bpmn:outgoing>Flow_to_rework</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="Flow_to_rework" sourceRef="Activity_return" targetRef="Activity_rework" />
+
+    <!-- Assigned to the requester personally: this is the "goes back to the user" step. -->
+    <bpmn:userTask id="Activity_rework" name="Revise or withdraw request"
+                   camunda:assignee="${requesterId}"
+                   camunda:formKey="access-request-rework">
+      <bpmn:incoming>Flow_to_rework</bpmn:incoming>
+      <bpmn:outgoing>Flow_to_rework_decision</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:sequenceFlow id="Flow_to_rework_decision" sourceRef="Activity_rework" targetRef="Gateway_rework" />
+
+    <bpmn:exclusiveGateway id="Gateway_rework" name="Resubmit?">
+      <bpmn:incoming>Flow_to_rework_decision</bpmn:incoming>
+      <bpmn:outgoing>Flow_resubmit</bpmn:outgoing>
+      <bpmn:outgoing>Flow_withdraw</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:sequenceFlow id="Flow_resubmit" name="Resubmit" sourceRef="Gateway_rework" targetRef="Activity_reopen">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+                                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">${resubmit}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+
+    <bpmn:serviceTask id="Activity_reopen" name="Reopen request"
+                      camunda:delegateExpression="${accessRequestStateDelegate}">
+      <bpmn:extensionElements>
+        <!-- Input mapping, NOT camunda:field: field injection writes onto the delegate bean
+             itself, which is a Spring singleton here and would be shared across concurrent
+             executions. A local input variable is per-execution and therefore safe. -->
+        <camunda:inputOutput>
+          <camunda:inputParameter name="targetState">PENDING</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_resubmit</bpmn:incoming>
+      <bpmn:outgoing>Flow_reopen_to_approval</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Back to the owners with the revised level/justification. -->
+    <bpmn:sequenceFlow id="Flow_reopen_to_approval" sourceRef="Activity_reopen" targetRef="Activity_approve" />
+
+    <bpmn:sequenceFlow id="Flow_withdraw" name="Withdraw" sourceRef="Gateway_rework" targetRef="Activity_withdraw" />
+
+    <bpmn:serviceTask id="Activity_withdraw" name="Close request"
+                      camunda:delegateExpression="${accessRequestStateDelegate}">
+      <bpmn:extensionElements>
+        <!-- Input mapping, NOT camunda:field: field injection writes onto the delegate bean
+             itself, which is a Spring singleton here and would be shared across concurrent
+             executions. A local input variable is per-execution and therefore safe. -->
+        <camunda:inputOutput>
+          <camunda:inputParameter name="targetState">CANCELLED</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_withdraw</bpmn:incoming>
+      <bpmn:outgoing>Flow_withdrawn</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="Flow_withdrawn" sourceRef="Activity_withdraw" targetRef="Event_withdrawn" />
+
+    <bpmn:endEvent id="Event_withdrawn" name="Request withdrawn">
+      <bpmn:incoming>Flow_withdrawn</bpmn:incoming>
+    </bpmn:endEvent>
+
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="AccessRequestApprovalProcess">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <dc:Bounds x="152" y="192" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="132" y="235" width="80" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_approve_di" bpmnElement="Activity_approve">
+        <dc:Bounds x="250" y="170" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_decision_di" bpmnElement="Gateway_decision" isMarkerVisible="true">
+        <dc:Bounds x="405" y="185" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="400" y="161" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_provision_di" bpmnElement="Activity_provision">
+        <dc:Bounds x="520" y="100" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_granted_di" bpmnElement="Event_granted">
+        <dc:Bounds x="682" y="122" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="664" y="165" width="74" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_return_di" bpmnElement="Activity_return">
+        <dc:Bounds x="520" y="260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_rework_di" bpmnElement="Activity_rework">
+        <dc:Bounds x="670" y="260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_rework_di" bpmnElement="Gateway_rework" isMarkerVisible="true">
+        <dc:Bounds x="825" y="275" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="820" y="332" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_reopen_di" bpmnElement="Activity_reopen">
+        <dc:Bounds x="250" y="380" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_withdraw_di" bpmnElement="Activity_withdraw">
+        <dc:Bounds x="940" y="275" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_withdrawn_di" bpmnElement="Event_withdrawn">
+        <dc:Bounds x="1102" y="297" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1080" y="340" width="82" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_to_approval_di" bpmnElement="Flow_to_approval">
+        <di:waypoint x="188" y="210" /><di:waypoint x="250" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_to_decision_di" bpmnElement="Flow_to_decision">
+        <di:waypoint x="350" y="210" /><di:waypoint x="405" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_approved_di" bpmnElement="Flow_approved">
+        <di:waypoint x="430" y="185" /><di:waypoint x="430" y="140" /><di:waypoint x="520" y="140" />
+        <bpmndi:BPMNLabel><dc:Bounds x="436" y="150" width="20" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_provisioned_di" bpmnElement="Flow_provisioned">
+        <di:waypoint x="620" y="140" /><di:waypoint x="682" y="140" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_rejected_di" bpmnElement="Flow_rejected">
+        <di:waypoint x="430" y="235" /><di:waypoint x="430" y="300" /><di:waypoint x="520" y="300" />
+        <bpmndi:BPMNLabel><dc:Bounds x="437" y="270" width="15" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_to_rework_di" bpmnElement="Flow_to_rework">
+        <di:waypoint x="620" y="300" /><di:waypoint x="670" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_to_rework_decision_di" bpmnElement="Flow_to_rework_decision">
+        <di:waypoint x="770" y="300" /><di:waypoint x="825" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_resubmit_di" bpmnElement="Flow_resubmit">
+        <di:waypoint x="850" y="325" /><di:waypoint x="850" y="420" /><di:waypoint x="350" y="420" />
+        <bpmndi:BPMNLabel><dc:Bounds x="580" y="400" width="50" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reopen_to_approval_di" bpmnElement="Flow_reopen_to_approval">
+        <di:waypoint x="300" y="380" /><di:waypoint x="300" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_withdraw_di" bpmnElement="Flow_withdraw">
+        <di:waypoint x="875" y="300" /><di:waypoint x="940" y="300" />
+        <bpmndi:BPMNLabel><dc:Bounds x="880" y="282" width="55" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_withdrawn_di" bpmnElement="Flow_withdrawn">
+        <di:waypoint x="1040" y="315" /><di:waypoint x="1102" y="315" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
