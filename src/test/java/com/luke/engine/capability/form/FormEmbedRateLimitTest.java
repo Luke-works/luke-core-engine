@@ -30,8 +30,13 @@ class FormEmbedRateLimitTest {
     private final FormSubmissionService submissions = mock(FormSubmissionService.class);
     private final FixedWindowRateLimiter limiter = mock(FixedWindowRateLimiter.class);
 
+    // Real policy over an empty plan store = every tenant is FREE (badge forced on), which is the
+    // production default; the render tests below don't get that far anyway.
+    private final com.luke.engine.branding.BrandingPolicy branding = new com.luke.engine.branding.BrandingPolicy(
+            mock(com.luke.engine.branding.TenantPlanRepository.class));
+
     private FormEmbedController controller() {
-        return new FormEmbedController(resolver, versions, instances, submissions, limiter,
+        return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding,
                 60, 120, 20, 40);
     }
 

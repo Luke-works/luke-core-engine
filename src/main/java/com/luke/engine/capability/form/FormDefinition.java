@@ -87,11 +87,40 @@ public class FormDefinition {
     @Column(columnDefinition = "text")
     private String allowedEmbedOrigins;
 
+    /** Which version the PUBLIC EMBED serves.
+     *
+     *  <p>{@link #EMBED_MODE_AUTO} (the default, and how embeds have always behaved) resolves
+     *  {@code publishedVersion} on every request — so publishing reaches every live embed immediately,
+     *  with no change on the embedding website. {@link #EMBED_MODE_PINNED} serves {@link #embedVersion}
+     *  instead, so publishing does NOT change what fillers see until someone explicitly updates the
+     *  embed. Pinning is what makes a legally-significant form safe to iterate on.
+     *
+     *  <p>Both the public RENDER and the public SUBMIT resolve through {@link EmbedVersions#resolve},
+     *  so the schema a filler sees is always the schema their answers are validated against. */
+    public static final String EMBED_MODE_AUTO = "AUTO";
+    public static final String EMBED_MODE_PINNED = "PINNED";
+
+    @Column(nullable = false)
+    private String embedVersionMode = EMBED_MODE_AUTO;
+
+    /** PINNED only: the version embeds serve. Null (or a version that no longer exists) falls back to
+     *  {@code publishedVersion} — an embed must never go dark because of a stale pin. */
+    private Integer embedVersion;
+
     /** Embed-key version for revocation (Route B M4): the signed embed token carries this value;
      *  bumping it invalidates every previously-issued token for this form (they fail the version check
      *  on the public embed surface). Starts at 0. */
     @Column(nullable = false)
     private int embedKeyVersion = 0;
+
+    /** Show the "Developed at Lukeflow" badge on this form's PUBLIC surfaces (embed iframe, outbound
+     *  respond page, recipient portal). On by default — it is our attribution. Free-plan tenants can't
+     *  turn it off: {@link com.luke.engine.branding.BrandingPolicy} forces it on regardless of this
+     *  value, so the stored preference is only honoured while the tenant pays. Presentation chrome, NOT
+     *  part of the data contract, so it lives here (like {@code allowedEmbedOrigins}) rather than in the
+     *  versioned schema — flipping it takes effect on the live embed with no re-publish. */
+    @Column(nullable = false)
+    private boolean showBranding = true;
 
     /** Soft-delete marker (trash); null = live. */
     private LocalDateTime deletedAt;
@@ -109,6 +138,13 @@ public class FormDefinition {
     private String createdByName;
     @Transient
     private String updatedByName;
+
+    /** True when the tenant's plan does NOT allow hiding the Lukeflow badge (free tier), so the
+     *  builder renders the option as locked with an upgrade hint. Filled at read time, NOT persisted.
+     *  Defaults to LOCKED so any response that skips the enrichment fails closed — a stale {@code false}
+     *  would offer a toggle the server then rejects. */
+    @Transient
+    private boolean brandingLocked = true;
 
     /** When the form last passed its self-test ("Test the form"), and by whom. */
     private LocalDateTime lastTestedAt;
@@ -164,6 +200,18 @@ public class FormDefinition {
 
     public int getEmbedKeyVersion() { return embedKeyVersion; }
     public void setEmbedKeyVersion(int embedKeyVersion) { this.embedKeyVersion = embedKeyVersion; }
+
+    public String getEmbedVersionMode() { return embedVersionMode; }
+    public void setEmbedVersionMode(String embedVersionMode) { this.embedVersionMode = embedVersionMode; }
+
+    public Integer getEmbedVersion() { return embedVersion; }
+    public void setEmbedVersion(Integer embedVersion) { this.embedVersion = embedVersion; }
+
+    public boolean isShowBranding() { return showBranding; }
+    public void setShowBranding(boolean showBranding) { this.showBranding = showBranding; }
+
+    public boolean isBrandingLocked() { return brandingLocked; }
+    public void setBrandingLocked(boolean brandingLocked) { this.brandingLocked = brandingLocked; }
 
     public LocalDateTime getDeletedAt() { return deletedAt; }
     public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }

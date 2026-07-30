@@ -203,15 +203,18 @@ public class FormInstanceController {
 
     @PostMapping("/{id}/submit")
     public Map<String, Object> submit(@RequestHeader("X-Tenant-Id") String tenantId,
-                                      @PathVariable String id, @RequestBody(required = false) DataBody body) {
+                                      @PathVariable String id, @RequestBody(required = false) DataBody body,
+                                      jakarta.servlet.http.HttpServletRequest request) {
         FormInstance inst = load(tenantId, id);
         if (!FormInstanceStates.isOpen(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Instance cannot be submitted from state " + inst.getState());
         }
         rejectIfExpired(inst);
         // Atomic: mark SUBMITTED + enqueue the process start in ONE transaction; the
-        // outbox consumer starts the Camunda process off-thread (durable, no HTTP hop).
-        submissions.submit(inst, body != null ? body.data() : null);
+        // outbox consumer starts the Camunda process off-thread (durable, no HTTP hop). Provenance is
+        // captured for the in-app door too, so every submission carries the same evidence shape.
+        submissions.submit(inst, body != null ? body.data() : null, null,
+                SubmissionSource.from(request, SubmissionSource.VIA_APP));
         return view(inst, schemaFor(tenantId, inst));
     }
 

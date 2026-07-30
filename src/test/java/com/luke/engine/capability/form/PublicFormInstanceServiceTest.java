@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,8 +34,11 @@ class PublicFormInstanceServiceTest {
     // Real portal-session signer (stateless) so authorize()'s portal fallback exercises the true
     // verify path — a mock would return null and NPE inside the fallback.
     private final PortalAccessTokens portalTokens = new PortalAccessTokens("unit-test-portal-secret", 1_800_000L);
+    // Real policy over an empty plan store = FREE tenant, so the badge is forced on (production default).
+    private final com.luke.engine.branding.BrandingPolicy branding = new com.luke.engine.branding.BrandingPolicy(
+            mock(com.luke.engine.branding.TenantPlanRepository.class));
     private final PublicFormInstanceService service = new PublicFormInstanceService(
-            instances, otps, forms, versions, emails, submissions, accessTokens, portalTokens);
+            instances, otps, forms, versions, emails, submissions, accessTokens, portalTokens, branding);
 
     private FormInstance instance(String state) {
         FormInstance i = new FormInstance();
@@ -134,7 +138,21 @@ class PublicFormInstanceServiceTest {
         when(accessTokens.verify(eq("acc-tok"), anyLong())).thenReturn("inv_abc");
 
         service.submit("inv_abc", "acc-tok", Map.of("note", "hi"));
-        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")), isNull(), any());
+    }
+
+    @Test
+    void submissionProvenanceIsForwardedToTheChokePoint() {
+        // The respond door captures IP/user-agent at the controller and hands it down; if it stopped
+        // here, an outbound submission would carry no evidence while an embed one would.
+        FormInstance inst = instance(FormInstanceStates.IN_PROGRESS);
+        when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
+        when(accessTokens.verify(eq("acc-tok"), anyLong())).thenReturn("inv_abc");
+        SubmissionSource source = new SubmissionSource("203.0.113.9", "UA/9", SubmissionSource.VIA_RESPOND);
+
+        service.submit("inv_abc", "acc-tok", Map.of("note", "hi"), source);
+
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")), isNull(), eq(source));
     }
 
     @Test
@@ -154,7 +172,7 @@ class PublicFormInstanceServiceTest {
         service.submit("inv_abc", "acc-tok", Map.of("price", "1.00", "note", "hi", "phone", "555"));
 
         // price is dropped; the recipient's own answers AND the shared EITHER field survive.
-        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi", "phone", "555")));
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi", "phone", "555")), isNull(), any());
     }
 
     @Test
@@ -178,7 +196,7 @@ class PublicFormInstanceServiceTest {
 
         service.submit("inv_abc", "acc-tok", Map.of("price", "1.00", "note", "hi"));
 
-        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")), isNull(), any());
     }
 
     @Test
@@ -191,7 +209,7 @@ class PublicFormInstanceServiceTest {
         String portalTok = portalTokens.sign("t1", "jo@acme.com", System.currentTimeMillis());
 
         service.submit("inv_abc", portalTok, Map.of("note", "hi"));
-        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")));
+        verify(submissions).submit(eq(inst), eq(Map.of("note", "hi")), isNull(), any());
     }
 
     @Test

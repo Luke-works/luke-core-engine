@@ -20,8 +20,11 @@ class FormKindControllerTest {
     private final FormAuditEventRepository audit = mock(FormAuditEventRepository.class);
     private final EmbedTokens tokens = mock(EmbedTokens.class);
     private final com.luke.engine.tenant.UserDirectory dir = mock(com.luke.engine.tenant.UserDirectory.class);
+    private final com.luke.engine.branding.BrandingPolicy branding = new com.luke.engine.branding.BrandingPolicy(
+            mock(com.luke.engine.branding.TenantPlanRepository.class));
+    private final FormEmbedSiteRepository embedSites = mock(FormEmbedSiteRepository.class);
     private final FormDefinitionController controller =
-            new FormDefinitionController(forms, versions, audit, tokens, dir);
+            new FormDefinitionController(forms, versions, audit, tokens, dir, branding, embedSites);
 
     private FormDefinition stored(String kind) {
         FormDefinition f = new FormDefinition();

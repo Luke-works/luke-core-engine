@@ -33,14 +33,21 @@ public class FormPdfRenderClient {
     /** Render {@code data} against {@code schema} (raw schema JSON string) and store the PDF at
      *  {@code storageKey}; returns the stored size + checksum for the Document finalize/register. */
     public Result render(String tenantId, String storageKey, String schema, Object data, Object theme) {
+        return render(tenantId, storageKey, schema, data, theme, null);
+    }
+
+    /** As above, with the submission-record (provenance) block the harness prints under the form. */
+    public Result render(String tenantId, String storageKey, String schema, Object data, Object theme,
+                         Object provenance) {
         return http.post().uri("/internal/render/form-pdf")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new Request(tenantId, storageKey, schema, data, theme))
+                .body(new Request(tenantId, storageKey, schema, data, theme, provenance))
                 .retrieve()
                 .body(Result.class);
     }
 
-    public record Request(String tenantId, String storageKey, String schema, Object data, Object theme) {}
+    public record Request(String tenantId, String storageKey, String schema, Object data, Object theme,
+                          Object provenance) {}
 
     public record Result(Long sizeBytes, String sha256) {}
 }

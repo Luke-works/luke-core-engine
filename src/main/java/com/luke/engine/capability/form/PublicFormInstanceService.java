@@ -48,11 +48,13 @@ public class PublicFormInstanceService {
     private final FormSubmissionService submissions;
     private final RecipientAccessTokens accessTokens;
     private final PortalAccessTokens portalTokens;
+    private final com.luke.engine.branding.BrandingPolicy branding;
 
     public PublicFormInstanceService(FormInstanceRepository instances, FormRecipientOtpRepository otps,
             FormDefinitionRepository forms, FormVersionRepository versions, EmailService emails,
             FormSubmissionService submissions, RecipientAccessTokens accessTokens,
-            PortalAccessTokens portalTokens) {
+            PortalAccessTokens portalTokens, com.luke.engine.branding.BrandingPolicy branding) {
+        this.branding = branding;
         this.instances = instances;
         this.otps = otps;
         this.forms = forms;
@@ -141,6 +143,10 @@ public class PublicFormInstanceService {
         out.put("outboundRoles", parseRoles(form.getOutboundRolesJson()));
         out.put("recipient", recipientView(inst));
         out.put("state", inst.getState());
+        // "Developed at Lukeflow" attribution, resolved server-side against the tenant's plan (same rule
+        // as the embed surface). Covers BOTH the /respond/:token page and the recipient portal, which
+        // render from this payload.
+        out.put("showBranding", branding.showBadge(inst.getTenantId(), form.isShowBranding()));
         return out;
     }
 
@@ -158,8 +164,15 @@ public class PublicFormInstanceService {
     /** Final submit — flips to SUBMITTED, enqueues the process start, emits the forms event. */
     @Transactional
     public Map<String, Object> submit(String token, String accessToken, Map<String, Object> data) {
+        return submit(token, accessToken, data, null);
+    }
+
+    /** As above, recording the submission's provenance (IP / user-agent / door) for enforceability. */
+    @Transactional
+    public Map<String, Object> submit(String token, String accessToken, Map<String, Object> data,
+                                      SubmissionSource source) {
         FormInstance inst = authorize(token, accessToken);
-        submissions.submit(inst, recipientWritable(inst, data));
+        submissions.submit(inst, recipientWritable(inst, data), null, source);
         return Map.of("ok", true, "instanceId", inst.getId(), "state", inst.getState());
     }
 

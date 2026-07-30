@@ -57,12 +57,15 @@ public class PublicFormInstanceController {
         return Map.of("ok", true);
     }
 
-    /** Final submit. */
+    /** Final submit. The request is passed through so the submission's provenance (IP / user-agent) is
+     *  captured at the edge — see {@link SubmissionSource}. */
     @PostMapping("/{token}/submit")
     public Map<String, Object> submit(@PathVariable String token,
                                       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
-                                      @RequestBody(required = false) DataBody body) {
-        return service.submit(token, bearer(auth), body != null ? body.data() : null);
+                                      @RequestBody(required = false) DataBody body,
+                                      jakarta.servlet.http.HttpServletRequest request) {
+        return service.submit(token, bearer(auth), body != null ? body.data() : null,
+                SubmissionSource.from(request, SubmissionSource.VIA_RESPOND));
     }
 
     private static String bearer(String header) {

@@ -39,6 +39,8 @@ public class FormDefinitionController {
     private final FormAuditEventRepository audit;
     private final EmbedTokens embedTokens;
     private final com.luke.engine.tenant.UserDirectory userDirectory;
+    private final com.luke.engine.branding.BrandingPolicy branding;
+    private final FormEmbedSiteRepository embedSites;
 
     /** A concurrent edit (draft save / lock checkout) lost the optimistic-lock race
      *  (#57) — tell the client to reload rather than silently clobbering. */
@@ -52,21 +54,28 @@ public class FormDefinitionController {
 
     public FormDefinitionController(FormDefinitionRepository forms, FormVersionRepository versions,
                                     FormAuditEventRepository audit, EmbedTokens embedTokens,
-                                    com.luke.engine.tenant.UserDirectory userDirectory) {
+                                    com.luke.engine.tenant.UserDirectory userDirectory,
+                                    com.luke.engine.branding.BrandingPolicy branding,
+                                    FormEmbedSiteRepository embedSites) {
         this.forms = forms;
         this.versions = versions;
         this.audit = audit;
         this.embedTokens = embedTokens;
         this.userDirectory = userDirectory;
+        this.branding = branding;
+        this.embedSites = embedSites;
     }
 
     /* ── request bodies ─────────────────────────────────────── */
     public record CreateForm(String name, String description, String kind) {}
-    public record MetaPatch(String name, String description, String allowedEmbedOrigins) {}
+    /** {@code showBranding} is nullable: absent = leave the current setting alone. */
+    public record MetaPatch(String name, String description, String allowedEmbedOrigins, Boolean showBranding) {}
     public record DraftBody(String schema) {}
     public record CheckInBody(String schema, Boolean publish) {}
     public record SubmissionHandlingBody(String mode) {}
     public record OutboundConfigBody(Map<String, String> roles) {}
+    /** {@code version} is optional on PINNED — absent pins the current published version. */
+    public record EmbedVersionBody(String mode, Integer version) {}
 
     /* ── CRUD ───────────────────────────────────────────────── */
 
@@ -90,7 +99,7 @@ public class FormDefinitionController {
         form.setUpdatedBy(userId);
         FormDefinition saved = forms.save(form);
         record(saved, userId, "created", null);
-        return saved;
+        return withBrandingLock(saved);
     }
 
     @GetMapping
@@ -223,6 +232,87 @@ public class FormDefinitionController {
         }
     }
 
+    /**
+     * Which version this form's embeds are serving, and whether a newer published version is waiting.
+     * The whole point of pinning is that publishing does NOT silently change a live embed, so the author
+     * needs to be told that a publish hasn't reached fillers yet.
+     */
+    @GetMapping("/{id}/embed-version")
+    public Map<String, Object> embedVersion(@RequestHeader("X-Tenant-Id") String tenantId,
+                                            @PathVariable String id) {
+        return embedVersionResponse(load(tenantId, id));
+    }
+
+    /**
+     * Set the embed version policy: {@code {"mode":"AUTO"}} to always serve the published version, or
+     * {@code {"mode":"PINNED","version":5}} to hold fillers on v5 until updated. Omitting the version on
+     * PINNED pins the CURRENT published version — which is what "Update embeds to v6" sends.
+     */
+    @PutMapping("/{id}/embed-version")
+    public Map<String, Object> setEmbedVersion(@RequestHeader("X-Tenant-Id") String tenantId,
+                                               @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                               @PathVariable String id, @RequestBody EmbedVersionBody body) {
+        FormDefinition form = load(tenantId, id);
+        requireEmbeddable(form);
+        String mode = body == null || body.mode() == null ? "" : body.mode().trim().toUpperCase(java.util.Locale.ROOT);
+
+        if (FormDefinition.EMBED_MODE_AUTO.equals(mode)) {
+            form.setEmbedVersionMode(FormDefinition.EMBED_MODE_AUTO);
+            form.setEmbedVersion(null);
+        } else if (FormDefinition.EMBED_MODE_PINNED.equals(mode)) {
+            // Default to the published version: "pin what is live right now".
+            int target = body.version() != null ? body.version() : form.getPublishedVersion();
+            // A pin must point at a real, checked-in version, or the embed would silently fall back to
+            // published and the UI would claim a pin that isn't honoured.
+            if (versions.findByFormIdAndVersion(form.getId(), target).isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown version v" + target + " for " + form.getCode());
+            }
+            form.setEmbedVersionMode(FormDefinition.EMBED_MODE_PINNED);
+            form.setEmbedVersion(target);
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "mode must be " + FormDefinition.EMBED_MODE_AUTO + " or " + FormDefinition.EMBED_MODE_PINNED);
+        }
+        form.setUpdatedBy(userId);
+        FormDefinition saved = forms.save(form);
+        record(saved, userId, "embed_version_set",
+                saved.getEmbedVersionMode() + (saved.getEmbedVersion() != null ? " v" + saved.getEmbedVersion() : ""));
+        return embedVersionResponse(saved);
+    }
+
+    /** The websites we have OBSERVED framing this form (from the embed page's Referer). Intelligence for
+     *  the author, never a permission — see {@link FormEmbedSite}. */
+    @GetMapping("/{id}/embed-sites")
+    public List<Map<String, Object>> embedSites(@RequestHeader("X-Tenant-Id") String tenantId,
+                                                @PathVariable String id) {
+        FormDefinition form = load(tenantId, id);
+        return embedSites.findByTenantIdAndFormCodeOrderByLastSeenAtDesc(tenantId, form.getCode()).stream()
+                .map(s -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+                    m.put("origin", s.getOrigin());
+                    m.put("firstSeenAt", s.getFirstSeenAt());
+                    m.put("lastSeenAt", s.getLastSeenAt());
+                    m.put("renderCount", s.getRenderCount()); // sampled
+                    // Whether this observed origin is covered by the form's frame-ancestors allowlist.
+                    // An empty allowlist means "any site", so everything is allowed.
+                    m.put("allowed", FrameAncestors.allows(form.getAllowedEmbedOrigins(), s.getOrigin()));
+                    return m;
+                })
+                .toList();
+    }
+
+    private Map<String, Object> embedVersionResponse(FormDefinition form) {
+        Integer serving = EmbedVersions.resolve(form,
+                pinned -> versions.findByFormIdAndVersion(form.getId(), pinned).isPresent());
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("mode", form.getEmbedVersionMode());
+        out.put("pinnedVersion", form.getEmbedVersion());
+        out.put("publishedVersion", form.getPublishedVersion());
+        out.put("servingVersion", serving);
+        out.put("updateAvailable", EmbedVersions.updateAvailable(form, serving));
+        return out;
+    }
+
     private Map<String, Object> embedTokenResponse(String tenantId, FormDefinition form) {
         Map<String, Object> out = new java.util.HashMap<>();
         out.put("token", embedTokens.sign(tenantId, form.getCode(), form.getEmbedKeyVersion()));
@@ -249,8 +339,25 @@ public class FormDefinitionController {
             }
             form.setAllowedEmbedOrigins(FrameAncestors.normalizeList(body.allowedEmbedOrigins()));
         }
+        // "Developed at Lukeflow" badge. Turning it OFF is a paid-plan option, so enforce the plan HERE
+        // as well as in the UI: the browser is not the boundary, and a free tenant scripting this PATCH
+        // must not be able to strip our attribution. Turning it back ON is always allowed.
+        boolean brandingChanged = body.showBranding() != null && body.showBranding() != form.isShowBranding();
+        if (brandingChanged) {
+            if (!body.showBranding() && !branding.canHideBadge(tenantId)) {
+                throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                        "Hiding the “Developed at Lukeflow” badge is available on paid plans.");
+            }
+            form.setShowBranding(body.showBranding());
+        }
         form.setUpdatedBy(userId);
-        return forms.save(form);
+        FormDefinition saved = forms.save(form);
+        // Audit AFTER the save so a lost optimistic-lock race (409) can't leave a "branding_hidden"
+        // event describing a change that never landed.
+        if (brandingChanged) {
+            record(saved, userId, saved.isShowBranding() ? "branding_shown" : "branding_hidden", null);
+        }
+        return withBrandingLock(saved);
     }
 
     @PutMapping("/{id}/draft")
@@ -578,7 +685,8 @@ public class FormDefinitionController {
         return form;
     }
 
-    /** Read-time enrichment: batch-fill createdByName/updatedByName across forms in ONE lookup. */
+    /** Read-time enrichment: batch-fill createdByName/updatedByName across forms in ONE lookup, plus the
+     *  per-tenant branding lock (one plan lookup per distinct tenant, not per form). */
     private List<FormDefinition> withNames(List<FormDefinition> list) {
         java.util.Set<String> ids = new java.util.HashSet<>();
         for (FormDefinition f : list) {
@@ -586,11 +694,21 @@ public class FormDefinitionController {
             if (f.getUpdatedBy() != null) ids.add(f.getUpdatedBy());
         }
         Map<String, String> names = userDirectory.namesFor(ids);
+        Map<String, Boolean> canHide = new java.util.HashMap<>();
         for (FormDefinition f : list) {
             if (f.getCreatedBy() != null) f.setCreatedByName(names.getOrDefault(f.getCreatedBy(), f.getCreatedBy()));
             if (f.getUpdatedBy() != null) f.setUpdatedByName(names.getOrDefault(f.getUpdatedBy(), f.getUpdatedBy()));
+            f.setBrandingLocked(!canHide.computeIfAbsent(f.getTenantId(), branding::canHideBadge));
         }
         return list;
+    }
+
+    /** Read-time enrichment for a SINGLE form response that doesn't need display names: tells the client
+     *  whether the tenant's plan lets it hide the Lukeflow badge. (Un-enriched responses stay locked —
+     *  see {@link FormDefinition#isBrandingLocked()} — so this only ever relaxes a conservative default.) */
+    private FormDefinition withBrandingLock(FormDefinition form) {
+        form.setBrandingLocked(!branding.canHideBadge(form.getTenantId()));
+        return form;
     }
 
     /** Append an immutable audit event for a lifecycle action on {@code form}. */

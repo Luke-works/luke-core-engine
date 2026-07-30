@@ -62,4 +62,47 @@ class FrameAncestorsTest {
         assertThat(FrameAncestors.normalizeList("not-an-origin, https://good.com"))
                 .isEqualTo("https://good.com");
     }
+
+    /* ── allows(): annotating the OBSERVED embed-site list ──────────────────────
+     * Read-side only (it flags "this site isn't in your allowlist"); the browser's CSP is the gate. It
+     * must still read the allowlist the same way the browser does, or the annotation would lie. */
+
+    @Test
+    void anEmptyAllowlistAllowsAnySiteJustLikeTheStarDirective() {
+        assertThat(FrameAncestors.allows(null, "https://anywhere.com")).isTrue();
+        assertThat(FrameAncestors.allows("", "https://anywhere.com")).isTrue();
+        assertThat(FrameAncestors.allows("junk-only", "https://anywhere.com")).isTrue();
+    }
+
+    @Test
+    void matchesAnExactOriginCaseAndSlashInsensitively() {
+        assertThat(FrameAncestors.allows("https://acme.com", "https://acme.com")).isTrue();
+        assertThat(FrameAncestors.allows("https://acme.com", "https://ACME.com/")).isTrue();
+        assertThat(FrameAncestors.allows("https://acme.com", "https://other.com")).isFalse();
+        // Scheme and port are part of an origin.
+        assertThat(FrameAncestors.allows("https://acme.com", "http://acme.com")).isFalse();
+        assertThat(FrameAncestors.allows("http://localhost:5173", "http://localhost:5173")).isTrue();
+        assertThat(FrameAncestors.allows("http://localhost:5173", "http://localhost:4173")).isFalse();
+    }
+
+    @Test
+    void aWildcardLabelMatchesSubdomainsButNotTheBareDomainAsInCsp() {
+        assertThat(FrameAncestors.allows("https://*.acme.com", "https://shop.acme.com")).isTrue();
+        assertThat(FrameAncestors.allows("https://*.acme.com", "https://deep.shop.acme.com")).isTrue();
+        // CSP's *.example.com does NOT match example.com itself.
+        assertThat(FrameAncestors.allows("https://*.acme.com", "https://acme.com")).isFalse();
+        // And it must not match a domain that merely ENDS with the same string.
+        assertThat(FrameAncestors.allows("https://*.acme.com", "https://evil-acme.com")).isFalse();
+        assertThat(FrameAncestors.allows("https://*.acme.com", "http://shop.acme.com")).isFalse();
+    }
+
+    @Test
+    void checksEveryEntryInTheList() {
+        String list = "https://a.com,https://*.b.com,https://c.com:8443";
+        assertThat(FrameAncestors.allows(list, "https://c.com:8443")).isTrue();
+        assertThat(FrameAncestors.allows(list, "https://x.b.com")).isTrue();
+        assertThat(FrameAncestors.allows(list, "https://d.com")).isFalse();
+        assertThat(FrameAncestors.allows(list, null)).isFalse();
+        assertThat(FrameAncestors.allows(list, "  ")).isFalse();
+    }
 }

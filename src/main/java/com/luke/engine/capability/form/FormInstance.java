@@ -90,6 +90,22 @@ public class FormInstance {
     private LocalDateTime submittedAt;
     private LocalDateTime updatedAt;
 
+    /** Submission provenance — the evidence a completed form needs to be enforceable. Written ONCE, at
+     *  submit, by {@link FormSubmissionService} from a {@link SubmissionSource} captured at the request
+     *  edge; never rewritten afterwards (snapshot semantics, like the attachment audit). Also copied
+     *  into the immutable {@code formMetaData} the process instance carries.
+     *
+     *  <p>{@code submittedIp} is the observed client IP (45 chars fits IPv6), {@code submittedVia} is
+     *  which door it came through (EMBED / RESPOND / APP). Personal data — see {@link SubmissionSource}. */
+    @Column(length = 45)
+    private String submittedIp;
+
+    @Column(length = 512)
+    private String submittedUserAgent;
+
+    @Column(length = 32)
+    private String submittedVia;
+
     public FormInstance() {}
 
     @PreUpdate
@@ -168,4 +184,13 @@ public class FormInstance {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getSubmittedIp() { return submittedIp; }
+    public void setSubmittedIp(String submittedIp) { this.submittedIp = submittedIp; }
+
+    public String getSubmittedUserAgent() { return submittedUserAgent; }
+    public void setSubmittedUserAgent(String submittedUserAgent) { this.submittedUserAgent = submittedUserAgent; }
+
+    public String getSubmittedVia() { return submittedVia; }
+    public void setSubmittedVia(String submittedVia) { this.submittedVia = submittedVia; }
 }
