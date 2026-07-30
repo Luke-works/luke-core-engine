@@ -148,7 +148,7 @@ class PublicFormInstanceServiceTest {
         FormInstance inst = instance(FormInstanceStates.IN_PROGRESS);
         when(instances.findByToken("inv_abc")).thenReturn(Optional.of(inst));
         when(accessTokens.verify(eq("acc-tok"), anyLong())).thenReturn("inv_abc");
-        SubmissionSource source = new SubmissionSource("203.0.113.9", "UA/9", SubmissionSource.VIA_RESPOND);
+        SubmissionSource source = new SubmissionSource("203.0.113.9", "UA/9", SubmissionSource.VIA_RESPOND, true);
 
         service.submit("inv_abc", "acc-tok", Map.of("note", "hi"), source);
 

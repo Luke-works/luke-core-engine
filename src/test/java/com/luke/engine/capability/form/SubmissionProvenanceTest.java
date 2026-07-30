@@ -51,7 +51,7 @@ class SubmissionProvenanceTest {
     @Test
     void capturesUserAgentAndDoor() {
         SubmissionSource s = SubmissionSource.from(
-                req("203.0.113.7", null, null, null, "Mozilla/5.0 (Macintosh)"), SubmissionSource.VIA_EMBED);
+                req("203.0.113.7", null, null, null, "Mozilla/5.0 (Macintosh)"), SubmissionSource.VIA_EMBED, true);
         assertThat(s.ip()).isEqualTo("203.0.113.7");
         assertThat(s.userAgent()).isEqualTo("Mozilla/5.0 (Macintosh)");
         assertThat(s.via()).isEqualTo(SubmissionSource.VIA_EMBED);
@@ -60,13 +60,13 @@ class SubmissionProvenanceTest {
     @Test
     void anAbsurdlyLongUserAgentIsTruncatedToFitTheColumn() {
         String huge = "U".repeat(5000);
-        SubmissionSource s = SubmissionSource.from(req("1.1.1.1", null, null, null, huge), SubmissionSource.VIA_APP);
+        SubmissionSource s = SubmissionSource.from(req("1.1.1.1", null, null, null, huge), SubmissionSource.VIA_APP, false);
         assertThat(s.userAgent()).hasSize(512);
     }
 
     @Test
     void aMissingRequestStillYieldsAUsableRecord() {
-        SubmissionSource s = SubmissionSource.from(null, SubmissionSource.VIA_RESPOND);
+        SubmissionSource s = SubmissionSource.from(null, SubmissionSource.VIA_RESPOND, true);
         assertThat(s.via()).isEqualTo(SubmissionSource.VIA_RESPOND);
         assertThat(s.ip()).isNull();
         assertThat(s.userAgent()).isNull();
