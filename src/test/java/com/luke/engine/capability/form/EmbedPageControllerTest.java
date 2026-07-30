@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -47,9 +48,58 @@ class EmbedPageControllerTest {
                 .thenReturn(Optional.of(form("t1", "FM-1", "https://acme.com,https://*.acme.com")));
         mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Content-Security-Policy", "frame-ancestors https://acme.com https://*.acme.com"))
+                .andExpect(header().string("Content-Security-Policy",
+                        "frame-ancestors https://acme.com https://*.acme.com; " + EmbedPageController.SCRIPT_AND_FRAME))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(content().string(Matchers.containsString("/embed-assets/embed.js")));
+    }
+
+    @Test
+    void cspActuallyPermitsTheTurnstileScriptAndItsChallengeFrame() throws Exception {
+        // Asserted against LITERAL directives, not against EmbedPageController.SCRIPT_AND_FRAME — a
+        // test that compares the header to the constant it came from passes even when the constant is
+        // wrong, which is exactly the failure mode that ships a policy blocking the widget.
+        String token = tokens.sign("t1", "FM-3", 0);
+        when(forms.findByTenantIdAndCode("t1", "FM-3")).thenReturn(Optional.of(form("t1", "FM-3", null)));
+
+        String csp = mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getHeader("Content-Security-Policy");
+
+        assertThat(csp).isNotNull();
+        // The widget loads a script from, and renders an iframe served by, challenges.cloudflare.com.
+        assertThat(csp).contains("script-src 'self' https://challenges.cloudflare.com");
+        assertThat(csp).contains("frame-src https://challenges.cloudflare.com");
+        // The clickjacking control this page exists for must survive alongside them.
+        assertThat(csp).contains("frame-ancestors");
+        // The bundle is same-origin; granting inline script would hand any injected markup execution.
+        assertThat(csp).doesNotContain("unsafe-inline").doesNotContain("unsafe-eval");
+    }
+
+    @Test
+    void theShellCarriesNoInlineScriptSoScriptSrcSelfIsEnough() throws Exception {
+        // `script-src 'self' …` grants no 'unsafe-inline', so an inline <script> in this page would be
+        // blocked and the form would never boot. This is what lets the policy stay strict — and it is
+        // the assertion the e2e CSP probe defers to, since Vite's dev server (which DOES inject inline
+        // scripts) cannot stand in for the production shell.
+        String token = tokens.sign("t1", "FM-4", 0);
+        when(forms.findByTenantIdAndCode("t1", "FM-4")).thenReturn(Optional.of(form("t1", "FM-4", null)));
+
+        String html = mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // Every <script> in the shell must be a src= tag; none may carry a body.
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<script([^>]*)>(.*?)</script>", java.util.regex.Pattern.DOTALL)
+                .matcher(html);
+        int scripts = 0;
+        while (m.find()) {
+            scripts++;
+            assertThat(m.group(1)).as("script tag must load from a src").contains("src=");
+            assertThat(m.group(2).trim()).as("script tag must have no inline body").isEmpty();
+        }
+        assertThat(scripts).as("the shell boots the bundle with exactly one script tag").isEqualTo(1);
     }
 
     @Test
@@ -58,7 +108,8 @@ class EmbedPageControllerTest {
         when(forms.findByTenantIdAndCode("t1", "FM-2")).thenReturn(Optional.of(form("t1", "FM-2", null)));
         mvc.perform(get("/embed/" + token).accept(MediaType.TEXT_HTML))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Content-Security-Policy", "frame-ancestors *"));
+                .andExpect(header().string("Content-Security-Policy",
+                        "frame-ancestors *; " + EmbedPageController.SCRIPT_AND_FRAME));
     }
 
     @Test

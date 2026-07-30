@@ -36,8 +36,10 @@ class FormEmbedRateLimitTest {
             mock(com.luke.engine.branding.TenantPlanRepository.class));
 
     private FormEmbedController controller() {
+        // Captcha OFF: this suite is about the rate limits, and a gate in front of them would change
+        // what it exercises. TurnstileVerifierTest and FormEmbedCaptchaTest cover the gate itself.
         return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding,
-                60, 120, 20, 40);
+                TurnstileVerifiers.disabled(), 60, 120, 20, 40);
     }
 
     @Test
