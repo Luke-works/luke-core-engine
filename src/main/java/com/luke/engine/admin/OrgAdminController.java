@@ -403,6 +403,57 @@ public class OrgAdminController {
         return result;
     }
 
+    /* ── capability resource owners (who approves access to a capability) ── */
+
+    /**
+     * The resource owners of {@code code}: the people an access request for that capability is
+     * routed to for approval. Empty means "nobody assigned", and requests fall back to the tenant
+     * owners — see {@code CapabilityOwnership}.
+     */
+    @GetMapping("/capabilities/{code}/owners")
+    public List<Map<String, Object>> capabilityOwners(
+            @RequestHeader(value = "Authorization", required = false) String auth,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+            @PathVariable String code) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String id : com.luke.engine.tenant.CapabilityOwnership.ownerIds(identityService, ctx.tenant, code)) {
+            User u = identityService.createUserQuery().userId(id).singleResult();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", id);
+            row.put("firstName", u != null ? u.getFirstName() : null);
+            row.put("lastName", u != null ? u.getLastName() : null);
+            out.add(row);
+        }
+        return out;
+    }
+
+    /** Appoint {@code userId} a resource owner of {@code code}. OWNER-only: a resource owner can
+     *  never grow the set of resource owners, mirroring the candidate-group manager model. */
+    @PutMapping("/capabilities/{code}/owners/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addCapabilityOwner(@RequestHeader(value = "Authorization", required = false) String auth,
+                                   @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                   @PathVariable String code, @PathVariable String userId) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        requireTenantMember(userId, ctx.tenant);
+        com.luke.engine.tenant.CapabilityOwnership.grant(identityService, userId, ctx.tenant, code);
+        audit.record("capability.owner.add", "capability", code, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
+    }
+
+    /** Remove {@code userId} as a resource owner of {@code code}. OWNER-only. */
+    @DeleteMapping("/capabilities/{code}/owners/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeCapabilityOwner(@RequestHeader(value = "Authorization", required = false) String auth,
+                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenant,
+                                      @PathVariable String code, @PathVariable String userId) {
+        Ctx ctx = requireAdmin(auth, tenant);
+        com.luke.engine.tenant.CapabilityOwnership.revoke(identityService, userId, ctx.tenant, code);
+        audit.record("capability.owner.remove", "capability", code, ctx.tenant, ctx.userId, ctx.operator,
+                Map.of("userId", userId));
+    }
+
     /* ── authorization + helpers ─────────────────────────────────────── */
 
     private record Ctx(String userId, String tenant, boolean operator) {}

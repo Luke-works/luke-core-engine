@@ -35,6 +35,13 @@ public class AccessRequest {
     public static final String APPROVED = "APPROVED";
     public static final String DENIED = "DENIED";
     public static final String CANCELLED = "CANCELLED";
+    /**
+     * Rejected by a resource owner and handed BACK to the requester, who may revise and resubmit
+     * (→ {@link #PENDING}) or withdraw (→ {@link #CANCELLED}). The approval process is still
+     * running and is waiting on the requester — this is not a terminal state, unlike
+     * {@link #DENIED}, which now only occurs on a legacy/non-orchestrated denial.
+     */
+    public static final String RETURNED = "RETURNED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -74,6 +81,17 @@ public class AccessRequest {
     private LocalDateTime decidedAt;
 
     private LocalDateTime updatedAt;
+
+    /**
+     * The Camunda process instance orchestrating this request's approval, set once the outbox
+     * starts it. Null while the outbox has not drained yet (and on rows created before the
+     * workflow existed) — callers must treat a null as "not orchestrated" rather than assuming.
+     */
+    private String processInstanceId;
+
+    /** How many times the requester has revised and resubmitted after a return. */
+    @Column(nullable = false)
+    private int resubmitCount = 0;
 
     /* ── read-time display enrichment (never persisted) ─────────── */
     @Transient
@@ -132,6 +150,12 @@ public class AccessRequest {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getProcessInstanceId() { return processInstanceId; }
+    public void setProcessInstanceId(String processInstanceId) { this.processInstanceId = processInstanceId; }
+
+    public int getResubmitCount() { return resubmitCount; }
+    public void setResubmitCount(int resubmitCount) { this.resubmitCount = resubmitCount; }
 
     public String getRequesterName() { return requesterName; }
     public void setRequesterName(String requesterName) { this.requesterName = requesterName; }
