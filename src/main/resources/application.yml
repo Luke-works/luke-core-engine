@@ -231,6 +231,23 @@ luke:
   embed:
     # HMAC secret for signing/verifying public embed tokens. Set a real value in prod.
     hmac-secret: ${LUKE_EMBED_HMAC_SECRET:dev-embed-secret-change-me}
+    # Cloudflare Turnstile on the PUBLIC embed submit surface. Platform-wide, always on — not a
+    # per-form setting. Defaults are Cloudflare's PUBLISHED always-pass test pair, so dev/qa and the
+    # test suite work with no Cloudflare account and no network.
+    #
+    # The keys must be PAIRED: a real secret rejects test tokens and a test secret rejects real ones.
+    # Set BOTH in prod, or the embed surface refuses every genuine submission.
+    #
+    # If Cloudflare is unreachable the submission is ALLOWED here and REFUSED under the `prod`
+    # profile (see TurnstileVerifier / StrictProfile). A missing or invalid token is always refused.
+    captcha:
+      enabled: ${LUKE_EMBED_CAPTCHA_ENABLED:true}
+      sitekey: ${LUKE_EMBED_CAPTCHA_SITEKEY:1x00000000000000000000AA}
+      # NOTE: `secret` is deliberately absent here. Set it with the LUKE_EMBED_CAPTCHA_SECRET
+      # environment variable (Spring's relaxed binding maps it to luke.embed.captcha.secret). Unset,
+      # the default in TurnstileVerifier.DUMMY_SECRET_PASS applies — which keeps the one copy of the
+      # test key in code, and keeps a secret-shaped literal out of a committed config file.
+      timeout-ms: ${LUKE_EMBED_CAPTCHA_TIMEOUT_MS:3000}
   email:
     postmark:
       base-url: ${POSTMARK_BASE_URL:https://api.postmarkapp.com}

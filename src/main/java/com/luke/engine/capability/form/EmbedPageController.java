@@ -64,12 +64,33 @@ public class EmbedPageController {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.TEXT_HTML);
-        headers.set("Content-Security-Policy","frame-ancestors " + frameAncestors);
+        headers.set("Content-Security-Policy", "frame-ancestors " + frameAncestors + "; " + SCRIPT_AND_FRAME);
         headers.set("X-Content-Type-Options", "nosniff");
         // The policy is per-token; don't let a shared cache serve one form's header for another.
         headers.setCacheControl(CacheControl.noCache().cachePrivate());
         return new ResponseEntity<>(SHELL, headers, HttpStatus.OK);
     }
+
+    /**
+     * Where this page may load SCRIPTS from and what it may FRAME.
+     *
+     * <p>Previously the policy carried only {@code frame-ancestors}, which meant script and frame
+     * sources were unrestricted — CSP only constrains what you declare, and there is no
+     * {@code default-src} here to fall back to. Declaring them narrows the page to exactly what it
+     * needs: its own vendored bundle, and Cloudflare Turnstile (a script from, and a challenge iframe
+     * rendered by, {@code challenges.cloudflare.com}).
+     *
+     * <p>Deliberately NOT a {@code default-src}: styles, fonts and images stay unconstrained because
+     * the renderer legitimately loads a tenant-chosen Google font, and a blanket policy would break it
+     * for a benefit this page does not need. Narrow the two directives that carry code execution;
+     * leave the rest alone rather than guess.
+     *
+     * <p>{@code 'self'} covers {@code /embed-assets/embed.js} — the bundle is served from this origin.
+     * No inline script exists in {@link #SHELL}, so no {@code 'unsafe-inline'} is granted.
+     */
+    static final String SCRIPT_AND_FRAME =
+            "script-src 'self' https://challenges.cloudflare.com; "
+            + "frame-src https://challenges.cloudflare.com";
 
     private ResponseEntity<String> notFound() {
         HttpHeaders headers = new HttpHeaders();

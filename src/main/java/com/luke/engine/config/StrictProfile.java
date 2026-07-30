@@ -17,15 +17,19 @@ import org.springframework.core.env.Environment;
  * <p>Each guard still also honors its individual opt-in flag
  * ({@code luke.auth.require-strong-auth} / {@code luke.security.require-strong-keys})
  * so strictness can be exercised without the full profile (e.g. in tests).
+ *
+ * <p>PUBLIC because the rule now has a second consumer outside this package:
+ * {@link com.luke.engine.capability.form.TurnstileVerifier} fails CLOSED on an unreachable
+ * Cloudflare only under this same profile. One definition of "strict", not two.
  */
-final class StrictProfile {
+public final class StrictProfile {
 
-    static final String PROFILE = "prod";
+    public static final String PROFILE = "prod";
 
     private StrictProfile() {}
 
     /** True when the {@code prod} Spring profile is active. */
-    static boolean isActive(Environment environment) {
+    public static boolean isActive(Environment environment) {
         if (environment == null) {
             return false;
         }

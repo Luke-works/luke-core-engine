@@ -163,7 +163,7 @@ class FormBrandingOptionTest {
                 mock(com.luke.engine.web.FixedWindowRateLimiter.class);
         FormEmbedController embed = new FormEmbedController(resolver, versions,
                 mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding,
-                60, 120, 20, 40);
+                TurnstileVerifiers.disabled(), 60, 120, 20, 40);
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getRemoteAddr()).thenReturn("203.0.113.7");
         return embed.render("tok", req, mock(HttpServletResponse.class));
@@ -198,7 +198,7 @@ class FormBrandingOptionTest {
         EmbedFormResolver resolver = mock(EmbedFormResolver.class);
         FormEmbedController embed = new FormEmbedController(resolver, versions,
                 mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding,
-                60, 120, 20, 40);
+                TurnstileVerifiers.disabled(), 60, 120, 20, 40);
         HttpServletRequest req = mock(HttpServletRequest.class);
         assertThatThrownBy(() -> embed.render("tok", req, mock(HttpServletResponse.class)))
                 .isInstanceOf(ResponseStatusException.class);
