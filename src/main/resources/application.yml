@@ -243,7 +243,10 @@ luke:
     captcha:
       enabled: ${LUKE_EMBED_CAPTCHA_ENABLED:true}
       sitekey: ${LUKE_EMBED_CAPTCHA_SITEKEY:1x00000000000000000000AA}
-      secret: ${LUKE_EMBED_CAPTCHA_SECRET:1x0000000000000000000000000000000AA}
+      # NOTE: `secret` is deliberately absent here. Set it with the LUKE_EMBED_CAPTCHA_SECRET
+      # environment variable (Spring's relaxed binding maps it to luke.embed.captcha.secret). Unset,
+      # the default in TurnstileVerifier.DUMMY_SECRET_PASS applies — which keeps the one copy of the
+      # test key in code, and keeps a secret-shaped literal out of a committed config file.
       timeout-ms: ${LUKE_EMBED_CAPTCHA_TIMEOUT_MS:3000}
   email:
     postmark:
