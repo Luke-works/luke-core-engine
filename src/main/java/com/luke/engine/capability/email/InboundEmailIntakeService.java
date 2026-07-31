@@ -269,18 +269,44 @@ public class InboundEmailIntakeService {
      * The payload as a process variable, with attachment CONTENT removed and the whole thing
      * bounded. Camunda spills any string over 4000 chars into a byte array; a raw payload with
      * a 10 MB base64 attachment became a 10 MB variable, per message, forever.
+     *
+     * <p><b>The result is always parseable JSON.</b> Shrinking by {@code substring} would be
+     * simpler and wrong: this variable exists to be read by a workflow, and a string cut at a
+     * fixed byte count ends mid-token, so every consumer that parses it fails — on exactly the
+     * long messages a tenant most wants routed. Instead we drop the biggest fields, largest
+     * first, and fall back to a small hand-built object that is valid by construction. Whichever
+     * step succeeds, {@code emailBodyOmitted} says what is missing so a reader can tell a short
+     * email from a trimmed one and go to {@code emailMessageId} for the full text.
      */
     static String sanitizedEvent(JsonNode payload) {
         if (payload == null) return "{}";
-        JsonNode copy = payload.deepCopy();
+        JsonNode root = payload.deepCopy();
+        if (!(root instanceof ObjectNode copy)) return "{}";
+
         JsonNode arr = copy.get("Attachments");
         if (arr != null && arr.isArray()) {
             for (JsonNode a : arr) {
                 if (a instanceof ObjectNode o) o.remove("Content");
             }
         }
-        String json = copy.toString();
-        return json.length() <= EVENT_VAR_MAX ? json : json.substring(0, EVENT_VAR_MAX);
+        if (copy.toString().length() <= EVENT_VAR_MAX) return copy.toString();
+
+        // HTML first: it is the largest field and the one no rule reads (BODY matches on text).
+        copy.remove("HtmlBody");
+        copy.put("emailBodyOmitted", true);
+        if (copy.toString().length() <= EVENT_VAR_MAX) return copy.toString();
+
+        copy.remove("TextBody");
+        copy.remove("StrippedTextReply");
+        if (copy.toString().length() <= EVENT_VAR_MAX) return copy.toString();
+
+        // Still oversized (a pathological header set). Keep only the envelope.
+        ObjectNode minimal = MAPPER.createObjectNode();
+        for (String field : new String[] {"From", "To", "OriginalRecipient", "Subject", "MessageID", "MailboxHash"}) {
+            if (copy.hasNonNull(field)) minimal.put(field, truncate(copy.get(field).asText(), 1000));
+        }
+        minimal.put("emailBodyOmitted", true);
+        return minimal.toString();
     }
 
     private static String clamp(String body) {

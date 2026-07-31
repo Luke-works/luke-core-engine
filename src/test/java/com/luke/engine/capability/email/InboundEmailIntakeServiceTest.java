@@ -363,6 +363,29 @@ class InboundEmailIntakeServiceTest {
     }
 
     @Test
+    void theProcessVariableStaysPARSEABLEJsonNoMatterHowLongTheMailIs() throws Exception {
+        // Shrinking this variable by substring would cut it mid-token, so every workflow that
+        // parses it breaks on exactly the long messages a tenant most wants routed.
+        String huge = "x".repeat(300_000);
+        var result = intake.intake(server, payload("jo@example.com", "Huge", huge, "pm-json"));
+
+        String pid = runtimeService.createProcessInstanceQuery()
+                .processInstanceBusinessKey("email-inbox-" + result.messageId())
+                .singleResult().getId();
+        String event = (String) runtimeService.getVariable(pid, "emailEvent");
+
+        assertThat(event.length()).isLessThanOrEqualTo(InboundEmailIntakeService.EVENT_VAR_MAX);
+
+        // The parse IS the assertion: a variable cut mid-token throws here, and the test fails
+        // with the actual JSON error rather than a boolean that hides it.
+        JsonNode parsed = MAPPER.readTree(event);
+
+        // The envelope survives even when the bodies do not, and says so.
+        assertThat(parsed.path("Subject").asText()).isEqualTo("Huge");
+        assertThat(parsed.path("emailBodyOmitted").asBoolean()).isTrue();
+    }
+
+    @Test
     void anOversizedBodyIsStoredTruncatedRatherThanWhole() {
         String huge = "x".repeat(InboundEmailIntakeService.BODY_MAX + 5_000);
         var result = intake.intake(server, payload("jo@example.com", "Big", huge, "pm-big"));

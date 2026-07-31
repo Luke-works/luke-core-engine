@@ -74,7 +74,7 @@
     );
 
     create index if not exists idx_emailrule_tenant on luke_email_routing_rules (tenant_id);
-    create index if not exists idx_emailrule_order on luke_email_routing_rules (tenant_id, box_id, position);
+    create index if not exists idx_emailrule_order on luke_email_routing_rules (tenant_id, box_id, sort_order);
 
 -- Dedup. Postmark re-POSTs a webhook it believes failed, and a redelivered message must not
 -- become a SECOND review task — duplicated work for a human is the visible symptom, and it is
