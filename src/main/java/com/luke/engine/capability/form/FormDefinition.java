@@ -87,6 +87,12 @@ public class FormDefinition {
     @Column(columnDefinition = "text")
     private String allowedEmbedOrigins;
 
+    /** Friendly LABELS for the origins above, as a JSON object keyed by canonical origin — see
+     *  {@link EmbedSiteNames}. Purely presentational: kept out of {@link #allowedEmbedOrigins} so a
+     *  label can never alter the CSP the embed surface enforces. Null = no labels. */
+    @Column(columnDefinition = "text")
+    private String embedOriginNames;
+
     /** Which version the PUBLIC EMBED serves.
      *
      *  <p>{@link #EMBED_MODE_AUTO} (the default, and how embeds have always behaved) resolves
@@ -197,6 +203,9 @@ public class FormDefinition {
 
     public String getAllowedEmbedOrigins() { return allowedEmbedOrigins; }
     public void setAllowedEmbedOrigins(String allowedEmbedOrigins) { this.allowedEmbedOrigins = allowedEmbedOrigins; }
+
+    public String getEmbedOriginNames() { return embedOriginNames; }
+    public void setEmbedOriginNames(String embedOriginNames) { this.embedOriginNames = embedOriginNames; }
 
     public int getEmbedKeyVersion() { return embedKeyVersion; }
     public void setEmbedKeyVersion(int embedKeyVersion) { this.embedKeyVersion = embedKeyVersion; }
