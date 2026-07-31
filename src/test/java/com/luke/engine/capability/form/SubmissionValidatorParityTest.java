@@ -36,7 +36,7 @@ class SubmissionValidatorParityTest {
      * Pinned fixture revision. Bump ONLY together with re-copying the fixture from luke-forms and
      * confirming {@code parity.test.ts} passes there.
      */
-    private static final String EXPECTED_REVISION = "2026-07-28.1";
+    private static final String EXPECTED_REVISION = "2026-07-31.2";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final JsonNode FIXTURE = load();
@@ -85,11 +85,17 @@ class SubmissionValidatorParityTest {
         assertCase(id, testCase);
     }
 
-    /** Rules with no form-core counterpart (option membership) — server-side only, by design. */
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("serverOnlyCases")
-    void enforcesServerOnlyRules(String id, JsonNode testCase) {
-        assertCase(id, testCase);
+    /**
+     * Rules the server enforces that form-core does NOT. Option-membership used to live here; the
+     * client now implements it with the same semantics, so those cases moved into the shared set
+     * and this list is empty. A plain loop rather than a {@code @ParameterizedTest}, which errors
+     * on an empty source — the harness stays so a genuinely server-only rule can be added back.
+     */
+    @Test
+    void enforcesServerOnlyRules() {
+        for (JsonNode c : FIXTURE.path("serverOnlyCases")) {
+            assertCase(c.path("id").asText(), c);
+        }
     }
 
     private void assertCase(String id, JsonNode testCase) {

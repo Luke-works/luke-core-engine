@@ -78,6 +78,15 @@ final class SubmissionRules {
         String s = value instanceof String str ? str : null;
 
         // ── order mirrors form-core's BUILTIN_RULES exactly ──────────────────────────────
+
+        // TYPE first: is the value even the KIND this field holds? Every rule after this one is a
+        // CONSTRAINT that only runs when the author declared its attribute, so an unconstrained
+        // field used to accept anything at all — letters in a `number`, "13/45/9999" in a date.
+        // The browser's input control makes that hard to do by hand, which is exactly why the
+        // server has to check it: a tampered payload, a CSV import or an API client never touches
+        // that control. Mirrors form-core's `typeRule`.
+        String typeFailure = typeFailure(type, value, s);
+        if (typeFailure != null) return typeFailure;
         if (s != null) {
             Double minLength = num(a, "minLength");
             if (minLength != null && s.length() < minLength) return "minLength";
@@ -133,12 +142,60 @@ final class SubmissionRules {
             }
         }
 
-        // ── server-only, past the parity set ─────────────────────────────────────────────
-        // The browser constrains choice by only RENDERING the declared options; there is no
-        // form-core validator to be in parity with. A tampered payload has no such constraint,
-        // which is precisely why the server checks it.
+        // ── option membership ────────────────────────────────────────────────────────────
+        // Now part of the shared parity set: form-core validates this too (its `option` rule),
+        // so a filler gets the error in the form rather than only on submit. This check stays
+        // the ENFORCEMENT point regardless — a tampered or imported payload never runs the
+        // client's validator at all.
         return optionFailure(type, a, value);
     }
+
+    /** Field types whose stored value must parse as a number / as a date. */
+    private static final Set<String> NUMERIC_TYPES = Set.of("number", "currency", "rating");
+    private static final Set<String> DATE_TYPES = Set.of("day", "datetime");
+    private static final Pattern TIME_RE = Pattern.compile("^(\\d{1,2}):([0-5]\\d)(?::([0-5]\\d))?$");
+
+    /**
+     * The value must be the KIND the field holds. Bounds are min/max's business and FORMAT is the
+     * input control's, so this rejects only genuine garbage. Mirrors form-core's `typeRule`.
+     */
+    private static String typeFailure(String type, Object value, String s) {
+        if (NUMERIC_TYPES.contains(type)) {
+            return numericValue(value) == null ? "type" : null;
+        }
+        if (DATE_TYPES.contains(type)) {
+            if (s == null) return "type"; // a date is carried as a string
+            return parsesAsDate(s) ? null : "type";
+        }
+        if ("time".equals(type)) {
+            if (s == null) return "type";
+            var m = TIME_RE.matcher(s);
+            return m.find() && Integer.parseInt(m.group(1)) <= 23 ? null : "type";
+        }
+        return null;
+    }
+
+    /** Accept the shapes a browser or an import realistically produces for a date. */
+    private static boolean parsesAsDate(String s) {
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        for (var f : DATE_FORMATS) {
+            try {
+                f.parse(t);
+                return true;
+            } catch (java.time.format.DateTimeParseException ignored) {
+                // try the next shape
+            }
+        }
+        return false;
+    }
+
+    private static final java.time.format.DateTimeFormatter[] DATE_FORMATS = {
+        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE,
+        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME,
+        java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME,
+        java.time.format.DateTimeFormatter.ISO_INSTANT,
+    };
 
     /** The array-count rules, which (like form-core) treat a non-array value as a count of zero. */
     private static String countFailure(JsonNode a, Object value) {
@@ -169,7 +226,7 @@ final class SubmissionRules {
             Set.of("select", "searchSelect", "radio", "selectBoxes", "ranking");
 
     /**
-     * SERVER-ONLY: the submitted value(s) must be among the options the schema declares. Skipped
+     * The submitted value(s) must be among the options the schema declares. Skipped
      * when the field loads its options from a minion — those aren't in the schema, so there is no
      * list to check against.
      */

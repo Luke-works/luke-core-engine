@@ -1,5 +1,5 @@
 {
-  "revision": "2026-07-28.1",
+  "revision": "2026-07-31.2",
   "note": [
     "CROSS-LANGUAGE PARITY FIXTURE. The declarative validation rules exist twice: in",
     "@lukeflow/form-core (TypeScript, runs in the browser) and in luke-core-engine's",
@@ -22,104 +22,922 @@
     "validation, and cross-field conditionals. The server never evaluates those."
   ],
   "cases": [
-    { "id": "required-blank-string", "type": "text", "attributes": { "required": true }, "value": "", "valid": false, "code": "required" },
-    { "id": "required-absent", "type": "text", "attributes": { "required": true }, "valid": false, "code": "required" },
-    { "id": "required-whitespace-is-present", "type": "text", "attributes": { "required": true }, "value": "   ", "valid": true },
-    { "id": "required-satisfied", "type": "text", "attributes": { "required": true }, "value": "Ada", "valid": true },
-    { "id": "required-empty-array", "type": "selectBoxes", "attributes": { "required": true }, "value": [], "valid": false, "code": "required" },
-    { "id": "required-empty-object", "type": "matrix", "attributes": { "required": true }, "value": {}, "valid": false, "code": "required" },
-    { "id": "required-object-all-values-empty", "type": "matrix", "attributes": { "required": true }, "value": { "row1": "", "row2": [] }, "valid": false, "code": "required" },
-    { "id": "required-object-one-value-set", "type": "matrix", "attributes": { "required": true }, "value": { "row1": "", "row2": "yes" }, "valid": true },
-    { "id": "required-checkbox-unchecked", "type": "checkbox", "attributes": { "required": true }, "value": false, "valid": false, "code": "required" },
-    { "id": "required-checkbox-checked", "type": "checkbox", "attributes": { "required": true }, "value": true, "valid": true },
-    { "id": "required-number-zero-is-present", "type": "number", "attributes": { "required": true }, "value": 0, "valid": true },
-    { "id": "not-required-empty", "type": "text", "attributes": {}, "value": "", "valid": true },
-
-    { "id": "required-address-complete-without-suite", "type": "addressBlock", "attributes": { "required": true }, "value": { "streetAddress": "1 Main St", "city": "Dallas", "region": "TX", "postalCode": "75001", "country": "US" }, "valid": true },
-    { "id": "required-address-missing-city", "type": "addressBlock", "attributes": { "required": true }, "value": { "streetAddress": "1 Main St", "region": "TX", "postalCode": "75001", "country": "US" }, "valid": false, "code": "required" },
-    { "id": "required-address-street-only", "type": "addressBlock", "attributes": { "required": true }, "value": { "streetAddress": "1 Main St" }, "valid": false, "code": "required" },
-
-    { "id": "maxLength-over", "type": "text", "attributes": { "maxLength": 5 }, "value": "abcdef", "valid": false, "code": "maxLength" },
-    { "id": "maxLength-at-bound", "type": "text", "attributes": { "maxLength": 5 }, "value": "abcde", "valid": true },
-    { "id": "maxLength-skips-empty", "type": "text", "attributes": { "maxLength": 5 }, "value": "", "valid": true },
-    { "id": "maxLength-skips-non-string", "type": "number", "attributes": { "maxLength": 2 }, "value": 123456, "valid": true },
-    { "id": "minLength-under", "type": "text", "attributes": { "minLength": 3 }, "value": "ab", "valid": false, "code": "minLength" },
-    { "id": "minLength-at-bound", "type": "text", "attributes": { "minLength": 3 }, "value": "abc", "valid": true },
-    { "id": "minLength-skips-empty", "type": "text", "attributes": { "minLength": 3 }, "value": "", "valid": true },
-
-    { "id": "maxWords-over", "type": "textarea", "attributes": { "maxWords": 2 }, "value": "a b c", "valid": false, "code": "maxWords" },
-    { "id": "maxWords-collapses-whitespace", "type": "textarea", "attributes": { "maxWords": 2 }, "value": "  a    b  ", "valid": true },
-    { "id": "minWords-under", "type": "textarea", "attributes": { "minWords": 2 }, "value": "a", "valid": false, "code": "minWords" },
-
-    { "id": "pattern-mismatch", "type": "text", "attributes": { "pattern": "^[0-9]+$" }, "value": "12a", "valid": false, "code": "pattern" },
-    { "id": "pattern-match", "type": "text", "attributes": { "pattern": "^[0-9]+$" }, "value": "123", "valid": true },
-    { "id": "pattern-unanchored-matches-substring", "type": "text", "attributes": { "pattern": "[0-9]+" }, "value": "ab12cd", "valid": true },
-    { "id": "pattern-malformed-is-inert", "type": "text", "attributes": { "pattern": "([" }, "value": "anything", "valid": true },
-    { "id": "pattern-skips-empty", "type": "text", "attributes": { "pattern": "^[0-9]+$" }, "value": "", "valid": true },
-
-    { "id": "email-invalid", "type": "email", "attributes": {}, "value": "nope", "valid": false, "code": "email" },
-    { "id": "email-valid", "type": "email", "attributes": {}, "value": "ada@example.com", "valid": true },
-    { "id": "email-rejects-spaces", "type": "email", "attributes": {}, "value": "a b@example.com", "valid": false, "code": "email" },
-    { "id": "email-rule-inert-on-text-field", "type": "text", "attributes": {}, "value": "nope", "valid": true },
-    { "id": "email-skips-empty", "type": "email", "attributes": {}, "value": "", "valid": true },
-
-    { "id": "url-non-http-scheme", "type": "url", "attributes": {}, "value": "ftp://example.com", "valid": false, "code": "url" },
-    { "id": "url-valid", "type": "url", "attributes": {}, "value": "https://example.com/a", "valid": true },
-    { "id": "url-rule-inert-on-text-field", "type": "text", "attributes": {}, "value": "ftp://example.com", "valid": true },
-
-    { "id": "min-under", "type": "number", "attributes": { "min": 10 }, "value": 5, "valid": false, "code": "min" },
-    { "id": "min-at-bound", "type": "number", "attributes": { "min": 10 }, "value": 10, "valid": true },
-    { "id": "max-over", "type": "number", "attributes": { "max": 10 }, "value": 11, "valid": false, "code": "max" },
-    { "id": "max-over-as-numeric-string", "type": "number", "attributes": { "max": 10 }, "value": "11", "valid": false, "code": "max" },
-    { "id": "max-non-numeric-string-is-unconstrained", "type": "text", "attributes": { "max": 10 }, "value": "abc", "valid": true },
-    { "id": "max-skips-empty", "type": "number", "attributes": { "max": 10 }, "value": "", "valid": true },
-    { "id": "min-negative-bound", "type": "number", "attributes": { "min": -5 }, "value": -6, "valid": false, "code": "min" },
-
-    { "id": "minDate-before", "type": "date", "attributes": { "minDate": "2026-01-01" }, "value": "2025-12-31", "valid": false, "code": "minDate" },
-    { "id": "minDate-at-bound", "type": "date", "attributes": { "minDate": "2026-01-01" }, "value": "2026-01-01", "valid": true },
-    { "id": "maxDate-after", "type": "date", "attributes": { "maxDate": "2026-01-01" }, "value": "2026-02-01", "valid": false, "code": "maxDate" },
-    { "id": "minTime-before", "type": "time", "attributes": { "minTime": "09:00" }, "value": "08:59", "valid": false, "code": "minTime" },
-    { "id": "maxTime-after", "type": "time", "attributes": { "maxTime": "17:00" }, "value": "17:01", "valid": false, "code": "maxTime" },
-
-    { "id": "minSelected-under", "type": "selectBoxes", "attributes": { "minSelected": 2 }, "value": ["a"], "valid": false, "code": "minSelected" },
-    { "id": "minSelected-met", "type": "selectBoxes", "attributes": { "minSelected": 2 }, "value": ["a", "b"], "valid": true },
-    { "id": "minSelected-counts-non-array-as-zero", "type": "selectBoxes", "attributes": { "minSelected": 1 }, "value": "notanarray", "valid": false, "code": "minSelected" },
-    { "id": "maxSelected-over", "type": "selectBoxes", "attributes": { "maxSelected": 2 }, "value": ["a", "b", "c"], "valid": false, "code": "maxSelected" },
-    { "id": "maxTags-at-bound", "type": "tags", "attributes": { "maxTags": 2 }, "value": ["a", "b"], "valid": true },
-    { "id": "minTags-under", "type": "tags", "attributes": { "minTags": 2 }, "value": ["a"], "valid": false, "code": "minTags" },
-    { "id": "minRows-empty-grid", "type": "table", "attributes": { "minRows": 1 }, "value": [], "valid": false, "code": "minRows" },
-    { "id": "maxRows-over", "type": "table", "attributes": { "maxRows": 1 }, "value": [{}, {}], "valid": false, "code": "maxRows" },
-    { "id": "maxFiles-over", "type": "file", "attributes": { "maxFiles": 1 }, "value": [{}, {}], "valid": false, "code": "maxFiles" },
-    { "id": "minFiles-under", "type": "file", "attributes": { "minFiles": 1 }, "value": [], "valid": false, "code": "minFiles" },
-
-    { "id": "maxFileSize-over", "type": "file", "attributes": { "maxSize": 1 }, "value": [{ "size": 2097153 }], "valid": false, "code": "maxFileSize" },
-    { "id": "maxFileSize-under", "type": "file", "attributes": { "maxSize": 1 }, "value": [{ "size": 1000 }], "valid": true },
-    { "id": "maxFileSize-ignores-sizeless-entries", "type": "file", "attributes": { "maxSize": 1 }, "value": [{ "name": "a.pdf" }], "valid": true },
-
-    { "id": "order-required-wins-over-length", "type": "text", "attributes": { "required": true, "minLength": 5 }, "value": "", "valid": false, "code": "required" },
-    { "id": "order-minLength-wins-over-maxLength", "type": "text", "attributes": { "minLength": 5, "maxLength": 2 }, "value": "abc", "valid": false, "code": "minLength" },
-    { "id": "order-pattern-wins-over-email", "type": "email", "attributes": { "pattern": "^zzz" }, "value": "nope", "valid": false, "code": "pattern" }
+    {
+      "id": "required-blank-string",
+      "type": "text",
+      "attributes": {
+        "required": true
+      },
+      "value": "",
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-absent",
+      "type": "text",
+      "attributes": {
+        "required": true
+      },
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-whitespace-is-present",
+      "type": "text",
+      "attributes": {
+        "required": true
+      },
+      "value": "   ",
+      "valid": true
+    },
+    {
+      "id": "required-satisfied",
+      "type": "text",
+      "attributes": {
+        "required": true
+      },
+      "value": "Ada",
+      "valid": true
+    },
+    {
+      "id": "required-empty-array",
+      "type": "selectBoxes",
+      "attributes": {
+        "required": true
+      },
+      "value": [],
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-empty-object",
+      "type": "matrix",
+      "attributes": {
+        "required": true
+      },
+      "value": {},
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-object-all-values-empty",
+      "type": "matrix",
+      "attributes": {
+        "required": true
+      },
+      "value": {
+        "row1": "",
+        "row2": []
+      },
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-object-one-value-set",
+      "type": "matrix",
+      "attributes": {
+        "required": true
+      },
+      "value": {
+        "row1": "",
+        "row2": "yes"
+      },
+      "valid": true
+    },
+    {
+      "id": "required-checkbox-unchecked",
+      "type": "checkbox",
+      "attributes": {
+        "required": true
+      },
+      "value": false,
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-checkbox-checked",
+      "type": "checkbox",
+      "attributes": {
+        "required": true
+      },
+      "value": true,
+      "valid": true
+    },
+    {
+      "id": "required-number-zero-is-present",
+      "type": "number",
+      "attributes": {
+        "required": true
+      },
+      "value": 0,
+      "valid": true
+    },
+    {
+      "id": "not-required-empty",
+      "type": "text",
+      "attributes": {},
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "required-address-complete-without-suite",
+      "type": "addressBlock",
+      "attributes": {
+        "required": true
+      },
+      "value": {
+        "streetAddress": "1 Main St",
+        "city": "Dallas",
+        "region": "TX",
+        "postalCode": "75001",
+        "country": "US"
+      },
+      "valid": true
+    },
+    {
+      "id": "required-address-missing-city",
+      "type": "addressBlock",
+      "attributes": {
+        "required": true
+      },
+      "value": {
+        "streetAddress": "1 Main St",
+        "region": "TX",
+        "postalCode": "75001",
+        "country": "US"
+      },
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "required-address-street-only",
+      "type": "addressBlock",
+      "attributes": {
+        "required": true
+      },
+      "value": {
+        "streetAddress": "1 Main St"
+      },
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "maxLength-over",
+      "type": "text",
+      "attributes": {
+        "maxLength": 5
+      },
+      "value": "abcdef",
+      "valid": false,
+      "code": "maxLength"
+    },
+    {
+      "id": "maxLength-at-bound",
+      "type": "text",
+      "attributes": {
+        "maxLength": 5
+      },
+      "value": "abcde",
+      "valid": true
+    },
+    {
+      "id": "maxLength-skips-empty",
+      "type": "text",
+      "attributes": {
+        "maxLength": 5
+      },
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "maxLength-skips-non-string",
+      "type": "number",
+      "attributes": {
+        "maxLength": 2
+      },
+      "value": 123456,
+      "valid": true
+    },
+    {
+      "id": "minLength-under",
+      "type": "text",
+      "attributes": {
+        "minLength": 3
+      },
+      "value": "ab",
+      "valid": false,
+      "code": "minLength"
+    },
+    {
+      "id": "minLength-at-bound",
+      "type": "text",
+      "attributes": {
+        "minLength": 3
+      },
+      "value": "abc",
+      "valid": true
+    },
+    {
+      "id": "minLength-skips-empty",
+      "type": "text",
+      "attributes": {
+        "minLength": 3
+      },
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "maxWords-over",
+      "type": "textarea",
+      "attributes": {
+        "maxWords": 2
+      },
+      "value": "a b c",
+      "valid": false,
+      "code": "maxWords"
+    },
+    {
+      "id": "maxWords-collapses-whitespace",
+      "type": "textarea",
+      "attributes": {
+        "maxWords": 2
+      },
+      "value": "  a    b  ",
+      "valid": true
+    },
+    {
+      "id": "minWords-under",
+      "type": "textarea",
+      "attributes": {
+        "minWords": 2
+      },
+      "value": "a",
+      "valid": false,
+      "code": "minWords"
+    },
+    {
+      "id": "pattern-mismatch",
+      "type": "text",
+      "attributes": {
+        "pattern": "^[0-9]+$"
+      },
+      "value": "12a",
+      "valid": false,
+      "code": "pattern"
+    },
+    {
+      "id": "pattern-match",
+      "type": "text",
+      "attributes": {
+        "pattern": "^[0-9]+$"
+      },
+      "value": "123",
+      "valid": true
+    },
+    {
+      "id": "pattern-unanchored-matches-substring",
+      "type": "text",
+      "attributes": {
+        "pattern": "[0-9]+"
+      },
+      "value": "ab12cd",
+      "valid": true
+    },
+    {
+      "id": "pattern-malformed-is-inert",
+      "type": "text",
+      "attributes": {
+        "pattern": "(["
+      },
+      "value": "anything",
+      "valid": true
+    },
+    {
+      "id": "pattern-skips-empty",
+      "type": "text",
+      "attributes": {
+        "pattern": "^[0-9]+$"
+      },
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "email-invalid",
+      "type": "email",
+      "attributes": {},
+      "value": "nope",
+      "valid": false,
+      "code": "email"
+    },
+    {
+      "id": "email-valid",
+      "type": "email",
+      "attributes": {},
+      "value": "ada@example.com",
+      "valid": true
+    },
+    {
+      "id": "email-rejects-spaces",
+      "type": "email",
+      "attributes": {},
+      "value": "a b@example.com",
+      "valid": false,
+      "code": "email"
+    },
+    {
+      "id": "email-rule-inert-on-text-field",
+      "type": "text",
+      "attributes": {},
+      "value": "nope",
+      "valid": true
+    },
+    {
+      "id": "email-skips-empty",
+      "type": "email",
+      "attributes": {},
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "url-non-http-scheme",
+      "type": "url",
+      "attributes": {},
+      "value": "ftp://example.com",
+      "valid": false,
+      "code": "url"
+    },
+    {
+      "id": "url-valid",
+      "type": "url",
+      "attributes": {},
+      "value": "https://example.com/a",
+      "valid": true
+    },
+    {
+      "id": "url-rule-inert-on-text-field",
+      "type": "text",
+      "attributes": {},
+      "value": "ftp://example.com",
+      "valid": true
+    },
+    {
+      "id": "min-under",
+      "type": "number",
+      "attributes": {
+        "min": 10
+      },
+      "value": 5,
+      "valid": false,
+      "code": "min"
+    },
+    {
+      "id": "min-at-bound",
+      "type": "number",
+      "attributes": {
+        "min": 10
+      },
+      "value": 10,
+      "valid": true
+    },
+    {
+      "id": "max-over",
+      "type": "number",
+      "attributes": {
+        "max": 10
+      },
+      "value": 11,
+      "valid": false,
+      "code": "max"
+    },
+    {
+      "id": "max-over-as-numeric-string",
+      "type": "number",
+      "attributes": {
+        "max": 10
+      },
+      "value": "11",
+      "valid": false,
+      "code": "max"
+    },
+    {
+      "id": "max-non-numeric-string-is-unconstrained",
+      "type": "text",
+      "attributes": {
+        "max": 10
+      },
+      "value": "abc",
+      "valid": true
+    },
+    {
+      "id": "max-skips-empty",
+      "type": "number",
+      "attributes": {
+        "max": 10
+      },
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "min-negative-bound",
+      "type": "number",
+      "attributes": {
+        "min": -5
+      },
+      "value": -6,
+      "valid": false,
+      "code": "min"
+    },
+    {
+      "id": "minDate-before",
+      "type": "date",
+      "attributes": {
+        "minDate": "2026-01-01"
+      },
+      "value": "2025-12-31",
+      "valid": false,
+      "code": "minDate"
+    },
+    {
+      "id": "minDate-at-bound",
+      "type": "date",
+      "attributes": {
+        "minDate": "2026-01-01"
+      },
+      "value": "2026-01-01",
+      "valid": true
+    },
+    {
+      "id": "maxDate-after",
+      "type": "date",
+      "attributes": {
+        "maxDate": "2026-01-01"
+      },
+      "value": "2026-02-01",
+      "valid": false,
+      "code": "maxDate"
+    },
+    {
+      "id": "minTime-before",
+      "type": "time",
+      "attributes": {
+        "minTime": "09:00"
+      },
+      "value": "08:59",
+      "valid": false,
+      "code": "minTime"
+    },
+    {
+      "id": "maxTime-after",
+      "type": "time",
+      "attributes": {
+        "maxTime": "17:00"
+      },
+      "value": "17:01",
+      "valid": false,
+      "code": "maxTime"
+    },
+    {
+      "id": "minSelected-under",
+      "type": "selectBoxes",
+      "attributes": {
+        "minSelected": 2
+      },
+      "value": [
+        "a"
+      ],
+      "valid": false,
+      "code": "minSelected"
+    },
+    {
+      "id": "minSelected-met",
+      "type": "selectBoxes",
+      "attributes": {
+        "minSelected": 2
+      },
+      "value": [
+        "a",
+        "b"
+      ],
+      "valid": true
+    },
+    {
+      "id": "minSelected-counts-non-array-as-zero",
+      "type": "selectBoxes",
+      "attributes": {
+        "minSelected": 1
+      },
+      "value": "notanarray",
+      "valid": false,
+      "code": "minSelected"
+    },
+    {
+      "id": "maxSelected-over",
+      "type": "selectBoxes",
+      "attributes": {
+        "maxSelected": 2
+      },
+      "value": [
+        "a",
+        "b",
+        "c"
+      ],
+      "valid": false,
+      "code": "maxSelected"
+    },
+    {
+      "id": "maxTags-at-bound",
+      "type": "tags",
+      "attributes": {
+        "maxTags": 2
+      },
+      "value": [
+        "a",
+        "b"
+      ],
+      "valid": true
+    },
+    {
+      "id": "minTags-under",
+      "type": "tags",
+      "attributes": {
+        "minTags": 2
+      },
+      "value": [
+        "a"
+      ],
+      "valid": false,
+      "code": "minTags"
+    },
+    {
+      "id": "minRows-empty-grid",
+      "type": "table",
+      "attributes": {
+        "minRows": 1
+      },
+      "value": [],
+      "valid": false,
+      "code": "minRows"
+    },
+    {
+      "id": "maxRows-over",
+      "type": "table",
+      "attributes": {
+        "maxRows": 1
+      },
+      "value": [
+        {},
+        {}
+      ],
+      "valid": false,
+      "code": "maxRows"
+    },
+    {
+      "id": "maxFiles-over",
+      "type": "file",
+      "attributes": {
+        "maxFiles": 1
+      },
+      "value": [
+        {},
+        {}
+      ],
+      "valid": false,
+      "code": "maxFiles"
+    },
+    {
+      "id": "minFiles-under",
+      "type": "file",
+      "attributes": {
+        "minFiles": 1
+      },
+      "value": [],
+      "valid": false,
+      "code": "minFiles"
+    },
+    {
+      "id": "maxFileSize-over",
+      "type": "file",
+      "attributes": {
+        "maxSize": 1
+      },
+      "value": [
+        {
+          "size": 2097153
+        }
+      ],
+      "valid": false,
+      "code": "maxFileSize"
+    },
+    {
+      "id": "maxFileSize-under",
+      "type": "file",
+      "attributes": {
+        "maxSize": 1
+      },
+      "value": [
+        {
+          "size": 1000
+        }
+      ],
+      "valid": true
+    },
+    {
+      "id": "maxFileSize-ignores-sizeless-entries",
+      "type": "file",
+      "attributes": {
+        "maxSize": 1
+      },
+      "value": [
+        {
+          "name": "a.pdf"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "id": "order-required-wins-over-length",
+      "type": "text",
+      "attributes": {
+        "required": true,
+        "minLength": 5
+      },
+      "value": "",
+      "valid": false,
+      "code": "required"
+    },
+    {
+      "id": "order-minLength-wins-over-maxLength",
+      "type": "text",
+      "attributes": {
+        "minLength": 5,
+        "maxLength": 2
+      },
+      "value": "abc",
+      "valid": false,
+      "code": "minLength"
+    },
+    {
+      "id": "order-pattern-wins-over-email",
+      "type": "email",
+      "attributes": {
+        "pattern": "^zzz"
+      },
+      "value": "nope",
+      "valid": false,
+      "code": "pattern"
+    },
+    {
+      "id": "option-not-in-list",
+      "type": "select",
+      "attributes": {
+        "options": [
+          "S",
+          "M",
+          "L"
+        ]
+      },
+      "value": "Gigantic",
+      "valid": false,
+      "code": "option"
+    },
+    {
+      "id": "option-in-list",
+      "type": "select",
+      "attributes": {
+        "options": [
+          "S",
+          "M",
+          "L"
+        ]
+      },
+      "value": "M",
+      "valid": true
+    },
+    {
+      "id": "option-object-shape",
+      "type": "radio",
+      "attributes": {
+        "options": [
+          {
+            "label": "Small",
+            "value": "s"
+          },
+          {
+            "label": "Medium",
+            "value": "m"
+          }
+        ]
+      },
+      "value": "m",
+      "valid": true
+    },
+    {
+      "id": "option-object-shape-rejects-label-as-value",
+      "type": "radio",
+      "attributes": {
+        "options": [
+          {
+            "label": "Small",
+            "value": "s"
+          }
+        ]
+      },
+      "value": "Small",
+      "valid": false,
+      "code": "option"
+    },
+    {
+      "id": "option-multi-select-all-members",
+      "type": "selectBoxes",
+      "attributes": {
+        "options": [
+          "a",
+          "b"
+        ]
+      },
+      "value": [
+        "a",
+        "b"
+      ],
+      "valid": true
+    },
+    {
+      "id": "option-multi-select-one-stranger",
+      "type": "selectBoxes",
+      "attributes": {
+        "options": [
+          "a",
+          "b"
+        ]
+      },
+      "value": [
+        "a",
+        "zzz"
+      ],
+      "valid": false,
+      "code": "option"
+    },
+    {
+      "id": "option-skips-empty-value",
+      "type": "select",
+      "attributes": {
+        "options": [
+          "S",
+          "M"
+        ]
+      },
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "option-skips-when-no-options-declared",
+      "type": "select",
+      "attributes": {},
+      "value": "anything",
+      "valid": true
+    },
+    {
+      "id": "option-skips-datasource-backed-field",
+      "type": "select",
+      "attributes": {
+        "options": [
+          "S"
+        ],
+        "dataSource": {
+          "minion": "listCities"
+        }
+      },
+      "value": "Dallas",
+      "valid": true
+    },
+    {
+      "id": "option-reads-values-alias",
+      "type": "select",
+      "attributes": {
+        "values": [
+          "S",
+          "M"
+        ]
+      },
+      "value": "M",
+      "valid": true
+    },
+    {
+      "id": "type-number-rejects-letters",
+      "type": "number",
+      "attributes": {},
+      "value": "abc",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-number-accepts-numeric-string",
+      "type": "number",
+      "attributes": {},
+      "value": "42",
+      "valid": true
+    },
+    {
+      "id": "type-number-accepts-number",
+      "type": "number",
+      "attributes": {},
+      "value": 42,
+      "valid": true
+    },
+    {
+      "id": "type-number-accepts-negative-decimal",
+      "type": "number",
+      "attributes": {},
+      "value": "-3.5",
+      "valid": true
+    },
+    {
+      "id": "type-number-skips-empty",
+      "type": "number",
+      "attributes": {},
+      "value": "",
+      "valid": true
+    },
+    {
+      "id": "type-currency-rejects-letters",
+      "type": "currency",
+      "attributes": {
+        "currencyCode": "USD"
+      },
+      "value": "abc",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-rating-rejects-letters",
+      "type": "rating",
+      "attributes": {
+        "max": 5
+      },
+      "value": "abc",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-day-rejects-garbage",
+      "type": "day",
+      "attributes": {},
+      "value": "not-a-date",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-day-accepts-iso",
+      "type": "day",
+      "attributes": {},
+      "value": "2024-01-31",
+      "valid": true
+    },
+    {
+      "id": "type-datetime-rejects-impossible",
+      "type": "datetime",
+      "attributes": {},
+      "value": "13/45/9999",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-datetime-accepts-iso",
+      "type": "datetime",
+      "attributes": {},
+      "value": "2024-01-31T10:30:00",
+      "valid": true
+    },
+    {
+      "id": "type-time-rejects-out-of-range",
+      "type": "time",
+      "attributes": {},
+      "value": "99:99",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "type-time-accepts-hhmm",
+      "type": "time",
+      "attributes": {},
+      "value": "10:30",
+      "valid": true
+    },
+    {
+      "id": "type-time-accepts-hhmmss",
+      "type": "time",
+      "attributes": {},
+      "value": "10:30:15",
+      "valid": true
+    },
+    {
+      "id": "type-text-unconstrained",
+      "type": "textField",
+      "attributes": {},
+      "value": "anything at all",
+      "valid": true
+    }
   ],
-
-  "serverOnlyNote": [
-    "Cases below have NO form-core counterpart — the browser constrains these by UI affordance",
-    "(you cannot click an option that isn't rendered) rather than by a validator, so there is",
-    "nothing to be in parity WITH. They run in the Java test only. This is exactly the class of",
-    "tampering the client cannot defend against, which is why the server checks it.",
-    "",
-    "Membership is SKIPPED when the field declares a dataSource: those options are fetched from a",
-    "minion at fill time and are not in the schema, so the server has no list to check against."
-  ],
-  "serverOnlyCases": [
-    { "id": "option-not-in-list", "type": "select", "attributes": { "options": ["S", "M", "L"] }, "value": "Gigantic", "valid": false, "code": "option" },
-    { "id": "option-in-list", "type": "select", "attributes": { "options": ["S", "M", "L"] }, "value": "M", "valid": true },
-    { "id": "option-object-shape", "type": "radio", "attributes": { "options": [{ "label": "Small", "value": "s" }, { "label": "Medium", "value": "m" }] }, "value": "m", "valid": true },
-    { "id": "option-object-shape-rejects-label-as-value", "type": "radio", "attributes": { "options": [{ "label": "Small", "value": "s" }] }, "value": "Small", "valid": false, "code": "option" },
-    { "id": "option-multi-select-all-members", "type": "selectBoxes", "attributes": { "options": ["a", "b"] }, "value": ["a", "b"], "valid": true },
-    { "id": "option-multi-select-one-stranger", "type": "selectBoxes", "attributes": { "options": ["a", "b"] }, "value": ["a", "zzz"], "valid": false, "code": "option" },
-    { "id": "option-skips-empty-value", "type": "select", "attributes": { "options": ["S", "M"] }, "value": "", "valid": true },
-    { "id": "option-skips-when-no-options-declared", "type": "select", "attributes": {}, "value": "anything", "valid": true },
-    { "id": "option-skips-datasource-backed-field", "type": "select", "attributes": { "options": ["S"], "dataSource": { "minion": "listCities" } }, "value": "Dallas", "valid": true },
-    { "id": "option-reads-values-alias", "type": "select", "attributes": { "values": ["S", "M"] }, "value": "M", "valid": true }
-  ]
+  "serverOnlyNote": "Empty. Option-membership used to live here because form-core had no such rule and the UI was treated as the constraint — which meant a tampered or imported payload could put any value into a choice field and only the server would object. form-core now implements `option` with these exact semantics, so the cases are SHARED and both implementations are held to them.",
+  "serverOnlyCases": []
 }
