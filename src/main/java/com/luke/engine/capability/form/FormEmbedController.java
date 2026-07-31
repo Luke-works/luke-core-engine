@@ -37,6 +37,7 @@ public class FormEmbedController {
     private final FormSubmissionService submissions;
     private final com.luke.engine.web.FixedWindowRateLimiter rateLimiter;
     private final com.luke.engine.branding.BrandingPolicy branding;
+    private final com.luke.engine.branding.PlanFeatures planFeatures;
     private final TurnstileVerifier turnstile;
 
     // Configurable per-minute caps for the PUBLIC embed surface (#55), keyed per token AND per IP.
@@ -49,6 +50,7 @@ public class FormEmbedController {
                                FormInstanceRepository instances, FormSubmissionService submissions,
                                com.luke.engine.web.FixedWindowRateLimiter rateLimiter,
                                com.luke.engine.branding.BrandingPolicy branding,
+                               com.luke.engine.branding.PlanFeatures planFeatures,
                                TurnstileVerifier turnstile,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-token-per-min:60}") int renderMaxPerToken,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-ip-per-min:120}") int renderMaxPerIp,
@@ -58,6 +60,7 @@ public class FormEmbedController {
         this.versions = versions;
         this.instances = instances;
         this.submissions = submissions;
+        this.planFeatures = planFeatures;
         this.rateLimiter = rateLimiter;
         this.branding = branding;
         this.turnstile = turnstile;
@@ -114,6 +117,12 @@ public class FormEmbedController {
         // rebuilding and re-vendoring the embed bundle. The SECRET is never part of any payload.
         out.put("captchaEnabled", turnstile.isEnabled());
         out.put("captchaSitekey", turnstile.isEnabled() ? turnstile.sitekey() : null);
+        // File attachments are a PAID feature. Resolved server-side like the badge above, so the flag
+        // the iframe receives is already the effective answer and a free tenant cannot re-enable the
+        // tab by editing the schema in the payload. The upload endpoint refuses independently — this
+        // only spares a filler an upload that was never going to be accepted.
+        out.put("attachmentsEnabled",
+                FormSettingsRead.attachmentsEnabled(schema) && planFeatures.canUseAttachments(resolved.tenantId()));
         return out;
     }
 

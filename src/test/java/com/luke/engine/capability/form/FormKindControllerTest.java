@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.branding.PlanFeatures;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,11 +21,12 @@ class FormKindControllerTest {
     private final FormAuditEventRepository audit = mock(FormAuditEventRepository.class);
     private final EmbedTokens tokens = mock(EmbedTokens.class);
     private final com.luke.engine.tenant.UserDirectory dir = mock(com.luke.engine.tenant.UserDirectory.class);
-    private final com.luke.engine.branding.BrandingPolicy branding = new com.luke.engine.branding.BrandingPolicy(
-            mock(com.luke.engine.branding.TenantPlanRepository.class));
+    private final com.luke.engine.branding.TenantPlanRepository plans =
+            mock(com.luke.engine.branding.TenantPlanRepository.class);
+    private final com.luke.engine.branding.BrandingPolicy branding = new com.luke.engine.branding.BrandingPolicy(plans);
     private final FormEmbedSiteRepository embedSites = mock(FormEmbedSiteRepository.class);
     private final FormDefinitionController controller =
-            new FormDefinitionController(forms, versions, audit, tokens, dir, branding, embedSites);
+            new FormDefinitionController(forms, versions, audit, tokens, dir, branding, new PlanFeatures(plans), embedSites);
 
     private FormDefinition stored(String kind) {
         FormDefinition f = new FormDefinition();

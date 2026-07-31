@@ -95,7 +95,7 @@ class FormEmbedCaptchaTest {
     }
 
     private FormEmbedController controller(TurnstileVerifier turnstile) {
-        return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding,
+        return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding, paidPlan(),
                 turnstile, 60, 120, 20, 40);
     }
 
@@ -220,5 +220,12 @@ class FormEmbedCaptchaTest {
         Map<String, Object> out = controller(TurnstileVerifiers.disabled()).render("tok", req, res);
         assertThat(out).containsEntry("captchaEnabled", false);
         assertThat(out.get("captchaSitekey")).isNull();
+    }
+
+    /** Attachments are irrelevant here — a paid plan keeps the render payload's flag out of the way. */
+    private static com.luke.engine.branding.PlanFeatures paidPlan() {
+        com.luke.engine.branding.PlanFeatures p = mock(com.luke.engine.branding.PlanFeatures.class);
+        when(p.canUseAttachments(anyString())).thenReturn(true);
+        return p;
     }
 }

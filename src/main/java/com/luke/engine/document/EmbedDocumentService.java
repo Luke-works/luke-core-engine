@@ -32,16 +32,27 @@ public class EmbedDocumentService {
 
     private final DocumentService documents;
     private final EmbedFormResolver resolver;
+    private final com.luke.engine.branding.PlanFeatures planFeatures;
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
 
-    public EmbedDocumentService(DocumentService documents, EmbedFormResolver resolver) {
+    public EmbedDocumentService(DocumentService documents, EmbedFormResolver resolver,
+                                com.luke.engine.branding.PlanFeatures planFeatures) {
         this.documents = documents;
         this.resolver = resolver;
+        this.planFeatures = planFeatures;
     }
 
     /** Authorize an upload for a valid embed token's tenant under the client's processRef. */
     public PublicAuthorizeResponse authorize(String token, String processRef, String filename, String contentType) {
         String tenantId = resolver.resolveTenant(token);
+        // Attachments are a PAID feature, and this is the boundary that matters: the embed payload
+        // already hides the tab for a free tenant, but the browser is not the gate — this endpoint is
+        // reachable by anyone holding the token. Refused BEFORE the rate-limit window is touched, so a
+        // free tenant's blocked uploads can't consume a paying tenant's budget on a shared token.
+        if (!planFeatures.canUseAttachments(tenantId)) {
+            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                    "File attachments are available on paid plans.");
+        }
         rateLimit("t:" + token);
         if (documents.countActiveAnonymous(tenantId, processRef) >= MAX_ATTACHMENTS_PER_PROCESS) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
