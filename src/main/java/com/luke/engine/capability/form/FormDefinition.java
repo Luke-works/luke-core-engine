@@ -152,6 +152,13 @@ public class FormDefinition {
     @Transient
     private boolean brandingLocked = true;
 
+    /** True when the tenant's plan does NOT include file attachments, so the builder renders the
+     *  option as locked with an upgrade hint. Filled at read time, NOT persisted. Defaults to LOCKED
+     *  for the same reason as {@link #brandingLocked}: a response that skips the enrichment must fail
+     *  closed rather than offer a feature the upload endpoint then refuses. */
+    @Transient
+    private boolean attachmentsLocked = true;
+
     /** When the form last passed its self-test ("Test the form"), and by whom. */
     private LocalDateTime lastTestedAt;
     private String lastTestedBy;
@@ -221,6 +228,9 @@ public class FormDefinition {
 
     public boolean isBrandingLocked() { return brandingLocked; }
     public void setBrandingLocked(boolean brandingLocked) { this.brandingLocked = brandingLocked; }
+
+    public boolean isAttachmentsLocked() { return attachmentsLocked; }
+    public void setAttachmentsLocked(boolean attachmentsLocked) { this.attachmentsLocked = attachmentsLocked; }
 
     public LocalDateTime getDeletedAt() { return deletedAt; }
     public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }

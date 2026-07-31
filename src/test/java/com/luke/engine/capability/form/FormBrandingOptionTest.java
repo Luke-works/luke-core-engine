@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.branding.PlanFeatures;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,7 +40,7 @@ class FormBrandingOptionTest {
 
     private final FormEmbedSiteRepository embedSites = mock(FormEmbedSiteRepository.class);
     private final FormDefinitionController controller =
-            new FormDefinitionController(forms, versions, audit, tokens, dir, branding, embedSites);
+            new FormDefinitionController(forms, versions, audit, tokens, dir, branding, new PlanFeatures(plans), embedSites);
 
     private FormDefinition stored() {
         FormDefinition f = new FormDefinition();
@@ -162,7 +163,7 @@ class FormBrandingOptionTest {
         com.luke.engine.web.FixedWindowRateLimiter limiter =
                 mock(com.luke.engine.web.FixedWindowRateLimiter.class);
         FormEmbedController embed = new FormEmbedController(resolver, versions,
-                mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding,
+                mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding, paidPlan(),
                 TurnstileVerifiers.disabled(), 60, 120, 20, 40);
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getRemoteAddr()).thenReturn("203.0.113.7");
@@ -197,11 +198,18 @@ class FormBrandingOptionTest {
                 .when(limiter).enforce(anyString(), anyInt(), any());
         EmbedFormResolver resolver = mock(EmbedFormResolver.class);
         FormEmbedController embed = new FormEmbedController(resolver, versions,
-                mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding,
+                mock(FormInstanceRepository.class), mock(FormSubmissionService.class), limiter, branding, paidPlan(),
                 TurnstileVerifiers.disabled(), 60, 120, 20, 40);
         HttpServletRequest req = mock(HttpServletRequest.class);
         assertThatThrownBy(() -> embed.render("tok", req, mock(HttpServletResponse.class)))
                 .isInstanceOf(ResponseStatusException.class);
         org.mockito.Mockito.verifyNoInteractions(resolver);
+    }
+
+    /** Attachments are irrelevant here — a paid plan keeps the render payload's flag out of the way. */
+    private static com.luke.engine.branding.PlanFeatures paidPlan() {
+        com.luke.engine.branding.PlanFeatures p = mock(com.luke.engine.branding.PlanFeatures.class);
+        when(p.canUseAttachments(anyString())).thenReturn(true);
+        return p;
     }
 }

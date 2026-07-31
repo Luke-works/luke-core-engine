@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.branding.PlanFeatures;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -29,7 +30,7 @@ class FormEmbedSiteNamesApiTest {
     private final TenantPlanRepository plans = mock(TenantPlanRepository.class);
     private final FormEmbedSiteRepository embedSites = mock(FormEmbedSiteRepository.class);
     private final FormDefinitionController controller =
-            new FormDefinitionController(forms, versions, audit, tokens, dir, new BrandingPolicy(plans), embedSites);
+            new FormDefinitionController(forms, versions, audit, tokens, dir, new BrandingPolicy(plans), new PlanFeatures(plans), embedSites);
 
     private FormDefinition form;
 

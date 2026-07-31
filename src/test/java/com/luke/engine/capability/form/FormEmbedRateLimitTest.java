@@ -1,5 +1,6 @@
 package com.luke.engine.capability.form;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -38,7 +39,7 @@ class FormEmbedRateLimitTest {
     private FormEmbedController controller() {
         // Captcha OFF: this suite is about the rate limits, and a gate in front of them would change
         // what it exercises. TurnstileVerifierTest and FormEmbedCaptchaTest cover the gate itself.
-        return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding,
+        return new FormEmbedController(resolver, versions, instances, submissions, limiter, branding, paidPlan(),
                 TurnstileVerifiers.disabled(), 60, 120, 20, 40);
     }
 
@@ -85,5 +86,12 @@ class FormEmbedRateLimitTest {
 
         // The IP bucket used the gateway-vouched 9.9.9.9, NOT the forwarded-for 1.1.1.1.
         verify(limiter).enforce(startsWith("embed-render-ip:9.9.9.9"), eq(120), any());
+    }
+
+    /** Attachments are irrelevant here — a paid plan keeps the render payload's flag out of the way. */
+    private static com.luke.engine.branding.PlanFeatures paidPlan() {
+        com.luke.engine.branding.PlanFeatures p = mock(com.luke.engine.branding.PlanFeatures.class);
+        when(p.canUseAttachments(anyString())).thenReturn(true);
+        return p;
     }
 }

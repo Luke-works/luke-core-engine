@@ -40,6 +40,7 @@ public class FormDefinitionController {
     private final EmbedTokens embedTokens;
     private final com.luke.engine.tenant.UserDirectory userDirectory;
     private final com.luke.engine.branding.BrandingPolicy branding;
+    private final com.luke.engine.branding.PlanFeatures planFeatures;
     private final FormEmbedSiteRepository embedSites;
 
     /** A concurrent edit (draft save / lock checkout) lost the optimistic-lock race
@@ -56,6 +57,7 @@ public class FormDefinitionController {
                                     FormAuditEventRepository audit, EmbedTokens embedTokens,
                                     com.luke.engine.tenant.UserDirectory userDirectory,
                                     com.luke.engine.branding.BrandingPolicy branding,
+                                    com.luke.engine.branding.PlanFeatures planFeatures,
                                     FormEmbedSiteRepository embedSites) {
         this.forms = forms;
         this.versions = versions;
@@ -63,6 +65,7 @@ public class FormDefinitionController {
         this.embedTokens = embedTokens;
         this.userDirectory = userDirectory;
         this.branding = branding;
+        this.planFeatures = planFeatures;
         this.embedSites = embedSites;
     }
 
@@ -722,6 +725,7 @@ public class FormDefinitionController {
      *  see {@link FormDefinition#isBrandingLocked()} — so this only ever relaxes a conservative default.) */
     private FormDefinition withBrandingLock(FormDefinition form) {
         form.setBrandingLocked(!branding.canHideBadge(form.getTenantId()));
+        form.setAttachmentsLocked(!planFeatures.canUseAttachments(form.getTenantId()));
         return form;
     }
 

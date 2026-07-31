@@ -1,5 +1,7 @@
 package com.luke.engine.document;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
@@ -35,13 +37,17 @@ class EmbedDocumentServiceTest {
 
     private static final String TOKEN = "good-token", REF = "embed-AB12", TENANT = "t1";
 
+    /** This suite is about the upload flow, not billing — default to an entitled tenant. */
+    private final com.luke.engine.branding.PlanFeatures plan = mock(com.luke.engine.branding.PlanFeatures.class);
+
     @BeforeEach
     void setUp() {
         DocumentAccessGuard guard = new DocumentAccessGuard(capabilities, new AllowAllTaskAccessResolver());
         DocumentService docs = new DocumentService(repo, guard, new DocumentRetentionPolicy(0, 2555),
                 doc -> DocumentScanner.ScanVerdict.ok());
-        embed = new EmbedDocumentService(docs, resolver);
+        embed = new EmbedDocumentService(docs, resolver, plan);
         when(resolver.resolveTenant(TOKEN)).thenReturn(TENANT);
+        when(plan.canUseAttachments(anyString())).thenReturn(true);
     }
 
     @Test
