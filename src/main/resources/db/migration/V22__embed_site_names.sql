@@ -1,11 +1,16 @@
--- Friendly labels for the origins in a form's embed allowlist ("Acme main site" beside
--- https://acme.com), so an author running several sites can tell the rows apart.
+-- Flyway V22 — friendly labels for the origins in a form's embed allowlist.
+--
+-- "Acme main site" beside https://acme.com, so an author running several sites can tell the rows
+-- apart. Two origins that differ by one word look near-identical in a monospace list, and deleting
+-- the wrong one silently breaks a live form.
 --
 -- Deliberately a SEPARATE column from allowed_embed_origins. That column is the input to the CSP
 -- frame-ancestors directive on the public embed surface, so its format is a security surface;
 -- labels are decoration. Splitting them means naming a site can never alter the policy.
 --
+-- Under the postgres profile Hibernate ddl-auto is `none`, so this migration is the source of truth;
+-- it must stay faithful to FormDefinition. IF NOT EXISTS keeps re-runs harmless.
+--
 -- Nullable with no backfill: every existing form simply has no labels, which is exactly right —
 -- there is nothing to infer from an origin, and an invented label would be worse than none.
-ALTER TABLE luke_form_definition
-    ADD COLUMN IF NOT EXISTS embed_origin_names text;
+    alter table luke_form_definitions add column if not exists embed_origin_names text;
