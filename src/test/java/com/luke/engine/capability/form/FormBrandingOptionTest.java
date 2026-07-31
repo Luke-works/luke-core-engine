@@ -63,7 +63,7 @@ class FormBrandingOptionTest {
 
     private FormDefinition patch(Boolean showBranding) {
         return controller.patchMeta("t1", "u1", "f1",
-                new FormDefinitionController.MetaPatch(null, null, null, showBranding));
+                new FormDefinitionController.MetaPatch(null, null, null, null, showBranding));
     }
 
     /* ── authoring: the paid gate ─────────────────────────────────── */
@@ -117,7 +117,7 @@ class FormBrandingOptionTest {
         // A name-only PATCH from a downgraded tenant must NOT trip the paid gate, and must not
         // silently rewrite their stored preference either.
         FormDefinition out = controller.patchMeta("t1", "u1", "f1",
-                new FormDefinitionController.MetaPatch("Renamed", null, null, null));
+                new FormDefinitionController.MetaPatch("Renamed", null, null, null, null));
         assertThat(out.getName()).isEqualTo("Renamed");
         assertThat(out.isShowBranding()).isFalse();
     }

@@ -69,7 +69,10 @@ public class FormDefinitionController {
     /* ── request bodies ─────────────────────────────────────── */
     public record CreateForm(String name, String description, String kind) {}
     /** {@code showBranding} is nullable: absent = leave the current setting alone. */
-    public record MetaPatch(String name, String description, String allowedEmbedOrigins, Boolean showBranding) {}
+    /** {@code embedOriginNames} labels the allowlist entries (origin → friendly name); absent leaves
+     *  them alone, and only labels for origins that survive normalization are kept. */
+    public record MetaPatch(String name, String description, String allowedEmbedOrigins,
+                            Map<String, String> embedOriginNames, Boolean showBranding) {}
     public record DraftBody(String schema) {}
     public record CheckInBody(String schema, Boolean publish) {}
     public record SubmissionHandlingBody(String mode) {}
@@ -318,6 +321,7 @@ public class FormDefinitionController {
         out.put("token", embedTokens.sign(tenantId, form.getCode(), form.getEmbedKeyVersion()));
         out.put("code", form.getCode());
         out.put("allowedEmbedOrigins", form.getAllowedEmbedOrigins()); // null = any site (public default)
+        out.put("embedOriginNames", EmbedSiteNames.fromJson(form.getEmbedOriginNames()));
         return out;
     }
 
@@ -338,6 +342,16 @@ public class FormDefinitionController {
                         "No valid embed origins found. Use full origins like https://example.com (one per line).");
             }
             form.setAllowedEmbedOrigins(FrameAncestors.normalizeList(body.allowedEmbedOrigins()));
+            // Labels are anchored to the allowlist we just stored, so removing an origin drops its
+            // label with it and a stale name can never outlive the site it described. Re-anchored on
+            // EVERY allowlist change, including when the client sends no names at all.
+            form.setEmbedOriginNames(EmbedSiteNames.toJson(
+                    body.embedOriginNames() != null ? body.embedOriginNames()
+                            : EmbedSiteNames.fromJson(form.getEmbedOriginNames()),
+                    form.getAllowedEmbedOrigins()));
+        } else if (body.embedOriginNames() != null) {
+            // Labels alone, allowlist untouched.
+            form.setEmbedOriginNames(EmbedSiteNames.toJson(body.embedOriginNames(), form.getAllowedEmbedOrigins()));
         }
         // "Developed at Lukeflow" badge. Turning it OFF is a paid-plan option, so enforce the plan HERE
         // as well as in the UI: the browser is not the boundary, and a free tenant scripting this PATCH
