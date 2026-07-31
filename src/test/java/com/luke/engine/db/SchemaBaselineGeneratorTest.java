@@ -48,6 +48,11 @@ class SchemaBaselineGeneratorTest {
         com.luke.engine.capability.email.EmailServer.class,
         com.luke.engine.capability.email.EmailMessage.class,
         com.luke.engine.capability.email.EmailVerification.class,
+        // EMAIL boxes (V14) + intake (V23). EmailBox was missing here since V14, so its DDL was
+        // never checked against the entity; the intake tables are registered from the start.
+        com.luke.engine.capability.email.EmailBox.class,
+        com.luke.engine.capability.email.InboundEmail.class,
+        com.luke.engine.capability.email.EmailRoutingRule.class,
         com.luke.engine.capability.emailtemplate.EmailTemplate.class,
         com.luke.engine.capability.emailtemplate.EmailTemplateVersion.class,
         com.luke.engine.capability.emailtemplate.EmailTemplateAuditEvent.class,

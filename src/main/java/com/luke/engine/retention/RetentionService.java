@@ -3,6 +3,7 @@ package com.luke.engine.retention;
 import com.luke.engine.capability.email.EmailMessageRepository;
 import com.luke.engine.capability.email.EmailVerification;
 import com.luke.engine.capability.email.EmailVerificationRepository;
+import com.luke.engine.capability.email.InboundEmailRepository;
 import com.luke.engine.capability.form.FormAuditEventRepository;
 import com.luke.engine.capability.form.FormInstanceRepository;
 import java.time.LocalDateTime;
@@ -31,23 +32,37 @@ public class RetentionService {
             List.of(EmailVerification.VERIFIED, EmailVerification.EXPIRED, EmailVerification.FAILED);
 
     private final EmailMessageRepository emailMessages;
+    private final InboundEmailRepository inboundEmails;
     private final FormInstanceRepository formInstances;
     private final FormAuditEventRepository formAuditEvents;
     private final EmailVerificationRepository emailVerifications;
 
-    public RetentionService(EmailMessageRepository emailMessages, FormInstanceRepository formInstances,
+    public RetentionService(EmailMessageRepository emailMessages, InboundEmailRepository inboundEmails,
+                            FormInstanceRepository formInstances,
                             FormAuditEventRepository formAuditEvents, EmailVerificationRepository emailVerifications) {
         this.emailMessages = emailMessages;
+        this.inboundEmails = inboundEmails;
         this.formInstances = formInstances;
         this.formAuditEvents = formAuditEvents;
         this.emailVerifications = emailVerifications;
     }
 
-    /** Delete email send-logs (recipient PII) created before {@code cutoff}. */
+    /**
+     * Delete email logs created before {@code cutoff} — both the send/receive envelope
+     * (recipient PII) and the RECEIVED CONTENT that shares its primary key.
+     *
+     * <p>The content table must be purged in the same pass: it holds the body of mail a third
+     * party sent the tenant, and deleting only the envelope would leave that text behind with
+     * no row pointing at it — undeletable through any tenant-scoped path and invisible to every
+     * later audit. The count returned covers both.
+     */
     @Transactional
     public long purgeEmailMessages(LocalDateTime cutoff, boolean dryRun) {
-        long n = emailMessages.countByCreatedAtBefore(cutoff);
+        long n = emailMessages.countByCreatedAtBefore(cutoff) + inboundEmails.countByReceivedAtBefore(cutoff);
         if (n > 0 && !dryRun) {
+            // Content first: if the second delete fails the transaction rolls both back, and
+            // this order never leaves content orphaned by a committed envelope delete.
+            inboundEmails.deleteReceivedBefore(cutoff);
             emailMessages.deleteCreatedBefore(cutoff);
         }
         return n;

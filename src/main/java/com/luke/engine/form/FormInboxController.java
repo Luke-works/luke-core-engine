@@ -28,11 +28,18 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * Form Inbox: the open user tasks for the caller's tenant (e.g. the
- * "Review Submission" tasks created by the form-intake process). Each task links
- * back to its submission via the business key (= the FormInstance id), so the UI
- * can render the answers and let a reviewer complete the task. Tenant-scoped via
- * {@code X-Tenant-Id}.
+ * The tenant's work inbox: every open user task, whatever created it.
+ *
+ * <p>Despite the {@code /api/form-inbox} path — kept because it is registered by name in
+ * {@link com.luke.engine.config.ApiAuthFilter} and renaming a security-registered route for
+ * cosmetics is not worth the risk — this query has never been form-only. It returns all active
+ * user tasks for the tenant, which now includes the "Review inbound email" tasks the EMAIL
+ * intake creates.
+ *
+ * <p>Each row carries a {@code kind} saying what it is about, and the fields needed to open it:
+ * {@code form} tasks carry {@code instanceId} (the FormInstance holding the answers) and
+ * {@code definitionCode}; {@code email} tasks carry {@code emailMessageId}, {@code emailFrom}
+ * and {@code emailBox}. Tenant-scoped via {@code X-Tenant-Id}.
  */
 @RestController
 @RequestMapping("/api/form-inbox")
@@ -101,27 +108,42 @@ public class FormInboxController {
         // formCode = FormInstance.definitionCode). Lets the inbox group/filter by form
         // without an extra FormInstance lookup.
         Map<String, String> formCodes = new HashMap<>();
+        // pid → inbound-email fields, for the EMAIL kind (see the kind note below).
+        Map<String, String> emailMessageIds = new HashMap<>();
+        Map<String, String> emailFroms = new HashMap<>();
+        Map<String, String> emailBoxes = new HashMap<>();
         if (!pids.isEmpty()) {
             for (ProcessInstance pi : runtimeService.createProcessInstanceQuery()
                     .processInstanceIds(pids).list()) {
                 if (pi.getBusinessKey() != null) businessKeys.put(pi.getId(), pi.getBusinessKey());
             }
             try {
+                // One query for every variable the page needs, form and email alike — a second
+                // pass per kind would scale with the number of kinds, not the page size.
                 for (VariableInstance v : runtimeService.createVariableInstanceQuery()
                         .processInstanceIdIn(pids.toArray(new String[0]))
-                        .variableName("formMetaData")
+                        .variableNameIn("formMetaData", "emailMessageId", "emailFrom", "emailBox")
                         .list()) {
-                    JsonNode meta = readMeta(v.getValue());
-                    if (meta == null) continue;
-                    if (meta.hasNonNull("instanceId")) {
-                        formInstanceIds.put(v.getProcessInstanceId(), meta.get("instanceId").asText());
-                    }
-                    if (meta.hasNonNull("formCode")) {
-                        formCodes.put(v.getProcessInstanceId(), meta.get("formCode").asText());
+                    String pid = v.getProcessInstanceId();
+                    switch (v.getName()) {
+                        case "emailMessageId" -> put(emailMessageIds, pid, v.getValue());
+                        case "emailFrom" -> put(emailFroms, pid, v.getValue());
+                        case "emailBox" -> put(emailBoxes, pid, v.getValue());
+                        case "formMetaData" -> {
+                            JsonNode meta = readMeta(v.getValue());
+                            if (meta == null) break;
+                            if (meta.hasNonNull("instanceId")) {
+                                formInstanceIds.put(pid, meta.get("instanceId").asText());
+                            }
+                            if (meta.hasNonNull("formCode")) {
+                                formCodes.put(pid, meta.get("formCode").asText());
+                            }
+                        }
+                        default -> { /* not requested */ }
                     }
                 }
             } catch (RuntimeException e) {
-                log.debug("Inbox: could not resolve formMetaData (using business keys): {}", e.toString());
+                log.debug("Inbox: could not resolve task variables (using business keys): {}", e.toString());
             }
         }
 
@@ -134,11 +156,32 @@ public class FormInboxController {
             m.put("assignee", t.getAssignee());
             m.put("processInstanceId", t.getProcessInstanceId());
             m.put("processDefinitionKey", stripVersion(t.getProcessDefinitionId()));
+            m.put("priority", t.getPriority());
             String pid = t.getProcessInstanceId();
-            // The submission this task is about (FormInstance id), preferring the variable-resolved id.
-            m.put("instanceId", formInstanceIds.getOrDefault(pid, businessKeys.get(pid)));
             m.put("businessKey", businessKeys.get(pid)); // the human-readable SM-... key (display/trace)
-            m.put("definitionCode", formCodes.get(pid)); // the form this task belongs to (inbox grouping)
+
+            // KIND. This query is, and always was, every open user task for the tenant — not only
+            // form tasks. Inbound email creates "Review inbound email" tasks here too, and before
+            // this field the UI had no way to tell them apart: it read instanceId (which fell back
+            // to the business key), tried to load it as a FormInstance, and the row failed to open.
+            // Kind is resolved from the variables a process actually carries, so a future task type
+            // is a new case here rather than a change to every consumer.
+            String emailMessageId = emailMessageIds.get(pid);
+            if (emailMessageId != null) {
+                m.put("kind", "email");
+                m.put("emailMessageId", emailMessageId);
+                m.put("emailFrom", emailFroms.get(pid));
+                m.put("emailBox", emailBoxes.get(pid));
+                // Deliberately null: there is no FormInstance behind an email task, and the
+                // business-key fallback below is exactly what made callers think there was.
+                m.put("instanceId", null);
+                m.put("definitionCode", null);
+            } else {
+                m.put("kind", "form");
+                // The submission this task is about (FormInstance id), preferring the variable-resolved id.
+                m.put("instanceId", formInstanceIds.getOrDefault(pid, businessKeys.get(pid)));
+                m.put("definitionCode", formCodes.get(pid)); // the form this task belongs to (inbox grouping)
+            }
             out.add(m);
         }
         return new PagedInbox(out, total, offset, limit);
@@ -172,6 +215,13 @@ public class FormInboxController {
         }
         taskService.complete(taskId);
         return Map.of("ok", true, "taskId", taskId);
+    }
+
+    /** Record a string-valued process variable, ignoring nulls and blanks. */
+    private static void put(Map<String, String> target, String pid, Object value) {
+        if (value == null) return;
+        String s = String.valueOf(value).trim();
+        if (!s.isEmpty()) target.put(pid, s);
     }
 
     /** Parse the formMetaData variable (a Spin JSON node or a JSON string — both render JSON via

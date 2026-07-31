@@ -39,18 +39,23 @@ public class EmailBoxService {
     private final EmailServerService serverService;
     private final PostmarkClient postmark;
     private final PostmarkAccountClient accountClient;
+    /** Repository, not EmailRoutingRuleService — that service depends on EmailBoxRepository,
+     *  and going through it would put a cycle in the bean graph for no gain. */
+    private final EmailRoutingRuleRepository routingRules;
 
     /** Public base URL Postmark POSTs inbound mail to (e.g. https://authdev.lukeflow.com). */
     @Value("${luke.email.inbound.public-base-url:}")
     private String inboundPublicBaseUrl;
 
     public EmailBoxService(EmailBoxRepository boxes, EmailServerRepository servers,
-            EmailServerService serverService, PostmarkClient postmark, PostmarkAccountClient accountClient) {
+            EmailServerService serverService, PostmarkClient postmark, PostmarkAccountClient accountClient,
+            EmailRoutingRuleRepository routingRules) {
         this.boxes = boxes;
         this.servers = servers;
         this.serverService = serverService;
         this.postmark = postmark;
         this.accountClient = accountClient;
+        this.routingRules = routingRules;
     }
 
     /** Registration input. {@code localPart} is the part before {@code @}; the domain is the tenant's. */
@@ -149,9 +154,14 @@ public class EmailBoxService {
         return new RegisterResult(box, webhookUrl, postmarkInbound, warning);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public void delete(String tenantId, String id) {
         EmailBox box = boxes.findByIdAndTenantId(id, tenantId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Box not found"));
+        // Rules scoped to this box go with it. Left behind they would be dead rows that still
+        // cost a comparison on every inbound message and would silently reactivate if the same
+        // box id were ever reissued. Rules with a null boxId are tenant-wide and stay.
+        routingRules.deleteByTenantIdAndBoxId(tenantId, box.getId());
         // We leave the Postmark stream in place (Postmark keeps message history); just drop our row.
         boxes.delete(box);
     }

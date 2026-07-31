@@ -31,10 +31,13 @@ public class EmailController {
 
     private final EmailService emails;
     private final EmailMessageRepository repository;
+    private final InboundEmailRepository inboundEmails;
 
-    public EmailController(EmailService emails, EmailMessageRepository repository) {
+    public EmailController(EmailService emails, EmailMessageRepository repository,
+                           InboundEmailRepository inboundEmails) {
         this.emails = emails;
         this.repository = repository;
+        this.inboundEmails = inboundEmails;
     }
 
     /** Send a raw HTML/text email. */
@@ -89,6 +92,25 @@ public class EmailController {
         requireTenant(tenantId);
         return repository.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown email: " + id));
+    }
+
+    /**
+     * The received content of an INBOUND message — body, headers, attachment metadata.
+     *
+     * <p>A separate call from {@link #get}: the list endpoint above returns whole
+     * {@link EmailMessage} rows, and folding bodies into that response would put every message's
+     * full text on the wire for a 50-row inbox render. Content is fetched only when a reader
+     * actually opens one.
+     *
+     * <p>Inherits the EMAIL capability gate and the gateway auth filter from the
+     * {@code /api/emails/**} prefix, and is tenant-scoped by the lookup itself.
+     */
+    @GetMapping("/{id}/inbound")
+    public InboundEmail inbound(@RequestHeader("X-Tenant-Id") String tenantId, @PathVariable String id) {
+        requireTenant(tenantId);
+        return inboundEmails.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No received content for email: " + id));
     }
 
     private static void requireTenant(String tenantId) {

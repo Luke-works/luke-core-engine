@@ -3,6 +3,7 @@ package com.luke.engine.capability.access;
 import com.luke.engine.capability.capability.CapabilitySubscriptionRepository;
 import com.luke.engine.capability.email.EmailMessageRepository;
 import com.luke.engine.capability.email.EmailVerificationRepository;
+import com.luke.engine.capability.email.InboundEmailRepository;
 import com.luke.engine.capability.form.FormAuditEventRepository;
 import com.luke.engine.capability.form.FormInstanceRepository;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +31,8 @@ public class CapabilityAdminController {
     private final CapabilitySubscriptionRepository subscriptions;
     // #53: a deleted tenant must leave no personal data — cascade the PII/audit trails too.
     private final EmailMessageRepository emailMessages;
+    /** Received message bodies — share luke_email_messages' key, so they cascade with it. */
+    private final InboundEmailRepository inboundEmails;
     private final FormInstanceRepository formInstances;
     private final FormAuditEventRepository formAuditEvents;
     private final EmailVerificationRepository emailVerifications;
@@ -37,12 +40,14 @@ public class CapabilityAdminController {
     public CapabilityAdminController(CapabilityGrantRepository grants,
                                      CapabilitySubscriptionRepository subscriptions,
                                      EmailMessageRepository emailMessages,
+                                     InboundEmailRepository inboundEmails,
                                      FormInstanceRepository formInstances,
                                      FormAuditEventRepository formAuditEvents,
                                      EmailVerificationRepository emailVerifications) {
         this.grants = grants;
         this.subscriptions = subscriptions;
         this.emailMessages = emailMessages;
+        this.inboundEmails = inboundEmails;
         this.formInstances = formInstances;
         this.formAuditEvents = formAuditEvents;
         this.emailVerifications = emailVerifications;
@@ -56,6 +61,7 @@ public class CapabilityAdminController {
     public ResponseEntity<Void> purgeTenant(@PathVariable String tenantId) {
         grants.deleteAll(grants.findByTenantId(tenantId));
         subscriptions.deleteAll(subscriptions.findByTenantId(tenantId));
+        inboundEmails.deleteByTenant(tenantId); // received bodies, before their envelopes
         emailMessages.deleteByTenant(tenantId);
         formInstances.deleteByTenant(tenantId);
         formAuditEvents.deleteByTenant(tenantId);
