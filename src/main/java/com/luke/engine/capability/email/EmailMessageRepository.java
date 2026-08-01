@@ -12,6 +12,16 @@ public interface EmailMessageRepository extends JpaRepository<EmailMessage, Stri
 
     Optional<EmailMessage> findByIdAndTenantId(String id, String tenantId);
 
+    /**
+     * Inbound dedup: has this Postmark message already been received for this tenant?
+     *
+     * <p>{@code findFirst} rather than a unique lookup on purpose — the unique index added in
+     * V23 is skipped on any environment that already held duplicates, so this query must
+     * tolerate finding more than one row instead of throwing where the index is absent.
+     */
+    Optional<EmailMessage> findFirstByTenantIdAndDirectionAndPostmarkMessageId(
+            String tenantId, String direction, String postmarkMessageId);
+
     /* ── retention purge (#53): send logs carry recipient PII, delete past the window ── */
 
     long countByCreatedAtBefore(LocalDateTime cutoff);

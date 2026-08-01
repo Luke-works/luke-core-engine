@@ -9,7 +9,16 @@
       <bpmn:outgoing>Flow_start_review</bpmn:outgoing>
     </bpmn:startEvent>
     <bpmn:sequenceFlow id="Flow_start_review" sourceRef="StartEvent_1" targetRef="Activity_review" />
+    <!-- The task's name/assignee/candidate group/priority are applied by the routing listener
+         from the decision made at receipt (EmailRoutingRuleService). They are NOT camunda:
+         attribute expressions on purpose — see EmailTaskRoutingListener's javadoc: an instance
+         started without those variables would fail to create the activity at all, instead of
+         producing a plain unassigned review task. The static name below is the fallback any
+         such start still gets. -->
     <bpmn:userTask id="Activity_review" name="Review inbound email">
+      <bpmn:extensionElements>
+        <camunda:taskListener event="create" delegateExpression="${emailTaskRoutingListener}" />
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_start_review</bpmn:incoming>
       <bpmn:outgoing>Flow_review_end</bpmn:outgoing>
     </bpmn:userTask>

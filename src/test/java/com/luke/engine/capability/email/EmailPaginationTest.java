@@ -17,7 +17,7 @@ import org.springframework.data.domain.Pageable;
 class EmailPaginationTest {
 
     private EmailController controller(EmailMessageRepository repo) {
-        return new EmailController(mock(EmailService.class), repo);
+        return new EmailController(mock(EmailService.class), repo, mock(InboundEmailRepository.class));
     }
 
     @Test

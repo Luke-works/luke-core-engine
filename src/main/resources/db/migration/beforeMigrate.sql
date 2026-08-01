@@ -818,3 +818,82 @@
 
     create index if not exists idx_usage_tenant
        on luke_integration_usage_events (tenant_id);
+
+-- ── from V14__email_boxes.sql ──────────────────────────────────────────────────────────────
+-- Was missing from this callback (added 2026-07-31 with V23): an env baselined past V14 had no
+-- luke_email_boxes at all, so every box read 500'd — the same failure the V6 note above describes.
+-- Only the CREATE self-heals; V14's ALTERs (luke_email_servers.inbound_hook_token,
+-- luke_email_messages.direction) still depend on the versioned migration, per the header.
+
+    create table if not exists luke_email_boxes (
+        id varchar(255) not null,
+        tenant_id varchar(255) not null,
+        direction varchar(255) not null,
+        address varchar(255) not null,
+        local_part varchar(255),
+        display_name varchar(255),
+        status varchar(255) not null default 'ACTIVE',
+        postmark_stream_id varchar(255),
+        routing_key varchar(255),
+        workflow_trigger boolean not null default true,
+        created_at timestamp(6) not null,
+        updated_at timestamp(6),
+        primary key (id)
+    );
+
+    create unique index if not exists idx_emailbox_tenant_dir_addr
+        on luke_email_boxes (tenant_id, direction, address);
+    create index if not exists idx_emailbox_tenant on luke_email_boxes (tenant_id);
+    create index if not exists idx_emailbox_routing on luke_email_boxes (tenant_id, routing_key);
+
+-- ── from V23__email_intake.sql ──────────────────────────────────────────────────────────────
+
+    create table if not exists luke_email_inbound (
+        id varchar(255) not null,
+        tenant_id varchar(255) not null,
+        box_id varchar(255),
+        box_address varchar(255),
+        mailbox_hash varchar(255),
+        from_name varchar(255),
+        to_full varchar(1000),
+        cc_addresses varchar(1000),
+        reply_to varchar(255),
+        text_body text,
+        html_body text,
+        stripped_text_reply text,
+        message_id_header varchar(998),
+        in_reply_to varchar(998),
+        attachments text,
+        headers text,
+        attachment_count integer not null default 0,
+        received_at timestamp(6) not null,
+        primary key (id)
+    );
+
+    create index if not exists idx_emailinbound_tenant on luke_email_inbound (tenant_id);
+    create index if not exists idx_emailinbound_box on luke_email_inbound (tenant_id, box_id);
+
+    create table if not exists luke_email_routing_rules (
+        id varchar(255) not null,
+        tenant_id varchar(255) not null,
+        box_id varchar(255),
+        name varchar(255) not null,
+        enabled boolean not null default true,
+        sort_order integer not null default 0,
+        match_field varchar(32) not null,
+        match_operator varchar(32) not null,
+        match_value varchar(1000) not null,
+        case_sensitive boolean not null default false,
+        action_assignee varchar(255),
+        action_candidate_group varchar(255),
+        action_priority integer,
+        action_process_key varchar(255),
+        action_task_name varchar(255),
+        action_suppress_task boolean not null default false,
+        created_at timestamp(6) not null,
+        updated_at timestamp(6),
+        primary key (id)
+    );
+
+    create index if not exists idx_emailrule_tenant on luke_email_routing_rules (tenant_id);
+    create index if not exists idx_emailrule_order on luke_email_routing_rules (tenant_id, box_id, sort_order);
