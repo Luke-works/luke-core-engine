@@ -22,8 +22,11 @@ import org.springframework.web.server.ResponseStatusException;
  * gateway auth filter are registered on {@code /api/email-boxes/*} as a prefix, so this surface
  * inherits both and cannot be shipped ungated — which is exactly how {@code /api/email-boxes}
  * itself was once left reachable behind nothing but a spoofable {@code X-Tenant-Id} (#20).
- * The literal segment also out-ranks {@code /api/email-boxes/{id}} in Spring's pattern
- * comparator, so it does not collide with box deletion.
+ *
+ * <p>No mapping collides with {@link EmailBoxController}: a path variable never matches across a
+ * {@code /}, so {@code /api/email-boxes/{id}} cannot claim {@code routing-rules/{ruleId}}, and the
+ * collection routes there are on the bare prefix. The context boots in every test, which is what
+ * an ambiguous mapping would fail.
  */
 @RestController
 @RequestMapping("/api/email-boxes/routing-rules")
