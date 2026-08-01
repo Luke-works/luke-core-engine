@@ -105,14 +105,22 @@ public class EmailRoutingRuleService {
     @Transactional
     public List<EmailRoutingRule> reorder(String tenantId, List<String> orderedIds) {
         List<EmailRoutingRule> mine = rules.findByTenantIdOrderBySortOrderAscCreatedAtAsc(tenantId);
-        Map<String, EmailRoutingRule> byId = new java.util.HashMap<>();
+        Map<String, EmailRoutingRule> byId = new java.util.LinkedHashMap<>();
         for (EmailRoutingRule r : mine) byId.put(r.getId(), r);
+
         int i = 0;
+        java.util.Set<String> placed = new java.util.HashSet<>();
         for (String id : orderedIds) {
             EmailRoutingRule r = byId.get(id);
             // Silently ignore ids that aren't this tenant's — a stale drag must not 500, and
             // must certainly not reorder someone else's rules.
-            if (r != null) r.setSortOrder(i++);
+            if (r != null && placed.add(id)) r.setSortOrder(i++);
+        }
+        // Anything the caller left out keeps its relative order but is RENUMBERED after the
+        // listed rules. Leaving it alone would let a stale position collide with a freshly
+        // assigned one, and first-match-wins then depends on a tie-break nobody can see.
+        for (EmailRoutingRule r : mine) {
+            if (!placed.contains(r.getId())) r.setSortOrder(i++);
         }
         rules.saveAll(mine);
         return rules.findByTenantIdOrderBySortOrderAscCreatedAtAsc(tenantId);

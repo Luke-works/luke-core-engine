@@ -314,6 +314,32 @@ class EmailRoutingRuleServiceTest {
     }
 
     @Test
+    void reorderRenumbersRulesTheCallerLeftOutInsteadOfLeavingThemToCollide() {
+        // A partial list must not leave a stale position that ties with a freshly assigned one:
+        // first-match-wins would then hinge on a tie-break nobody can see in the UI.
+        EmailRoutingRule a = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "a", false, 0, "a");
+        EmailRoutingRule b = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "b", false, 1, "b");
+        EmailRoutingRule c = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "c", false, 2, "c");
+
+        // Only c and a are listed; b is omitted.
+        List<EmailRoutingRule> after = service.reorder(TENANT, List.of(c.getId(), a.getId()));
+
+        assertThat(after).extracting(EmailRoutingRule::getName).containsExactly("c", "a", "b");
+        assertThat(after).extracting(EmailRoutingRule::getSortOrder).containsExactly(0, 1, 2);
+    }
+
+    @Test
+    void reorderIgnoresARepeatedId() {
+        EmailRoutingRule a = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "a", false, 0, "a");
+        EmailRoutingRule b = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "b", false, 1, "b");
+
+        List<EmailRoutingRule> after = service.reorder(TENANT, List.of(b.getId(), b.getId(), a.getId()));
+
+        assertThat(after).extracting(EmailRoutingRule::getName).containsExactly("b", "a");
+        assertThat(after).extracting(EmailRoutingRule::getSortOrder).containsExactly(0, 1);
+    }
+
+    @Test
     void reorderRewritesPositionsAndIgnoresForeignIds() {
         EmailRoutingRule a = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "a", false, 0, "a");
         EmailRoutingRule b = saved(EmailRoutingRule.Field.ANY, EmailRoutingRule.Operator.CONTAINS, "b", false, 1, "b");
