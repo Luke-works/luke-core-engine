@@ -2,6 +2,8 @@ package com.luke.engine.capability.form;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luke.engine.document.DocumentService;
+import com.luke.engine.usage.UsageMetric;
+import com.luke.engine.usage.UsageService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -44,16 +46,19 @@ public class FormSubmissionService {
     private final FormEventPublisher events;
     private final FormDefinitionRepository forms;
     private final FormVersionRepository versions;
+    private final UsageService usage;
 
     public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
                                  DocumentService documents, FormEventPublisher events,
-                                 FormDefinitionRepository forms, FormVersionRepository versions) {
+                                 FormDefinitionRepository forms, FormVersionRepository versions,
+                                 UsageService usage) {
         this.instances = instances;
         this.outbox = outbox;
         this.documents = documents;
         this.events = events;
         this.forms = forms;
         this.versions = versions;
+        this.usage = usage;
     }
 
     /**
@@ -79,6 +84,8 @@ public class FormSubmissionService {
     @Transactional
     public void submit(FormInstance inst, Map<String, Object> dataToMerge, String attachmentSourceRef,
                        SubmissionSource source) {
+        // Plan usage gate — default-lenient: a no-op unless luke.plan.enforce-usage-limits=true.
+        usage.enforce(inst.getTenantId(), UsageMetric.SUBMISSIONS);
         // The contract this submission is judged against: the schema of the version the instance is
         // PINNED to. Used for both the field backstop and the consent statement, so what we validate and
         // what we record agree by construction.
@@ -117,6 +124,8 @@ public class FormSubmissionService {
         // Emit the forms→workflow lifecycle event on the same transaction, so a
         // submission and its "form submitted" event commit together.
         events.emit(inst, "submitted");
+        // Meter the submission — best-effort, isolated tx; never fails the submit.
+        usage.record(inst.getTenantId(), UsageMetric.SUBMISSIONS);
     }
 
     /**

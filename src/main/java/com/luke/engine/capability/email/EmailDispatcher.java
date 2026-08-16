@@ -1,6 +1,8 @@
 package com.luke.engine.capability.email;
 
 import com.luke.engine.capability.email.PostmarkClient.SendResult;
+import com.luke.engine.usage.UsageMetric;
+import com.luke.engine.usage.UsageService;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -34,6 +36,7 @@ public class EmailDispatcher {
     private final PostmarkClient postmark;
     private final EmailMessageRepository repository;
     private final MeterRegistry metrics;
+    private final UsageService usage;
 
     @Value("${luke.email.max-attempts:3}")
     private int maxAttempts;
@@ -41,10 +44,12 @@ public class EmailDispatcher {
     @Value("${luke.email.retry-backoff-ms:500}")
     private long backoffMs;
 
-    public EmailDispatcher(PostmarkClient postmark, EmailMessageRepository repository, MeterRegistry metrics) {
+    public EmailDispatcher(PostmarkClient postmark, EmailMessageRepository repository, MeterRegistry metrics,
+                           UsageService usage) {
         this.postmark = postmark;
         this.repository = repository;
         this.metrics = metrics;
+        this.usage = usage;
     }
 
     /** Async, after-commit delivery of a queued row. */
@@ -66,6 +71,10 @@ public class EmailDispatcher {
         apply(msg, res);
         EmailMessage saved = repository.save(msg);
         recordMetrics(res, start);
+        if (res.ok()) {
+            // Meter a sent email — best-effort, isolated tx; never affects delivery.
+            usage.record(msg.getTenantId(), UsageMetric.EMAILS);
+        }
         return saved;
     }
 
