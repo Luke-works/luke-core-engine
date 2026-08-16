@@ -35,7 +35,7 @@
              #55 shared rate limiter) to the patched version: 4.1.135 has CVE-2026-59901
              (Bzip2Decoder infinite loop), fixed in 4.1.136. Mirrors auth-engine #41. -->
         <netty.version>4.1.136.Final</netty.version>
-        <fluxnova.version>2.0.3</fluxnova.version>
+        <fluxnova.version>3.0.0</fluxnova.version>
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
         <pdfbox.version>3.0.3</pdfbox.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
