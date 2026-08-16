@@ -39,7 +39,7 @@
         <!-- Signatures capability (merged from luke-signature-engine, SIG-M) -->
         <pdfbox.version>3.0.3</pdfbox.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
-        <awssdk.version>2.25.60</awssdk.version>
+        <awssdk.version>2.52.1</awssdk.version>
         <!-- Stripe billing (Phase 2b). MIT-licensed. Only exercised when STRIPE_SECRET_KEY is set;
              absent = the billing module self-disables, so dev/qa never touch the network. -->
         <stripe.version>28.2.0</stripe.version>
