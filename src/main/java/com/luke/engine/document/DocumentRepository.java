@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Tenant-scoped access to {@link Document}. Every authenticated finder is tenant-filtered (mirrors
@@ -34,4 +36,14 @@ public interface DocumentRepository extends JpaRepository<Document, String> {
 
     /** Expired documents eligible for the retention purge (DOC-5). */
     List<Document> findByRetainUntilBeforeAndStatusNot(LocalDateTime cutoff, String status);
+
+    /**
+     * The tenant's current stored-bytes total — the storage usage gauge. Excludes {@code DELETED}
+     * rows (they no longer occupy storage); pre-finalize rows carry a null size that {@code SUM}
+     * ignores, so this is the real occupied bytes. {@code COALESCE(..,0)} keeps it {@code 0}, never
+     * null, for a tenant with no documents.
+     */
+    @Query("select coalesce(sum(d.sizeBytes), 0) from Document d "
+            + "where d.tenantId = :tenantId and d.status <> 'DELETED'")
+    long sumSizeBytesForTenant(@Param("tenantId") String tenantId);
 }

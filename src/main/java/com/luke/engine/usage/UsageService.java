@@ -35,14 +35,19 @@ public class UsageService {
     private static final Logger log = LoggerFactory.getLogger(UsageService.class);
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
 
+    /** Decimal GB (10^9), matching how storage is marketed and how {@link PlanCatalog#storageGb} reads. */
+    private static final long BYTES_PER_GB = 1_000_000_000L;
+
     private final UsageCounterRepository counters;
     private final PlanService plans;
+    private final StorageUsageProvider storage;
     private final boolean enforce;
 
-    public UsageService(UsageCounterRepository counters, PlanService plans,
+    public UsageService(UsageCounterRepository counters, PlanService plans, StorageUsageProvider storage,
                         @Value("${luke.plan.enforce-usage-limits:false}") boolean enforce) {
         this.counters = counters;
         this.plans = plans;
+        this.storage = storage;
         this.enforce = enforce;
     }
 
@@ -111,7 +116,25 @@ public class UsageService {
             row.put("limit", limit < 0 ? null : limit); // null = unlimited
             usage.put(m.id(), row);
         }
+        // Storage is a live gauge (bytes occupied now), not a monthly counter — used + limit are BYTES.
+        double storageGb = tier.storageGb();
+        Map<String, Object> storageRow = new LinkedHashMap<>();
+        storageRow.put("used", storageBytes(tenantId));
+        storageRow.put("limit", storageGb < 0 ? null : (long) (storageGb * BYTES_PER_GB)); // null = unlimited
+        usage.put("storage", storageRow);
+
         out.put("usage", usage);
         return out;
+    }
+
+    /** The tenant's current stored bytes — resilient: a gauge failure reports 0, never breaks the snapshot. */
+    private long storageBytes(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return 0;
+        try {
+            return Math.max(0, storage.usedBytes(tenantId));
+        } catch (RuntimeException e) {
+            log.warn("usage storage gauge failed for {} — reporting 0 (usage never breaks the snapshot)", tenantId, e);
+            return 0;
+        }
     }
 }

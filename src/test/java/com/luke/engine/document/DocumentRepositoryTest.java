@@ -66,4 +66,26 @@ class DocumentRepositoryTest {
         List<Document> expired = repo.findByRetainUntilBeforeAndStatusNot(LocalDateTime.now(), Document.STATUS_DELETED);
         assertThat(expired).extracting(Document::getId).contains(d.getId());
     }
+
+    @Test
+    void storageSumCountsNonDeletedBytesPerTenantAndCoalescesNull() {
+        Document a = sized("t1", "s-a", Document.STATUS_READY, 1000L);
+        Document b = sized("t1", "s-b", Document.STATUS_READY, 500L);
+        Document pending = sized("t1", "s-c", Document.STATUS_PENDING, null);   // null size → SUM ignores
+        Document deleted = sized("t1", "s-d", Document.STATUS_DELETED, 9999L);  // excluded — no longer occupies
+        Document otherTenant = sized("t2", "s-e", Document.STATUS_READY, 7L);
+        repo.saveAll(List.of(a, b, pending, deleted, otherTenant));
+
+        assertThat(repo.sumSizeBytesForTenant("t1")).isEqualTo(1500L); // 1000 + 500; null skipped, DELETED excluded
+        assertThat(repo.sumSizeBytesForTenant("t2")).isEqualTo(7L);    // tenant-isolated
+        assertThat(repo.sumSizeBytesForTenant("nobody")).isEqualTo(0L); // COALESCE → 0, never null
+    }
+
+    private Document sized(String tenant, String key, String status, Long bytes) {
+        Document d = doc(tenant, "proc-S", null, Document.KIND_GENERIC, "FORMS", null);
+        d.setStorageKey(tenant + "/" + key);
+        d.setStatus(status);
+        d.setSizeBytes(bytes);
+        return d;
+    }
 }
