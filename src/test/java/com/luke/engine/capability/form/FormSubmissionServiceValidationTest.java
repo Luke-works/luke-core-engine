@@ -1,5 +1,7 @@
 package com.luke.engine.capability.form;
 
+import com.luke.engine.usage.UsageService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,7 +34,7 @@ class FormSubmissionServiceValidationTest {
     private final FormVersionRepository versions = mock(FormVersionRepository.class);
 
     private final FormSubmissionService service =
-            new FormSubmissionService(instances, outbox, documents, events, forms, versions);
+            new FormSubmissionService(instances, outbox, documents, events, forms, versions, mock(UsageService.class));
 
     /** fullName is required; age and notes are optional. */
     private static final String SCHEMA = """

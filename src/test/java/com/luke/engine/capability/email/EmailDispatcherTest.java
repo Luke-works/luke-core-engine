@@ -1,5 +1,7 @@
 package com.luke.engine.capability.email;
 
+import com.luke.engine.usage.UsageService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -24,7 +26,7 @@ class EmailDispatcherTest {
     private final PostmarkClient postmark = mock(PostmarkClient.class);
     private final EmailMessageRepository repo = mock(EmailMessageRepository.class);
     private final MeterRegistry metrics = new SimpleMeterRegistry();
-    private final EmailDispatcher dispatcher = new EmailDispatcher(postmark, repo, metrics);
+    private final EmailDispatcher dispatcher = new EmailDispatcher(postmark, repo, metrics, mock(UsageService.class));
 
     @BeforeEach
     void setup() {
