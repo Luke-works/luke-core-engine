@@ -1,6 +1,8 @@
 package com.luke.engine.capability.capability;
 
+import com.luke.engine.branding.PlanService;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,10 +29,17 @@ public class SubscriptionController {
 
     private final CapabilitySubscriptionRepository subscriptions;
     private final CapabilityRepository capabilities;
+    private final PlanService planService;
+    /** Off by default (dev/qa unaffected): flip on in prod to gate capabilities by the tenant's plan tier. */
+    private final boolean enforceTiers;
 
-    public SubscriptionController(CapabilitySubscriptionRepository subscriptions, CapabilityRepository capabilities) {
+    public SubscriptionController(CapabilitySubscriptionRepository subscriptions, CapabilityRepository capabilities,
+                                  PlanService planService,
+                                  @Value("${luke.plan.enforce-capability-tiers:false}") boolean enforceTiers) {
         this.subscriptions = subscriptions;
         this.capabilities = capabilities;
+        this.planService = planService;
+        this.enforceTiers = enforceTiers;
     }
 
     /** What the current tenant can use — active subscriptions joined to non-retired catalog entries. */
@@ -54,6 +63,12 @@ public class SubscriptionController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown capability: " + code));
         if ("RETIRED".equals(capability.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Capability is retired: " + code);
+        }
+        // Plan-tier gate — default-lenient: off unless luke.plan.enforce-capability-tiers=true, so dev/qa is
+        // unaffected. When on, a tenant may only enable a capability its plan tier includes.
+        if (enforceTiers && !planService.includesCapability(tenantId, code)) {
+            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                    "Your plan does not include " + code + " — upgrade to enable it.");
         }
         CapabilitySubscription subscription = subscriptions
                 .findByTenantIdAndCapabilityCode(tenantId, code)

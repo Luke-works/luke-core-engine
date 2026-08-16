@@ -40,7 +40,8 @@ public class PlanFeatures {
     private boolean isPaid(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return false;
         try {
-            return plans.findById(tenantId).map(TenantPlan::isPaid).orElse(false);
+            // Derived from the tier catalog: attachments unlock on any paying tier (legacy PAID → PRO).
+            return plans.findById(tenantId).map(row -> PlanCatalog.fromStored(row.getPlan()).attachments()).orElse(false);
         } catch (RuntimeException e) {
             log.warn("PlanFeatures: plan lookup failed for tenant {} — treating as the free plan", tenantId, e);
             return false;
