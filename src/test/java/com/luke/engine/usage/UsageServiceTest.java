@@ -21,9 +21,10 @@ class UsageServiceTest {
 
     private final UsageCounterRepository counters = mock(UsageCounterRepository.class);
     private final PlanService plans = mock(PlanService.class);
+    private final StorageUsageProvider storage = mock(StorageUsageProvider.class);
 
     private UsageService svc(boolean enforce) {
-        return new UsageService(counters, plans, enforce);
+        return new UsageService(counters, plans, storage, enforce);
     }
 
     private String key(String tenant, UsageMetric m) {
@@ -107,5 +108,27 @@ class UsageServiceTest {
         var subs = (java.util.Map<String, Object>) usage.get("submissions");
         assertThat(subs.get("used")).isEqualTo(5L);
         assertThat(subs.get("limit")).isEqualTo(2000); // PRO submissions
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void snapshotIncludesStorageAsAByteGauge() {
+        when(plans.tierOf("pro")).thenReturn(PlanCatalog.PRO);        // 5 GB
+        when(storage.usedBytes("pro")).thenReturn(2_500_000_000L);   // 2.5 GB stored right now
+        var usage = (java.util.Map<String, Object>) svc(false).snapshot("pro").get("usage");
+        var st = (java.util.Map<String, Object>) usage.get("storage");
+        assertThat(st.get("used")).isEqualTo(2_500_000_000L);
+        assertThat(st.get("limit")).isEqualTo(5_000_000_000L);       // 5 GB in bytes
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void storageLimitIsNullForUnlimitedTierAndGaugeFailureReportsZero() {
+        when(plans.tierOf("ent")).thenReturn(PlanCatalog.ENTERPRISE); // unlimited storage
+        when(storage.usedBytes("ent")).thenThrow(new RuntimeException("registry down"));
+        var usage = (java.util.Map<String, Object>) svc(false).snapshot("ent").get("usage");
+        var st = (java.util.Map<String, Object>) usage.get("storage");
+        assertThat(st.get("used")).isEqualTo(0L);    // a gauge failure never breaks the snapshot
+        assertThat(st.get("limit")).isNull();        // unlimited
     }
 }
