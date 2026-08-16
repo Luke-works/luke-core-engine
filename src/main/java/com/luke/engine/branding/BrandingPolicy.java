@@ -38,7 +38,9 @@ public class BrandingPolicy {
     public boolean canHideBadge(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return false;
         try {
-            return plans.findById(tenantId).map(TenantPlan::isPaid).orElse(false);
+            // Derived from the tier catalog so the branding rule can't drift from the pricing model
+            // (FREE → badge locked on; any paying tier may remove it). Legacy PAID rows resolve to PRO.
+            return plans.findById(tenantId).map(row -> PlanCatalog.fromStored(row.getPlan()).removableBranding()).orElse(false);
         } catch (RuntimeException e) {
             log.warn("BrandingPolicy: plan lookup failed for tenant {} — keeping the badge visible", tenantId, e);
             return false;

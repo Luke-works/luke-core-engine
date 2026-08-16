@@ -74,20 +74,27 @@ public class TenantPlanController {
         return view(tenantId, saved);
     }
 
-    /** Reject anything but the two known plans — a typo must not read as "paid". */
+    /** Reject anything but a known tier — a typo must not read as a paid plan. */
     private static String normalize(String plan) {
         String p = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
-        if (TenantPlan.PLAN_FREE.equals(p) || TenantPlan.PLAN_PAID.equals(p)) return p;
+        // Legacy alias: the original two-tier model stored PAID — accept it as the smallest paying tier.
+        if (PlanCatalog.LEGACY_PAID.equals(p)) return PlanCatalog.PRO.id();
+        for (String id : PlanCatalog.ids()) {
+            if (id.equals(p)) return p;
+        }
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "plan must be " + TenantPlan.PLAN_FREE + " or " + TenantPlan.PLAN_PAID);
+                "plan must be one of " + PlanCatalog.ids() + " (legacy '" + PlanCatalog.LEGACY_PAID + "' accepted)");
     }
 
     private Map<String, Object> view(String tenantId, TenantPlan row) {
+        PlanCatalog tier = PlanCatalog.fromStored(row != null ? row.getPlan() : TenantPlan.PLAN_FREE);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("tenantId", tenantId);
-        out.put("plan", row != null ? row.getPlan() : TenantPlan.PLAN_FREE);
-        // What the plan actually unlocks today — spelled out so an operator can see the effect.
-        out.put("canHideBadge", row != null && row.isPaid());
+        out.put("plan", tier.id());
+        out.put("displayName", tier.displayName());
+        // What the plan actually unlocks — spelled out so an operator can see the effect.
+        out.put("canHideBadge", tier.removableBranding());
+        out.put("entitlements", tier.toView());
         out.put("note", row != null ? row.getNote() : null);
         out.put("updatedAt", row != null ? row.getUpdatedAt() : null);
         return out;

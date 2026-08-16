@@ -59,9 +59,9 @@ public class TenantPlan {
         this.updatedAt = LocalDateTime.now();
     }
 
-    /** True when this row marks the tenant as paying. */
+    /** True when this row marks the tenant as paying (any tier above FREE — resolved via the catalog). */
     public boolean isPaid() {
-        return PLAN_PAID.equals(plan);
+        return PlanCatalog.fromStored(plan).isPaid();
     }
 
     public String getId() { return id; }

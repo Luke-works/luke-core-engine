@@ -15,8 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 
-/** The operator-only plan endpoint: FREE is stored as the ABSENCE of a row, and only the two known
- *  plan values are accepted (a typo must never read as "paid"). */
+/** The operator-only plan endpoint: FREE is stored as the ABSENCE of a row, only known {@link PlanCatalog}
+ *  tiers are accepted (a typo must never read as a paid plan), and the legacy "PAID" alias canonicalizes
+ *  to {@link PlanCatalog#PRO}. */
 class TenantPlanControllerTest {
 
     private final TenantPlanRepository plans = mock(TenantPlanRepository.class);
@@ -42,9 +43,25 @@ class TenantPlanControllerTest {
         ArgumentCaptor<TenantPlan> saved = ArgumentCaptor.forClass(TenantPlan.class);
         verify(plans).save(saved.capture());
         assertThat(saved.getValue().getId()).isEqualTo("t1");
-        assertThat(saved.getValue().getPlan()).isEqualTo(TenantPlan.PLAN_PAID); // case-normalized
+        assertThat(saved.getValue().getPlan()).isEqualTo(PlanCatalog.PRO.id()); // legacy "paid" canonicalizes to PRO
         assertThat(saved.getValue().getNote()).isEqualTo("contract #42");
         assertThat(out.get("canHideBadge")).isEqualTo(true);
+    }
+
+    @Test
+    void settingANamedTierStoresItAndReportsEntitlements() {
+        when(plans.findById("t1")).thenReturn(Optional.empty());
+        when(plans.save(any(TenantPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Map<String, Object> out = controller.set("t1", "op",
+                new TenantPlanController.PlanBody("business", null));
+
+        ArgumentCaptor<TenantPlan> saved = ArgumentCaptor.forClass(TenantPlan.class);
+        verify(plans).save(saved.capture());
+        assertThat(saved.getValue().getPlan()).isEqualTo(PlanCatalog.BUSINESS.id());
+        assertThat(out.get("plan")).isEqualTo(PlanCatalog.BUSINESS.id());
+        assertThat(out.get("canHideBadge")).isEqualTo(true);
+        assertThat(out).containsKey("entitlements");
     }
 
     @Test
@@ -71,7 +88,7 @@ class TenantPlanControllerTest {
     @Test
     void anUnknownPlanIsRejected() {
         assertThatThrownBy(() -> controller.set("t1", "op",
-                new TenantPlanController.PlanBody("ENTERPRISE", null)))
+                new TenantPlanController.PlanBody("GOLD", null))) // not a real tier
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("plan must be");
         assertThatThrownBy(() -> controller.set("t1", "op", new TenantPlanController.PlanBody(null, null)))
@@ -86,6 +103,6 @@ class TenantPlanControllerTest {
         when(plans.save(any(TenantPlan.class))).thenAnswer(inv -> inv.getArgument(0));
         controller.set("t1", "operator-1", new TenantPlanController.PlanBody("PAID", null));
         verify(audit).record("tenant.plan.set", "tenant", "t1", "t1", "operator-1", true,
-                Map.of("plan", TenantPlan.PLAN_PAID));
+                Map.of("plan", PlanCatalog.PRO.id())); // legacy PAID → PRO
     }
 }
