@@ -43,4 +43,24 @@ public class PlanService {
     public boolean includesCapability(String tenantId, String capabilityCode) {
         return tierOf(tenantId).includes(capabilityCode);
     }
+
+    /**
+     * Write a tenant's plan tier — the canonical mutation the billing webhook (and the operator
+     * admin) drive. Mirrors {@link TenantPlanController}: setting {@link PlanCatalog#FREE} deletes the
+     * row (absent = free, the single representation of "not paying"), any paying tier upserts it. A
+     * blank tenant is a no-op. {@code note} records provenance (e.g. the Stripe subscription id).
+     */
+    @Transactional
+    public void applyPlan(String tenantId, PlanCatalog tier, String note) {
+        if (tenantId == null || tenantId.isBlank()) return;
+        PlanCatalog target = tier == null ? PlanCatalog.FREE : tier;
+        if (target == PlanCatalog.FREE) {
+            plans.findById(tenantId).ifPresent(plans::delete);
+            return;
+        }
+        TenantPlan row = plans.findById(tenantId).orElseGet(() -> new TenantPlan(tenantId, target.id()));
+        row.setPlan(target.id());
+        if (note != null && !note.isBlank()) row.setNote(note.trim());
+        plans.save(row);
+    }
 }

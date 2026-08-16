@@ -40,6 +40,9 @@
         <pdfbox.version>3.0.3</pdfbox.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
         <awssdk.version>2.25.60</awssdk.version>
+        <!-- Stripe billing (Phase 2b). MIT-licensed. Only exercised when STRIPE_SECRET_KEY is set;
+             absent = the billing module self-disables, so dev/qa never touch the network. -->
+        <stripe.version>28.2.0</stripe.version>
     </properties>
 
     <!-- ============================================================= -->
@@ -209,6 +212,14 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
+        </dependency>
+
+        <!-- Stripe billing (Phase 2b, MIT). Checkout Session + signature-verified webhook.
+             Config-gated on STRIPE_SECRET_KEY — the module is a no-op when unset. -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>${stripe.version}</version>
         </dependency>
 
         <!-- Database: H2 (default) + PostgreSQL (optional via postgres profile) -->

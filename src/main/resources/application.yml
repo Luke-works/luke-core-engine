@@ -192,6 +192,24 @@ luke:
     # capability-engine starting a process). MUST match capability-engine's
     # value; unset → the internal endpoints reject everything (403).
     shared-secret: ${LUKE_INTERNAL_SHARED_SECRET:}
+  billing:
+    # Phase 2b Stripe checkout. The ENTIRE module is config-gated on the secret key: with
+    # STRIPE_SECRET_KEY unset, billing self-disables (checkout 404s, the webhook no-ops), so dev/qa
+    # and any un-wired environment never touch Stripe — default-lenient, no boot dependency.
+    stripe:
+      # Stripe API secret (sk_live_… / sk_test_…). Blank = billing off.
+      secret-key: ${STRIPE_SECRET_KEY:}
+      # Signing secret (whsec_…) for the /webhooks/stripe endpoint; without it the webhook can't
+      # verify Stripe's signature and quietly ignores calls.
+      webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+      # Stripe Price ids, one per purchasable tier (create them in the Stripe dashboard). A tier with
+      # no price is simply not buyable self-serve. Placeholders until real ids are supplied.
+      price:
+        pro: ${STRIPE_PRICE_PRO:}
+        business: ${STRIPE_PRICE_BUSINESS:}
+    # Where Stripe returns the browser after checkout (point these at the consumer-ui /plans page).
+    success-url: ${LUKE_BILLING_SUCCESS_URL:http://localhost:5173/plans?checkout=success}
+    cancel-url: ${LUKE_BILLING_CANCEL_URL:http://localhost:5173/plans?checkout=cancelled}
   capabilities:
     base-url: ${CAPABILITIES_BASE_URL:http://localhost:8082}
     # Operator credential presented to capability-engine on the admin routes
