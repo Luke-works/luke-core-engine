@@ -8,6 +8,7 @@ Disaster-recovery and operational procedures for the core engine (#36).
 | [bad-deploy-rollback.md](bad-deploy-rollback.md) | A deploy broke prod/qa; roll back |
 | [incident-triage.md](incident-triage.md) | Service degraded/erroring; first response |
 | [scaling-and-ha.md](scaling-and-ha.md) | Capacity planning; path to multi-instance |
+| [form-payments.md](form-payments.md) | Stripe Connect setup, go-live checklist, payment incidents |
 
 ## Service topology
 

@@ -66,7 +66,7 @@ public final class FormSupport {
         List<Map<String, Object>> fields = new ArrayList<>();
         if (schema == null || schema.isBlank()) return fields;
         try {
-            JsonNode entities = MAPPER.readTree(schema).path("entities");
+            JsonNode entities = com.luke.engine.payments.PaymentAmountResolver.entities(MAPPER.readTree(schema));
             entities.fields().forEachRemaining(entry -> {
                 JsonNode entity = entry.getValue();
                 JsonNode attrs = entity.path("attributes");
@@ -112,7 +112,7 @@ public final class FormSupport {
         List<FieldRule> rules = new ArrayList<>();
         if (schema == null || schema.isBlank()) return rules;
         try {
-            JsonNode entities = MAPPER.readTree(schema).path("entities");
+            JsonNode entities = com.luke.engine.payments.PaymentAmountResolver.entities(MAPPER.readTree(schema));
             entities.fields().forEachRemaining(entry -> {
                 JsonNode entity = entry.getValue();
                 JsonNode attrs = entity.path("attributes");
@@ -163,7 +163,7 @@ public final class FormSupport {
             case "currency" -> "Double";
             case "checkbox", "toggle" -> "Boolean";
             case "date", "time", "day" -> "Date";
-            case "selectBoxes", "tags", "table", "signature", "file" -> "Json";
+            case "selectBoxes", "tags", "table", "signature", "file", "payment" -> "Json";
             default -> "String";
         };
     }

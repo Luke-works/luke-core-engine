@@ -70,6 +70,11 @@ class EmbedPageControllerTest {
         // The widget loads a script from, and renders an iframe served by, challenges.cloudflare.com.
         assertThat(csp).contains("script-src 'self' https://challenges.cloudflare.com");
         assertThat(csp).contains("frame-src https://challenges.cloudflare.com");
+        // Stripe, for forms that take a payment: Stripe.js from js.stripe.com only (PCI), its card
+        // iframes, and the 3-D Secure challenge frame.
+        assertThat(csp).contains("https://js.stripe.com https://*.js.stripe.com;");
+        assertThat(csp).contains("frame-src https://challenges.cloudflare.com https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com");
+        assertThat(csp).doesNotContain("'unsafe-inline'").doesNotContain("unsafe-eval");
         // The clickjacking control this page exists for must survive alongside them.
         assertThat(csp).contains("frame-ancestors");
         // The bundle is same-origin; granting inline script would hand any injected markup execution.

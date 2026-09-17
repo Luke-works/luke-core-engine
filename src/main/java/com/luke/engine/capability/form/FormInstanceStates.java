@@ -12,6 +12,11 @@ import java.util.Set;
  *     └──────────── submit ────────────┴──► submitted ──► processed
  *  submitted ──return──► in_progress
  *  any open state ──► expired | cancelled
+ *
+ *  a form that takes a payment:
+ *  open ──submit──► awaiting_payment ──paid──► submitted
+ *                        ├──abandoned (embed)──► cancelled
+ *                        └──abandoned (recipient)──► in_progress
  * </pre>
  */
 public final class FormInstanceStates {
@@ -24,6 +29,11 @@ public final class FormInstanceStates {
     public static final String PROCESSED = "PROCESSED";
     public static final String EXPIRED = "EXPIRED";
     public static final String CANCELLED = "CANCELLED";
+    /**
+     * Submitted and priced, but not yet paid. NOT a received submission: it is not queued to a process
+     * and emits no event until the payment provider confirms the charge (see FormPaymentService).
+     */
+    public static final String AWAITING_PAYMENT = "AWAITING_PAYMENT";
 
     /** States in which the form can still be opened/edited/submitted. */
     public static final Set<String> OPEN = Set.of(CREATED, SENT, OPENED, IN_PROGRESS);
@@ -32,10 +42,11 @@ public final class FormInstanceStates {
     public static final Set<String> SUBMITTED_STATES = Set.of(SUBMITTED, PROCESSED);
 
     private static final Map<String, Set<String>> ALLOWED = Map.of(
-        CREATED,     Set.of(SENT, OPENED, IN_PROGRESS, SUBMITTED, CANCELLED, EXPIRED),
-        SENT,        Set.of(OPENED, IN_PROGRESS, SUBMITTED, CANCELLED, EXPIRED),
-        OPENED,      Set.of(IN_PROGRESS, SUBMITTED, CANCELLED, EXPIRED),
-        IN_PROGRESS, Set.of(SUBMITTED, CANCELLED, EXPIRED),
+        CREATED,     Set.of(SENT, OPENED, IN_PROGRESS, SUBMITTED, AWAITING_PAYMENT, CANCELLED, EXPIRED),
+        SENT,        Set.of(OPENED, IN_PROGRESS, SUBMITTED, AWAITING_PAYMENT, CANCELLED, EXPIRED),
+        OPENED,      Set.of(IN_PROGRESS, SUBMITTED, AWAITING_PAYMENT, CANCELLED, EXPIRED),
+        IN_PROGRESS, Set.of(SUBMITTED, AWAITING_PAYMENT, CANCELLED, EXPIRED),
+        AWAITING_PAYMENT, Set.of(SUBMITTED, IN_PROGRESS, CANCELLED),
         SUBMITTED,   Set.of(PROCESSED, IN_PROGRESS),   // IN_PROGRESS = returned for correction
         PROCESSED,   Set.of(),
         EXPIRED,     Set.of(),

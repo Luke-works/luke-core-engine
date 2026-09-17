@@ -77,8 +77,11 @@ public class EmbedPageController {
      * <p>Previously the policy carried only {@code frame-ancestors}, which meant script and frame
      * sources were unrestricted — CSP only constrains what you declare, and there is no
      * {@code default-src} here to fall back to. Declaring them narrows the page to exactly what it
-     * needs: its own vendored bundle, and Cloudflare Turnstile (a script from, and a challenge iframe
-     * rendered by, {@code challenges.cloudflare.com}).
+     * needs: its own vendored bundle, Cloudflare Turnstile (a script from, and a challenge iframe
+     * rendered by, {@code challenges.cloudflare.com}), and Stripe for forms that take a payment — Stripe.js
+     * must load from {@code js.stripe.com} (PCI), its card fields are iframes from {@code js.stripe.com}
+     * / {@code *.js.stripe.com}, and 3-D Secure challenges frame {@code hooks.stripe.com}. Stripe's own
+     * API calls go to {@code api.stripe.com}, which needs no entry: there is no {@code connect-src}.
      *
      * <p>Deliberately NOT a {@code default-src}: styles, fonts and images stay unconstrained because
      * the renderer legitimately loads a tenant-chosen Google font, and a blanket policy would break it
@@ -89,8 +92,8 @@ public class EmbedPageController {
      * No inline script exists in {@link #SHELL}, so no {@code 'unsafe-inline'} is granted.
      */
     static final String SCRIPT_AND_FRAME =
-            "script-src 'self' https://challenges.cloudflare.com; "
-            + "frame-src https://challenges.cloudflare.com";
+            "script-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://*.js.stripe.com; "
+            + "frame-src https://challenges.cloudflare.com https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com";
 
     private ResponseEntity<String> notFound() {
         HttpHeaders headers = new HttpHeaders();

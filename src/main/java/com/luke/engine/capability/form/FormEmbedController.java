@@ -39,6 +39,8 @@ public class FormEmbedController {
     private final com.luke.engine.branding.BrandingPolicy branding;
     private final com.luke.engine.branding.PlanFeatures planFeatures;
     private final TurnstileVerifier turnstile;
+    /** Null when payments aren't wired (hand-built in tests) — a paid form is then refused at submit. */
+    private final com.luke.engine.payments.FormPaymentService payments;
 
     // Configurable per-minute caps for the PUBLIC embed surface (#55), keyed per token AND per IP.
     private final int renderMaxPerToken;
@@ -56,6 +58,23 @@ public class FormEmbedController {
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-ip-per-min:120}") int renderMaxPerIp,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-token-per-min:20}") int submitMaxPerToken,
                                @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-ip-per-min:40}") int submitMaxPerIp) {
+        this(resolver, versions, instances, submissions, rateLimiter, branding, planFeatures, turnstile, null,
+                renderMaxPerToken, renderMaxPerIp, submitMaxPerToken, submitMaxPerIp);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FormEmbedController(EmbedFormResolver resolver, FormVersionRepository versions,
+                               FormInstanceRepository instances, FormSubmissionService submissions,
+                               com.luke.engine.web.FixedWindowRateLimiter rateLimiter,
+                               com.luke.engine.branding.BrandingPolicy branding,
+                               com.luke.engine.branding.PlanFeatures planFeatures,
+                               TurnstileVerifier turnstile,
+                               com.luke.engine.payments.FormPaymentService payments,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-token-per-min:60}") int renderMaxPerToken,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.render.max-per-ip-per-min:120}") int renderMaxPerIp,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-token-per-min:20}") int submitMaxPerToken,
+                               @org.springframework.beans.factory.annotation.Value("${luke.embed.submit.max-per-ip-per-min:40}") int submitMaxPerIp) {
+        this.payments = payments;
         this.resolver = resolver;
         this.versions = versions;
         this.instances = instances;
@@ -83,8 +102,16 @@ public class FormEmbedController {
      *  single-use and short-lived, and is verified server-side against Cloudflare — the client's claim
      *  that it solved a challenge is worth nothing on its own. Absent is treated as "did not attempt",
      *  which is refused in every profile. */
+    /**
+     * {@code version} is the schema version the page rendered (optional). A payment form refuses a
+     * submission rendered from another version: the payer was shown a different price.
+     */
     public record SubmitBody(Map<String, Object> data, String attachmentRef, Boolean consentAgreed,
-                             String captchaToken) {}
+                             String captchaToken, Integer version) {
+        public SubmitBody(Map<String, Object> data, String attachmentRef, Boolean consentAgreed, String captchaToken) {
+            this(data, attachmentRef, consentAgreed, captchaToken, null);
+        }
+    }
 
     /** Public render: resolve the token to the form's published schema. */
     @GetMapping("/{token}")
@@ -123,6 +150,13 @@ public class FormEmbedController {
         // only spares a filler an upload that was never going to be accepted.
         out.put("attachmentsEnabled",
                 FormSettingsRead.attachmentsEnabled(schema) && planFeatures.canUseAttachments(resolved.tenantId()));
+        // Payments: the PUBLIC keys the card form needs (platform publishable key + the tenant's connected
+        // account id), and whether the form can take a payment right now. Present only for a form with a
+        // payment field; resolved server-side like the flags above. No secret is ever part of it.
+        if (payments != null) {
+            Map<String, Object> payment = payments.publicConfig(resolved.tenantId(), schema);
+            if (payment != null) out.put("payment", payment);
+        }
         return out;
     }
 
@@ -157,6 +191,11 @@ public class FormEmbedController {
         // clean against the published schema — strip unknown fields, enforce required, bound size,
         // strip control chars — before anything is persisted or a process is started.
         String schema = versions.findByFormIdAndVersion(form.getId(), v).map(FormVersion::getSchema).orElse(null);
+        if (body != null && body.version() != null && body.version() != v
+                && com.luke.engine.payments.PaymentAmountResolver.hasPayment(schema)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This form was updated while you were filling it in. Please reload the page and check the amount before paying.");
+        }
         Map<String, Object> cleaned = SubmissionValidator.clean(schema, body != null ? body.data() : null);
 
         FormInstance inst = new FormInstance();
@@ -176,7 +215,62 @@ public class FormEmbedController {
         submissions.submit(inst, null, body != null ? body.attachmentRef() : null,
                 SubmissionSource.from(request, SubmissionSource.VIA_EMBED,
                         body != null && Boolean.TRUE.equals(body.consentAgreed())));
+        if (FormInstanceStates.AWAITING_PAYMENT.equals(inst.getState()) && payments != null) {
+            // The submission is saved and priced; now create the charge (outside that transaction) and hand
+            // the payer its client secret. It is released to its process only once Stripe confirms payment.
+            Map<String, Object> out = new HashMap<>();
+            out.put("ok", true);
+            out.put("instanceId", inst.getId());
+            out.put("processStatus", "AWAITING_PAYMENT");
+            try {
+                out.put("payment", payments.startIntent(r.tenantId(), inst.getId()).toMap());
+            } catch (ResponseStatusException e) {
+                // The submission is saved; only starting the charge failed. Say so, and let the page retry
+                // (POST …/payments/{instanceId}) rather than making the payer fill the form in again.
+                out.put("payment", null);
+                out.put("paymentError", e.getReason());
+                out.put("paymentRetryable", e.getStatusCode().is5xxServerError());
+            }
+            return out;
+        }
         return Map.of("ok", true, "instanceId", inst.getId(), "processStatus", "QUEUED");
+    }
+
+    /**
+     * The payer's page asks us to check its charge after confirming it in the browser. The answer comes
+     * from Stripe, never from the request — this can only move a charge to the state it really is in.
+     * The instance must be an embed submission of THIS token's form.
+     */
+    @PostMapping("/{token}/payments/{instanceId}")
+    public Map<String, Object> startPayment(@PathVariable String token, @PathVariable String instanceId,
+                                            HttpServletRequest request, HttpServletResponse response) {
+        rateLimiter.enforce("embed-submit-ip:" + clientIp(request), submitMaxPerIp, response);
+        EmbedFormResolver.Resolved r = resolver.resolve(token);
+        if (payments == null) throw notFound("No payment is due for this form.");
+        FormInstance inst = embedSubmission(r, instanceId)
+                .filter(i -> FormInstanceStates.AWAITING_PAYMENT.equals(i.getState()))
+                .orElseThrow(() -> notFound("No payment is due for this form."));
+        return payments.startIntent(r.tenantId(), inst.getId()).toMap();
+    }
+
+    private java.util.Optional<FormInstance> embedSubmission(EmbedFormResolver.Resolved r, String instanceId) {
+        return instances.findByIdAndTenantId(instanceId, r.tenantId())
+                .filter(i -> r.form().getCode().equals(i.getDefinitionCode()))
+                .filter(i -> SubmissionSource.VIA_EMBED.equals(i.getSubmittedVia()));
+    }
+
+    @PostMapping("/{token}/payments/{instanceId}/sync")
+    public Map<String, Object> syncPayment(@PathVariable String token, @PathVariable String instanceId,
+                                           HttpServletRequest request, HttpServletResponse response) {
+        rateLimiter.enforce("embed-submit-ip:" + clientIp(request), submitMaxPerIp, response);
+        EmbedFormResolver.Resolved r = resolver.resolve(token);
+        if (payments == null) throw notFound("No payment is due for this form.");
+        FormInstance inst = embedSubmission(r, instanceId)
+                .orElseThrow(() -> notFound("No payment is due for this form."));
+        Map<String, Object> out = new HashMap<>(payments.sync(r.tenantId(), inst.getId()));
+        FormInstance fresh = instances.findById(inst.getId()).orElse(inst);
+        out.put("processStatus", FormInstanceStates.SUBMITTED.equals(fresh.getState()) ? "QUEUED" : fresh.getState());
+        return out;
     }
 
     /**

@@ -1,0 +1,3928 @@
+{
+  "revision": "2026-09-17.2",
+  "note": [
+    "CROSS-LANGUAGE PARITY FIXTURE for payment amount resolution. resolvePaymentAmount exists twice:",
+    "in @lukeflow/form-core (TypeScript) and in luke-core-engine PaymentAmountResolver (Java, the one",
+    "that actually decides what a card is charged). Every case below runs in BOTH:",
+    "",
+    "  form-core  : packages/form-core/src/payments/parity.test.ts",
+    "  core-engine: PaymentAmountResolverParityTest",
+    "",
+    "Schema per case: entity 'pay' (type payment, attributes {key:'pay', ...payment}) unless payment is",
+    "null, plus every entity in sets[use]. If `payIn` names a set entity, 'pay' is appended to that",
+    "entity's children; otherwise 'pay' leads root. root = ['pay'?] + the set ids that appear in NO set",
+    "entity's children (children entries read as keys: strings as-is, non-negative integers as text),",
+    "sorted, minus any id in `omitFromRoot` (which may name 'pay').",
+    "With `entitiesAsArray`, entities is an ARRAY: 'pay' first, then the set entities in sorted id order;",
+    "every id is then replaced by its array position as text, in root and in children (unless",
+    "`arrayKeepIds`, which keeps the original ids \u2014 which the renderer cannot resolve).",
+    "With `numericRoot`, root entries made only of digits are written as JSON numbers.",
+    "`expect` is asserted exactly: ok, and amountMinor/currency/quantity/mode when present, else reason.",
+    "",
+    "GENERATED \u2014 do not hand-edit. CHANGING THE RULES: edit the generator, bump `revision`, re-copy to",
+    "core-engine src/test/resources, and update EXPECTED_REVISION in the Java test."
+  ],
+  "sets": {
+    "qty": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "amt": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true
+        }
+      }
+    },
+    "amtNumber": {
+      "amt": {
+        "id": "amt",
+        "type": "number",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true
+        }
+      }
+    },
+    "amtText": {
+      "amt": {
+        "id": "amt",
+        "type": "textField",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true
+        }
+      }
+    },
+    "qtyCurrency": {
+      "qty": {
+        "id": "qty",
+        "type": "currency",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "qtyCalculated": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "calculateValue": "a * 2"
+        }
+      }
+    },
+    "qtyCalculatedJs": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "calculateValueJs": "value = 2"
+        }
+      }
+    },
+    "qtyHidden": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "hidden": true
+        }
+      }
+    },
+    "qtyDisabled": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "disabled": true
+        }
+      }
+    },
+    "qtyExcluded": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "persistent": false
+        }
+      }
+    },
+    "qtyConditional": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "conditional": {
+            "show": true,
+            "when": "x",
+            "eq": "y"
+          }
+        }
+      }
+    },
+    "qtyCustomConditional": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "customConditional": "x == 1"
+        }
+      }
+    },
+    "qtyLogicSetValue": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "logic": [
+            {
+              "trigger": "x",
+              "action": "setValue",
+              "value": 3
+            }
+          ]
+        }
+      }
+    },
+    "qtyLogicHarmless": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "logic": [
+            {
+              "trigger": "x",
+              "action": "validate"
+            }
+          ]
+        }
+      }
+    },
+    "qtyNoKey": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "qtyInGrid": {
+      "grid": {
+        "id": "grid",
+        "type": "dataGrid",
+        "attributes": {
+          "key": "grid",
+          "label": "Rows"
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "grid"
+      }
+    },
+    "qtyInConditionalPanel": {
+      "panel": {
+        "id": "panel",
+        "type": "panel",
+        "attributes": {
+          "label": "P",
+          "customConditional": "x == 1"
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "panel"
+      }
+    },
+    "qtyInPlainPanel": {
+      "panel": {
+        "id": "panel",
+        "type": "panel",
+        "attributes": {
+          "label": "P"
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "panel"
+      }
+    },
+    "qtyParentCycle": {
+      "a": {
+        "id": "a",
+        "type": "panel",
+        "attributes": {
+          "label": "A"
+        },
+        "parentId": "b",
+        "children": [
+          "qty"
+        ]
+      },
+      "b": {
+        "id": "b",
+        "type": "panel",
+        "attributes": {
+          "label": "B"
+        },
+        "parentId": "a",
+        "children": [
+          "a"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "a"
+      }
+    },
+    "qtyChildrenOnlyGrid": {
+      "grid": {
+        "id": "grid",
+        "type": "dataGrid",
+        "attributes": {
+          "key": "grid",
+          "label": "Rows"
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "qtyStaleParentIdGrid": {
+      "grid": {
+        "id": "grid",
+        "type": "dataGrid",
+        "attributes": {
+          "key": "grid",
+          "label": "Rows"
+        },
+        "children": []
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "grid"
+      }
+    },
+    "qtyListedByHiddenPanel": {
+      "hp": {
+        "id": "hp",
+        "type": "panel",
+        "attributes": {
+          "label": "H",
+          "hidden": true
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "pp": {
+        "id": "pp",
+        "type": "panel",
+        "attributes": {
+          "label": "P"
+        },
+        "children": []
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        },
+        "parentId": "pp"
+      }
+    },
+    "qtyChildrenCycle": {
+      "a": {
+        "id": "a",
+        "type": "panel",
+        "attributes": {
+          "label": "A"
+        },
+        "children": [
+          "b",
+          "qty"
+        ]
+      },
+      "b": {
+        "id": "b",
+        "type": "panel",
+        "attributes": {
+          "label": "B"
+        },
+        "children": [
+          "a"
+        ]
+      },
+      "top": {
+        "id": "top",
+        "type": "panel",
+        "attributes": {
+          "label": "Top"
+        },
+        "children": [
+          "a"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "qtyHiddenString": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "hidden": "true"
+        }
+      }
+    },
+    "qtyHiddenFalseString": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "hidden": "false"
+        }
+      }
+    },
+    "qtyHiddenZero": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "hidden": 0
+        }
+      }
+    },
+    "qtyHiddenEmptyString": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "hidden": ""
+        }
+      }
+    },
+    "qtyDisabledOne": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "disabled": 1
+        }
+      }
+    },
+    "qtyDisabledObject": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "disabled": {}
+        }
+      }
+    },
+    "qtyPersistentStringFalse": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "persistent": "false"
+        }
+      }
+    },
+    "qtyInHiddenStringPanel": {
+      "panel": {
+        "id": "panel",
+        "type": "panel",
+        "attributes": {
+          "label": "P",
+          "hidden": "yes"
+        },
+        "children": [
+          "qty"
+        ]
+      },
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "ctor": {
+      "constructor": {
+        "id": "constructor",
+        "type": "number",
+        "attributes": {
+          "key": "constructor",
+          "label": "constructor",
+          "required": true
+        }
+      }
+    },
+    "toStr": {
+      "toString": {
+        "id": "toString",
+        "type": "currency",
+        "attributes": {
+          "key": "toString",
+          "label": "toString",
+          "required": true
+        }
+      }
+    },
+    "amtEur": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "EUR"
+        }
+      }
+    },
+    "amtEurLower": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "eur"
+        }
+      }
+    },
+    "amtCurrencyWins": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currency": "GBP",
+          "currencyCode": "USD"
+        }
+      }
+    },
+    "amtCurrencyNotString": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currency": 978,
+          "currencyCode": "EUR"
+        }
+      }
+    },
+    "amtUnsupported": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "XYZ"
+        }
+      }
+    },
+    "amtNumberEur": {
+      "amt": {
+        "id": "amt",
+        "type": "number",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "EUR"
+        }
+      }
+    },
+    "amtJpy": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "JPY"
+        }
+      }
+    },
+    "amtKwd": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "KWD"
+        }
+      }
+    },
+    "payHome": {
+      "plain": {
+        "id": "plain",
+        "type": "panel",
+        "attributes": {
+          "label": "Plain"
+        },
+        "children": []
+      },
+      "cond": {
+        "id": "cond",
+        "type": "panel",
+        "attributes": {
+          "label": "Cond",
+          "conditional": {
+            "show": true,
+            "when": "x",
+            "eq": "y"
+          }
+        },
+        "children": []
+      },
+      "hiddenStr": {
+        "id": "hiddenStr",
+        "type": "panel",
+        "attributes": {
+          "label": "H",
+          "hidden": "true"
+        },
+        "children": []
+      },
+      "grid": {
+        "id": "grid",
+        "type": "editGrid",
+        "attributes": {
+          "key": "grid",
+          "label": "Rows"
+        },
+        "children": []
+      },
+      "outer": {
+        "id": "outer",
+        "type": "panel",
+        "attributes": {
+          "label": "Outer",
+          "customConditional": "x == 1"
+        },
+        "children": [
+          "inner"
+        ]
+      },
+      "inner": {
+        "id": "inner",
+        "type": "panel",
+        "attributes": {
+          "label": "Inner"
+        },
+        "children": []
+      },
+      "condJs": {
+        "id": "condJs",
+        "type": "panel",
+        "attributes": {
+          "label": "JS",
+          "customConditionalJs": "show = false"
+        },
+        "children": []
+      }
+    },
+    "qtyCondJs": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "customConditionalJs": "show = data.x === 'y'"
+        }
+      }
+    },
+    "amtJpyTwoPlaces": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "currencyCode": "JPY",
+          "decimalLimit": 2
+        }
+      }
+    },
+    "amtUsdTwoPlaces": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "decimalLimit": 2
+        }
+      }
+    },
+    "amtUsdZeroPlaces": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "decimalLimit": 0
+        }
+      }
+    },
+    "amtNumberThreePlaces": {
+      "amt": {
+        "id": "amt",
+        "type": "number",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "decimalLimit": 3
+        }
+      }
+    },
+    "amtStringPlaces": {
+      "amt": {
+        "id": "amt",
+        "type": "currency",
+        "attributes": {
+          "key": "amt",
+          "label": "amt",
+          "required": true,
+          "decimalLimit": "3"
+        }
+      }
+    },
+    "qtyThreePlaces": {
+      "qty": {
+        "id": "qty",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true,
+          "decimalLimit": 3
+        }
+      }
+    },
+    "qtyNumericChildGrid": {
+      "g": {
+        "id": "g",
+        "type": "dataGrid",
+        "attributes": {
+          "key": "g",
+          "label": "Rows"
+        },
+        "children": [
+          7
+        ]
+      },
+      "7": {
+        "id": "7",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "qtyNumericRoot": {
+      "5": {
+        "id": "5",
+        "type": "number",
+        "attributes": {
+          "key": "qty",
+          "label": "qty",
+          "required": true
+        }
+      }
+    },
+    "secondPayment": {
+      "pay2": {
+        "id": "pay2",
+        "type": "payment",
+        "attributes": {
+          "key": "pay2",
+          "amountMode": "fixed",
+          "amountMinor": 100,
+          "currency": "USD"
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "fixed-basic",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD",
+        "mode": "fixed"
+      }
+    },
+    {
+      "id": "fixed-lowercase-currency",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "usd"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD"
+      }
+    },
+    {
+      "id": "fixed-currency-whitespace",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": " eur "
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "EUR"
+      }
+    },
+    {
+      "id": "fixed-zero",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 0,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      }
+    },
+    {
+      "id": "fixed-negative",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": -100,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      }
+    },
+    {
+      "id": "fixed-fractional",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 12.5,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      }
+    },
+    {
+      "id": "fixed-string-amount",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": "500",
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      }
+    },
+    {
+      "id": "fixed-missing-amount",
+      "payment": {
+        "amountMode": "fixed",
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      }
+    },
+    {
+      "id": "fixed-kwd-not-multiple-of-10",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 1234,
+        "currency": "KWD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-chargeable"
+      }
+    },
+    {
+      "id": "fixed-kwd-ok",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 1250,
+        "currency": "KWD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 1250,
+        "currency": "KWD"
+      }
+    },
+    {
+      "id": "fixed-jpy-zero-decimal",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 500,
+        "currency": "JPY"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "JPY"
+      }
+    },
+    {
+      "id": "fixed-above-ceiling",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 100000000,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-chargeable"
+      }
+    },
+    {
+      "id": "fixed-at-ceiling",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 99999999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 99999999,
+        "currency": "USD"
+      }
+    },
+    {
+      "id": "fixed-below-processor-minimum-still-resolves",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 10,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 10,
+        "currency": "USD"
+      }
+    },
+    {
+      "id": "unsupported-currency",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "XYZ"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "unsupported-currency"
+      }
+    },
+    {
+      "id": "missing-currency",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "unsupported-currency"
+      }
+    },
+    {
+      "id": "currency-not-string",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": 840
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "unsupported-currency"
+      }
+    },
+    {
+      "id": "missing-mode",
+      "payment": {
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "invalid-mode"
+      }
+    },
+    {
+      "id": "legacy-calculated-mode-refused",
+      "payment": {
+        "amountMode": "calculated",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "amountFrom": "amt"
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "invalid-mode"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "currency-checked-before-mode",
+      "payment": {
+        "amountMode": "bogus",
+        "currency": "XYZ"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "unsupported-currency"
+      }
+    },
+    {
+      "id": "tampered-payment-value-ignored",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {
+        "pay": {
+          "status": "paid",
+          "amountMinor": 1,
+          "currency": "USD",
+          "intentId": "pi_x"
+        },
+        "amountMinor": 1
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD"
+      }
+    },
+    {
+      "id": "no-payment-field",
+      "payment": null,
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "no-payment-field"
+      }
+    },
+    {
+      "id": "two-payment-fields",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "multiple-payment-fields"
+      },
+      "use": "secondPayment"
+    },
+    {
+      "id": "per-unit-basic",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 3
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 4500,
+        "currency": "USD",
+        "mode": "perUnit",
+        "quantity": 3
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-integer-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "2"
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-integral-float",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2.0
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-trimmed-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": " 4 "
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 6000,
+        "currency": "USD",
+        "quantity": 4
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-fraction",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2.5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-not-whole"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-fraction-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "2.5"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-not-whole"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-zero",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 0
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-out-of-range"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-negative",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": -1
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-out-of-range"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-over-default-max",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 101
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-out-of-range"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-at-default-max",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 100
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 150000,
+        "currency": "USD",
+        "quantity": 100
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-over-custom-max",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty",
+        "maxQuantity": 5
+      },
+      "data": {
+        "qty": 6
+      },
+      "expect": {
+        "ok": false,
+        "reason": "quantity-out-of-range"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-at-custom-max",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty",
+        "maxQuantity": 5
+      },
+      "data": {
+        "qty": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 7500,
+        "currency": "USD",
+        "quantity": 5
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-invalid-max-falls-back",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty",
+        "maxQuantity": 0
+      },
+      "data": {
+        "qty": 100
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 150000,
+        "currency": "USD",
+        "quantity": 100
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-missing-answer",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-empty-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": ""
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-null",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": null
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-blank-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "  "
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-word",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "abc"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-hex",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "0x10"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-exponent",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "1e1"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-java-suffix",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "2d"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-plus-sign",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "+2"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-boolean",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": true
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-array",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": [
+          2
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-object",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": {
+          "v": 2
+        }
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-no-source",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount-source"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-unknown-source",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "nope"
+      },
+      "data": {
+        "nope": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-missing-unit-price",
+      "payment": {
+        "amountMode": "perUnit",
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-source-currency-type",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyCurrency"
+    },
+    {
+      "id": "per-unit-source-calculated",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyCalculated"
+    },
+    {
+      "id": "per-unit-source-calculated-js",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyCalculatedJs"
+    },
+    {
+      "id": "per-unit-source-hidden",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyHidden"
+    },
+    {
+      "id": "per-unit-source-disabled",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyDisabled"
+    },
+    {
+      "id": "per-unit-source-excluded",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyExcluded"
+    },
+    {
+      "id": "per-unit-source-conditional",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyConditional"
+    },
+    {
+      "id": "per-unit-source-custom-conditional",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyCustomConditional"
+    },
+    {
+      "id": "per-unit-source-logic-set-value",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyLogicSetValue"
+    },
+    {
+      "id": "per-unit-source-logic-harmless",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyLogicHarmless"
+    },
+    {
+      "id": "per-unit-source-without-explicit-key",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyNoKey"
+    },
+    {
+      "id": "per-unit-source-in-grid",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyInGrid"
+    },
+    {
+      "id": "per-unit-source-in-conditional-panel",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyInConditionalPanel"
+    },
+    {
+      "id": "per-unit-source-in-plain-panel",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyInPlainPanel"
+    },
+    {
+      "id": "per-unit-parent-cycle-terminates",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyParentCycle"
+    },
+    {
+      "id": "per-unit-total-over-ceiling",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 99999999,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-chargeable"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "per-unit-kwd-total",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1250,
+        "currency": "KWD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 3
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3750,
+        "currency": "KWD",
+        "quantity": 3
+      },
+      "use": "qty"
+    },
+    {
+      "id": "entered-basic",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 49.99
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD",
+        "mode": "entered"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-number-field",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 25
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 2500,
+        "currency": "USD"
+      },
+      "use": "amtNumber"
+    },
+    {
+      "id": "entered-decimal-string",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "20.50"
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 2050,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-trimmed-string",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": " 7.5 "
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 750,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-float-trap-1.15",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 1.15
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 115,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-float-trap-1.005",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 1.005
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 100,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-float-trap-8.165",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 8.165
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 816,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-float-trap-string-12.345",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "12.345"
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 1235,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-float-trap-2.675",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 2.675
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 267,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-rounds-half-up",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 0.625
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 63,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-large-valid",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 9999.99
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 999999,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-trailing-dot",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "7."
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-leading-dot",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": ".5"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-comma-decimal",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "7,50"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-currency-symbol",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "$5"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-empty",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": ""
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-missing",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-below-default-minimum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 0.49
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-below-minimum"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-at-default-minimum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 0.5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 50,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-below-custom-minimum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000,
+        "minAmountMinor": 1000
+      },
+      "data": {
+        "amt": 9.99
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-below-minimum"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-negative",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": -5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-below-minimum"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-above-maximum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 10000.01
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-above-maximum"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-at-maximum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 10000
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 1000000,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-huge-not-safe",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 1000000000000000.0
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-astronomical",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 1e+21
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-above-maximum-large",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 123456789.99
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-above-maximum"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-missing-maximum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD"
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-zero-maximum",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 0
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-max-over-ceiling-still-capped",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 500000000
+      },
+      "data": {
+        "amt": 1000000
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-chargeable"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-no-source",
+      "payment": {
+        "amountMode": "entered",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "missing-amount-source"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-text-source",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtText"
+    },
+    {
+      "id": "entered-source-checked-before-max",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD"
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtText"
+    },
+    {
+      "id": "entered-jpy",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "JPY",
+        "maxAmountMinor": 100000
+      },
+      "data": {
+        "amt": 500
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "JPY"
+      },
+      "use": "amtJpy"
+    },
+    {
+      "id": "entered-jpy-fraction-rounds",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "JPY",
+        "maxAmountMinor": 100000
+      },
+      "data": {
+        "amt": 500.5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 501,
+        "currency": "JPY"
+      },
+      "use": "amtJpy"
+    },
+    {
+      "id": "entered-kwd-not-multiple",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "KWD",
+        "maxAmountMinor": 100000
+      },
+      "data": {
+        "amt": 1.234
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-chargeable"
+      },
+      "use": "amtKwd"
+    },
+    {
+      "id": "entered-kwd-ok",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "KWD",
+        "maxAmountMinor": 100000
+      },
+      "data": {
+        "amt": 1.25
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 1250,
+        "currency": "KWD"
+      },
+      "use": "amtKwd"
+    },
+    {
+      "id": "entered-ignores-injected-override",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 30,
+        "amountMinor": 1,
+        "pay": {
+          "amountMinor": 1
+        }
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "per-unit-source-grid-by-children-only",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyChildrenOnlyGrid"
+    },
+    {
+      "id": "per-unit-source-stale-parent-id-ignored",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyStaleParentIdGrid"
+    },
+    {
+      "id": "per-unit-source-listed-by-hidden-panel",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyListedByHiddenPanel"
+    },
+    {
+      "id": "per-unit-children-cycle-terminates",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyChildrenCycle"
+    },
+    {
+      "id": "per-unit-source-hidden-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyHiddenString"
+    },
+    {
+      "id": "per-unit-source-hidden-false-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyHiddenFalseString"
+    },
+    {
+      "id": "per-unit-source-hidden-zero",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyHiddenZero"
+    },
+    {
+      "id": "per-unit-source-hidden-empty-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyHiddenEmptyString"
+    },
+    {
+      "id": "per-unit-source-disabled-one",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyDisabledOne"
+    },
+    {
+      "id": "per-unit-source-disabled-object",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyDisabledObject"
+    },
+    {
+      "id": "per-unit-source-persistent-string-false",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyPersistentStringFalse"
+    },
+    {
+      "id": "per-unit-source-in-hidden-string-panel",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyInHiddenStringPanel"
+    },
+    {
+      "id": "per-unit-overflowing-string",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "qty"
+    },
+    {
+      "id": "entered-overflowing-string",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.5"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "amount-not-numeric"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "per-unit-inherited-key-constructor",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "constructor"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "ctor"
+    },
+    {
+      "id": "per-unit-own-key-constructor",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "constructor"
+      },
+      "data": {
+        "constructor": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "ctor"
+    },
+    {
+      "id": "entered-inherited-key-toString",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "toString",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "amount-source-empty"
+      },
+      "use": "toStr"
+    },
+    {
+      "id": "entered-source-shows-other-currency",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtEur"
+    },
+    {
+      "id": "entered-source-currency-matches",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "EUR",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "EUR"
+      },
+      "use": "amtEur"
+    },
+    {
+      "id": "entered-source-currency-case-insensitive",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "EUR",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "EUR"
+      },
+      "use": "amtEurLower"
+    },
+    {
+      "id": "entered-source-default-usd-vs-eur",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "EUR",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amt"
+    },
+    {
+      "id": "entered-source-currency-attr-wins",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "GBP",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "GBP"
+      },
+      "use": "amtCurrencyWins"
+    },
+    {
+      "id": "entered-source-currency-attr-wins-mismatch",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtCurrencyWins"
+    },
+    {
+      "id": "entered-source-currency-attr-not-string",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "EUR",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "EUR"
+      },
+      "use": "amtCurrencyNotString"
+    },
+    {
+      "id": "entered-source-unsupported-currency",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtUnsupported"
+    },
+    {
+      "id": "entered-number-source-currency-ignored",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "USD"
+      },
+      "use": "amtNumberEur"
+    },
+    {
+      "id": "payment-hidden",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "hidden": true
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-hidden-string",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "hidden": "false"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-disabled",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "disabled": true
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-excluded",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "persistent": false
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-custom-conditional",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "customConditional": "x == 1"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-logic-show",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "logic": [
+          {
+            "trigger": "x",
+            "action": "show"
+          }
+        ]
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-in-plain-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "use": "payHome",
+      "payIn": "plain"
+    },
+    {
+      "id": "payment-in-conditional-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "cond"
+    },
+    {
+      "id": "payment-in-hidden-string-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "hiddenStr"
+    },
+    {
+      "id": "payment-in-grid",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "grid"
+    },
+    {
+      "id": "payment-under-conditional-ancestor",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "inner"
+    },
+    {
+      "id": "payment-conditional-checked-before-currency",
+      "payment": {
+        "amountMode": "fixed",
+        "hidden": true
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "array-entities-fixed",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": true,
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "entitiesAsArray": true
+    },
+    {
+      "id": "array-entities-two-payments",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "multiple-payment-fields"
+      },
+      "use": "secondPayment",
+      "entitiesAsArray": true
+    },
+    {
+      "id": "array-entities-per-unit",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 3
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 4500,
+        "currency": "USD",
+        "quantity": 3
+      },
+      "use": "qty",
+      "entitiesAsArray": true
+    },
+    {
+      "id": "array-entities-grid-source",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 3
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyInGrid",
+      "entitiesAsArray": true
+    },
+    {
+      "id": "array-entities-hidden-payment",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "hidden": 1
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "entitiesAsArray": true
+    },
+    {
+      "id": "payment-unreachable",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "omitFromRoot": [
+        "pay"
+      ]
+    },
+    {
+      "id": "payment-in-unreachable-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "plain",
+      "omitFromRoot": [
+        "plain"
+      ]
+    },
+    {
+      "id": "per-unit-source-unreachable",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qty",
+      "omitFromRoot": [
+        "qty"
+      ]
+    },
+    {
+      "id": "per-unit-source-in-unreachable-panel",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyInPlainPanel",
+      "omitFromRoot": [
+        "panel"
+      ]
+    },
+    {
+      "id": "payment-custom-conditional-js",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD",
+        "customConditionalJs": "show = false"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      }
+    },
+    {
+      "id": "payment-in-custom-conditional-js-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "condJs"
+    },
+    {
+      "id": "per-unit-source-custom-conditional-js",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyCondJs"
+    },
+    {
+      "id": "entered-jpy-source-two-places",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "JPY",
+        "maxAmountMinor": 100000
+      },
+      "data": {
+        "amt": 500
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtJpyTwoPlaces"
+    },
+    {
+      "id": "entered-usd-source-two-places",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "USD"
+      },
+      "use": "amtUsdTwoPlaces"
+    },
+    {
+      "id": "entered-usd-source-zero-places",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "USD"
+      },
+      "use": "amtUsdZeroPlaces"
+    },
+    {
+      "id": "entered-number-source-three-places",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "amtNumberThreePlaces"
+    },
+    {
+      "id": "entered-source-places-not-a-number",
+      "payment": {
+        "amountMode": "entered",
+        "amountFrom": "amt",
+        "currency": "USD",
+        "maxAmountMinor": 1000000
+      },
+      "data": {
+        "amt": 5
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 500,
+        "currency": "USD"
+      },
+      "use": "amtStringPlaces"
+    },
+    {
+      "id": "per-unit-source-places-not-checked",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyThreePlaces"
+    },
+    {
+      "id": "per-unit-source-numeric-child-in-grid",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": false,
+        "reason": "ineligible-amount-source"
+      },
+      "use": "qtyNumericChildGrid"
+    },
+    {
+      "id": "per-unit-source-numeric-root",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyNumericRoot",
+      "numericRoot": true
+    },
+    {
+      "id": "per-unit-source-numeric-root-as-text",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 2
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 3000,
+        "currency": "USD",
+        "quantity": 2
+      },
+      "use": "qtyNumericRoot"
+    },
+    {
+      "id": "array-entities-referenced-by-id-are-unreachable",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "entitiesAsArray": true,
+      "arrayKeepIds": true
+    },
+    {
+      "id": "array-entities-numeric-root",
+      "payment": {
+        "amountMode": "perUnit",
+        "amountMinor": 1500,
+        "currency": "USD",
+        "quantityFrom": "qty"
+      },
+      "data": {
+        "qty": 4
+      },
+      "expect": {
+        "ok": true,
+        "amountMinor": 6000,
+        "currency": "USD",
+        "quantity": 4
+      },
+      "use": "qty",
+      "entitiesAsArray": true,
+      "numericRoot": true
+    },
+    {
+      "id": "array-entities-in-conditional-panel",
+      "payment": {
+        "amountMode": "fixed",
+        "amountMinor": 4999,
+        "currency": "USD"
+      },
+      "data": {},
+      "expect": {
+        "ok": false,
+        "reason": "payment-field-conditional"
+      },
+      "use": "payHome",
+      "payIn": "cond",
+      "entitiesAsArray": true
+    }
+  ],
+  "currencies": [
+    {
+      "code": "AED",
+      "exponent": 2,
+      "minimumMinor": 200
+    },
+    {
+      "code": "AUD",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "BGN",
+      "exponent": 2,
+      "minimumMinor": 100
+    },
+    {
+      "code": "BHD",
+      "exponent": 3,
+      "minimumMinor": 500
+    },
+    {
+      "code": "BIF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "BRL",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "CAD",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "CHF",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "CLP",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "CZK",
+      "exponent": 2,
+      "minimumMinor": 1500
+    },
+    {
+      "code": "DJF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "DKK",
+      "exponent": 2,
+      "minimumMinor": 250
+    },
+    {
+      "code": "EUR",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "GBP",
+      "exponent": 2,
+      "minimumMinor": 30
+    },
+    {
+      "code": "GNF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "HKD",
+      "exponent": 2,
+      "minimumMinor": 400
+    },
+    {
+      "code": "HUF",
+      "exponent": 2,
+      "minimumMinor": 17500
+    },
+    {
+      "code": "IDR",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "ILS",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "INR",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "JOD",
+      "exponent": 3,
+      "minimumMinor": 500
+    },
+    {
+      "code": "JPY",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "KES",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "KMF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "KRW",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "KWD",
+      "exponent": 3,
+      "minimumMinor": 500
+    },
+    {
+      "code": "MGA",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "MXN",
+      "exponent": 2,
+      "minimumMinor": 1000
+    },
+    {
+      "code": "MYR",
+      "exponent": 2,
+      "minimumMinor": 200
+    },
+    {
+      "code": "NGN",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "NOK",
+      "exponent": 2,
+      "minimumMinor": 300
+    },
+    {
+      "code": "NZD",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "OMR",
+      "exponent": 3,
+      "minimumMinor": 500
+    },
+    {
+      "code": "PHP",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "PLN",
+      "exponent": 2,
+      "minimumMinor": 200
+    },
+    {
+      "code": "PYG",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "QAR",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "RON",
+      "exponent": 2,
+      "minimumMinor": 200
+    },
+    {
+      "code": "RWF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "SAR",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "SEK",
+      "exponent": 2,
+      "minimumMinor": 300
+    },
+    {
+      "code": "SGD",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "THB",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "TND",
+      "exponent": 3,
+      "minimumMinor": 500
+    },
+    {
+      "code": "TRY",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "UGX",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "USD",
+      "exponent": 2,
+      "minimumMinor": 50
+    },
+    {
+      "code": "VND",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "VUV",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "XAF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "XOF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "XPF",
+      "exponent": 0,
+      "minimumMinor": 50
+    },
+    {
+      "code": "ZAR",
+      "exponent": 2,
+      "minimumMinor": 50
+    }
+  ]
+}

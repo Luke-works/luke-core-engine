@@ -52,4 +52,18 @@ class PlanFeaturesTest {
         when(plans.findById("t1")).thenThrow(new IllegalStateException("db down"));
         assertThat(features.canUseAttachments("t1")).isFalse();
     }
+
+    @Test
+    @DisplayName("payments are a paid-tier feature and fail closed like attachments")
+    void payments() {
+        when(plans.findById("pro")).thenReturn(Optional.of(new TenantPlan("pro", "PRO")));
+        when(plans.findById("free")).thenReturn(Optional.of(new TenantPlan("free", TenantPlan.PLAN_FREE)));
+        when(plans.findById("gone")).thenReturn(Optional.empty());
+        when(plans.findById("down")).thenThrow(new IllegalStateException("db down"));
+        assertThat(features.canUsePayments("pro")).isTrue();
+        assertThat(features.canUsePayments("free")).isFalse();
+        assertThat(features.canUsePayments("gone")).isFalse();
+        assertThat(features.canUsePayments("down")).isFalse();
+        assertThat(features.canUsePayments(null)).isFalse();
+    }
 }
