@@ -37,6 +37,17 @@ class SubmissionValidatorTest {
     }
 
     @Test
+    void anArrayOfEntitiesIsValidatedToo() {
+        // An import may store entities as an array; it must not switch the backstop off.
+        String array = """
+                {"root":["0"],"entities":[
+                  {"type":"text","attributes":{"key":"fullName","required":true}}
+                ]}""";
+        assertThat(SubmissionValidator.clean(array, map("fullName", "Ada", "evil", "injected"))).containsOnlyKeys("fullName");
+        assertThatThrownBy(() -> SubmissionValidator.clean(array, map("evil", "x"))).isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
     void enforcesRequiredFields() {
         assertThatThrownBy(() -> SubmissionValidator.clean(SCHEMA, map("age", 30)))
                 .isInstanceOf(ResponseStatusException.class)

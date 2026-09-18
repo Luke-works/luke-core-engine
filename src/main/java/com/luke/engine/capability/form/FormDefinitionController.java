@@ -42,6 +42,8 @@ public class FormDefinitionController {
     private final com.luke.engine.branding.BrandingPolicy branding;
     private final com.luke.engine.branding.PlanFeatures planFeatures;
     private final FormEmbedSiteRepository embedSites;
+    /** Null when payments aren't wired (hand-built in tests) — a form with a payment can't be published. */
+    private final com.luke.engine.payments.PaymentAccountService paymentAccounts;
 
     /** A concurrent edit (draft save / lock checkout) lost the optimistic-lock race
      *  (#57) — tell the client to reload rather than silently clobbering. */
@@ -59,6 +61,18 @@ public class FormDefinitionController {
                                     com.luke.engine.branding.BrandingPolicy branding,
                                     com.luke.engine.branding.PlanFeatures planFeatures,
                                     FormEmbedSiteRepository embedSites) {
+        this(forms, versions, audit, embedTokens, userDirectory, branding, planFeatures, embedSites, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FormDefinitionController(FormDefinitionRepository forms, FormVersionRepository versions,
+                                    FormAuditEventRepository audit, EmbedTokens embedTokens,
+                                    com.luke.engine.tenant.UserDirectory userDirectory,
+                                    com.luke.engine.branding.BrandingPolicy branding,
+                                    com.luke.engine.branding.PlanFeatures planFeatures,
+                                    FormEmbedSiteRepository embedSites,
+                                    com.luke.engine.payments.PaymentAccountService paymentAccounts) {
+        this.paymentAccounts = paymentAccounts;
         this.forms = forms;
         this.versions = versions;
         this.audit = audit;
@@ -270,9 +284,11 @@ public class FormDefinitionController {
             int target = body.version() != null ? body.version() : form.getPublishedVersion();
             // A pin must point at a real, checked-in version, or the embed would silently fall back to
             // published and the UI would claim a pin that isn't honoured.
-            if (versions.findByFormIdAndVersion(form.getId(), target).isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown version v" + target + " for " + form.getCode());
-            }
+            FormVersion pinned = versions.findByFormIdAndVersion(form.getId(), target)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Unknown version v" + target + " for " + form.getCode()));
+            // A pin puts that version in front of payers exactly as a publish does.
+            requirePaymentReady(tenantId, pinned.getSchema());
             form.setEmbedVersionMode(FormDefinition.EMBED_MODE_PINNED);
             form.setEmbedVersion(target);
         } else {
@@ -423,10 +439,14 @@ public class FormDefinitionController {
                                       @PathVariable String code,
                                       @RequestParam(defaultValue = "published") String pin) {
         Map<String, Object> resolved = resolveSchema(tenantId, code, pin);
+        String schema = (String) resolved.get("schema");
         return Map.of(
                 "code", code,
                 "version", resolved.get("version"),
-                "fields", FormSupport.extractFields((String) resolved.get("schema")));
+                "fields", FormSupport.extractFields(schema),
+                // A payment form can only be submitted through its public link, so the in-app fill page
+                // checks this BEFORE creating an instance it could never submit.
+                "takesPayment", com.luke.engine.payments.PaymentAmountResolver.hasPayment(schema));
     }
 
     /* ── versioning ─────────────────────────────────────────── */
@@ -487,12 +507,32 @@ public class FormDefinitionController {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "v" + v + " hasn't been signed off — test and sign it off before publishing");
         }
+        requirePaymentReady(tenantId, target.getSchema());
         form.setPublishedVersion(v);
         if (!"RETIRED".equals(form.getStatus())) form.setStatus("PUBLISHED");
         form.setUpdatedBy(userId);
         FormDefinition saved = forms.save(form);
         record(saved, userId, "published", "v" + v);
         return saved;
+    }
+
+    /**
+     * A form that takes a payment goes live only when the payment is soundly configured AND the tenant
+     * can actually take it — otherwise every filler would complete the form and then be refused.
+     */
+    private void requirePaymentReady(String tenantId, String schema) {
+        if (!com.luke.engine.payments.PaymentAmountResolver.hasPayment(schema)) return;
+        java.util.List<String> problems = com.luke.engine.payments.PaymentAmountResolver.configProblems(schema);
+        if (!problems.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The payment field isn't set up correctly: " + String.join(" ", problems));
+        }
+        if (paymentAccounts == null || !paymentAccounts.ready(tenantId)) {
+            String why = paymentAccounts != null && !paymentAccounts.planAllows(tenantId)
+                    ? "Taking payments needs a paid plan."
+                    : "Connect a Stripe account that can accept payments (Forms → Payments) first.";
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This form takes a payment. " + why);
+        }
     }
 
     /** Load an older version back into the editable draft. */

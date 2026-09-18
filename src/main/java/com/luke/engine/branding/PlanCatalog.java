@@ -27,14 +27,16 @@ import java.util.Map;
  */
 public enum PlanCatalog {
 
-    //          id            display       rank price  subs    ai     email  storGB seats  brand   sso    voice  self   attach  capabilities
-    FREE("FREE", "Free", 0, 0, 100, 10, 60, 0.5, 1, false, false, false, false, false,
+    // `pay` = collect payments on forms through the tenant's own Stripe account (no platform fee —
+    // the subscription is how payments are monetised, so it starts at the first paid tier).
+    //          id            display       rank price  subs    ai     email  storGB seats  brand   sso    voice  self   attach  pay    capabilities
+    FREE("FREE", "Free", 0, 0, 100, 10, 60, 0.5, 1, false, false, false, false, false, false,
             List.of("FORMS")),
-    PRO("PRO", "Pro", 1, 39, 2_000, 500, 2_000, 5, 3, true, false, false, false, true,
+    PRO("PRO", "Pro", 1, 39, 2_000, 500, 2_000, 5, 3, true, false, false, false, true, true,
             List.of("FORMS", "EMAIL")),
-    BUSINESS("BUSINESS", "Business", 2, 149, 15_000, 2_000, 15_000, 25, 10, true, true, false, false, true,
+    BUSINESS("BUSINESS", "Business", 2, 149, 15_000, 2_000, 15_000, 25, 10, true, true, false, false, true, true,
             List.of("FORMS", "EMAIL", "SIGNATURES", "CALENDAR")),
-    ENTERPRISE("ENTERPRISE", "Enterprise", 3, -1, -1, -1, -1, -1, -1, true, true, true, true, true,
+    ENTERPRISE("ENTERPRISE", "Enterprise", 3, -1, -1, -1, -1, -1, -1, true, true, true, true, true, true,
             List.of("FORMS", "EMAIL", "SIGNATURES", "CALENDAR", "PHONE", "WORKFLOW", "SLA"));
 
     /** Legacy stored value from the original two-tier (FREE|PAID) model — aliases to {@link #PRO}. */
@@ -54,12 +56,13 @@ public enum PlanCatalog {
     private final boolean voice;
     private final boolean selfHost;
     private final boolean attachments;
+    private final boolean payments;
     private final List<String> includedCapabilities;
 
     PlanCatalog(String id, String displayName, int rank, int priceUsd, int monthlySubmissions,
                 int monthlyAiActions, int monthlyEmails, double storageGb, int seats,
                 boolean removableBranding, boolean sso, boolean voice, boolean selfHost, boolean attachments,
-                List<String> includedCapabilities) {
+                boolean payments, List<String> includedCapabilities) {
         this.id = id;
         this.displayName = displayName;
         this.rank = rank;
@@ -74,6 +77,7 @@ public enum PlanCatalog {
         this.voice = voice;
         this.selfHost = selfHost;
         this.attachments = attachments;
+        this.payments = payments;
         this.includedCapabilities = includedCapabilities;
     }
 
@@ -91,6 +95,7 @@ public enum PlanCatalog {
     public boolean voice() { return voice; }
     public boolean selfHost() { return selfHost; }
     public boolean attachments() { return attachments; }
+    public boolean payments() { return payments; }
     public List<String> includedCapabilities() { return includedCapabilities; }
 
     /** True when this tier is allowed to subscribe to the given capability {@code code}. */
@@ -143,6 +148,7 @@ public enum PlanCatalog {
         features.put("voice", voice);
         features.put("selfHost", selfHost);
         features.put("attachments", attachments);
+        features.put("payments", payments);
         out.put("features", features);
         out.put("capabilities", includedCapabilities);
         return out;

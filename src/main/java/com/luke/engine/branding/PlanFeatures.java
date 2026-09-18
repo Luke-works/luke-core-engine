@@ -37,14 +37,25 @@ public class PlanFeatures {
         return isPaid(tenantId);
     }
 
+    /** May this tenant take payments on their forms (through their own Stripe account)? */
+    @Transactional(readOnly = true)
+    public boolean canUsePayments(String tenantId) {
+        return tier(tenantId).payments();
+    }
+
     private boolean isPaid(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) return false;
+        // Derived from the tier catalog: attachments unlock on any paying tier (legacy PAID → PRO).
+        return tier(tenantId).attachments();
+    }
+
+    /** The tenant's tier, failing closed to FREE on a missing row or a lookup error. */
+    private PlanCatalog tier(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return PlanCatalog.FREE;
         try {
-            // Derived from the tier catalog: attachments unlock on any paying tier (legacy PAID → PRO).
-            return plans.findById(tenantId).map(row -> PlanCatalog.fromStored(row.getPlan()).attachments()).orElse(false);
+            return plans.findById(tenantId).map(row -> PlanCatalog.fromStored(row.getPlan())).orElse(PlanCatalog.FREE);
         } catch (RuntimeException e) {
             log.warn("PlanFeatures: plan lookup failed for tenant {} — treating as the free plan", tenantId, e);
-            return false;
+            return PlanCatalog.FREE;
         }
     }
 }

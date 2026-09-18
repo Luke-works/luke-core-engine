@@ -192,6 +192,35 @@ luke:
     # capability-engine starting a process). MUST match capability-engine's
     # value; unset → the internal endpoints reject everything (403).
     shared-secret: ${LUKE_INTERNAL_SHARED_SECRET:}
+  payments:
+    # Form payments — Stripe Connect, bring-your-own-account, direct charges, no platform fee. The
+    # ENTIRE feature is config-gated: it needs the platform secret key (defaults to billing's
+    # STRIPE_SECRET_KEY — same Stripe platform account), the publishable key and the Connect OAuth
+    # client id. Any of them unset → payments self-disable (connect 404s, payment forms can't be
+    # published or submitted, the Connect webhook no-ops). Test and live keys must not be mixed.
+    stripe:
+      secret-key: ${STRIPE_CONNECT_SECRET_KEY:${luke.billing.stripe.secret-key:}}
+      # pk_live_… / pk_test_… — PUBLIC; sent to the payer's browser to mount the card form.
+      publishable-key: ${STRIPE_PUBLISHABLE_KEY:}
+      # ca_… — Dashboard → Settings → Connect → Onboarding options → OAuth.
+      connect-client-id: ${STRIPE_CONNECT_CLIENT_ID:}
+      # whsec_… of the "Connected accounts" webhook endpoint (/webhooks/stripe-connect). Separate
+      # from billing's STRIPE_WEBHOOK_SECRET. Unset → the endpoint ignores calls.
+      connect-webhook-secret: ${STRIPE_CONNECT_WEBHOOK_SECRET:}
+      # Stripe.js must load from js.stripe.com (PCI); /v3/ matches the API version stripe-java pins.
+      # Anything else disables payments (with a warning) rather than failing boot.
+      js-url: ${STRIPE_JS_URL:https://js.stripe.com/v3/}
+    # Where Stripe returns the owner after connecting — the consumer-ui payments page. Must also be
+    # registered as a redirect URI in the Stripe Connect OAuth settings.
+    connect-redirect-url: ${LUKE_PAYMENTS_CONNECT_REDIRECT_URL:http://localhost:5173/forms/payments}
+    # An unpaid submission older than this has its charge cancelled and is released.
+    pending-ttl-minutes: ${LUKE_PAYMENTS_PENDING_TTL_MINUTES:120}
+    # The stale-charge reconciler. Safe on every node (row locks + idempotent cancels); disable on
+    # all but one to save Stripe API calls.
+    # It runs on its own thread (never the shared scheduler) and each run stops after the budget.
+    reconcile-enabled: ${LUKE_PAYMENTS_RECONCILE_ENABLED:true}
+    reconcile-ms: ${LUKE_PAYMENTS_RECONCILE_MS:300000}
+    reconcile-budget-ms: ${LUKE_PAYMENTS_RECONCILE_BUDGET_MS:120000}
   billing:
     # Phase 2b Stripe checkout. The ENTIRE module is config-gated on the secret key: with
     # STRIPE_SECRET_KEY unset, billing self-disables (checkout 404s, the webhook no-ops), so dev/qa

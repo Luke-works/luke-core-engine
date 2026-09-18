@@ -67,9 +67,39 @@ public class PublicFormInstanceController {
                                       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                       @RequestBody(required = false) DataBody body,
                                       jakarta.servlet.http.HttpServletRequest request) {
-        return service.submit(token, bearer(auth), body != null ? body.data() : null,
+        // A paid form resubmitted for correction: re-read its charge first, so a refund or dispute the
+        // webhook missed can't pass for a payment (no-op for anything else).
+        service.refreshPaidCharge(token, bearer(auth));
+        Map<String, Object> out = service.submit(token, bearer(auth), body != null ? body.data() : null,
                 SubmissionSource.from(request, SubmissionSource.VIA_RESPOND,
                         body != null && Boolean.TRUE.equals(body.consentAgreed())));
+        if (!FormInstanceStates.AWAITING_PAYMENT.equals(out.get("state"))) return out;
+        // Saved and priced; the charge is created only now, after that transaction committed.
+        Map<String, Object> withPayment = new java.util.LinkedHashMap<>(out);
+        try {
+            withPayment.put("payment", service.startPayment(token, bearer(auth)));
+        } catch (org.springframework.web.server.ResponseStatusException e) {
+            // The submission is saved; only starting the charge failed. The page can retry (POST …/payment).
+            withPayment.put("payment", null);
+            withPayment.put("paymentError", e.getReason());
+            withPayment.put("paymentRetryable", e.getStatusCode().is5xxServerError());
+            withPayment.put("state", service.currentState(token));
+        }
+        return withPayment;
+    }
+
+    /** Resume an unpaid submission's charge (the payer came back) → { status, clientSecret, … }. */
+    @PostMapping("/{token}/payment")
+    public Map<String, Object> startPayment(@PathVariable String token,
+                                            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth) {
+        return service.startPayment(token, bearer(auth));
+    }
+
+    /** Check the charge with Stripe after the payer confirmed it in the browser. */
+    @PostMapping("/{token}/payment/sync")
+    public Map<String, Object> syncPayment(@PathVariable String token,
+                                           @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth) {
+        return service.syncPayment(token, bearer(auth));
     }
 
     private static String bearer(String header) {

@@ -62,6 +62,13 @@ class PlanCatalogTest {
         assertThat(PlanCatalog.ENTERPRISE.selfHost()).isTrue();
         assertThat(PlanCatalog.ENTERPRISE.voice()).isTrue();
 
+        // Payments (bring-your-own Stripe): every paying tier, never Free — and surfaced in the view.
+        assertThat(PlanCatalog.FREE.payments()).isFalse();
+        assertThat(PlanCatalog.PRO.payments()).isTrue();
+        assertThat(PlanCatalog.BUSINESS.payments()).isTrue();
+        assertThat(PlanCatalog.ENTERPRISE.payments()).isTrue();
+        assertThat(((java.util.Map<?, ?>) PlanCatalog.PRO.toView().get("features")).get("payments")).isEqualTo(true);
+
         // Enterprise is custom/unlimited (sentinel -1).
         assertThat(PlanCatalog.ENTERPRISE.priceUsd()).isEqualTo(-1);
         assertThat(PlanCatalog.ENTERPRISE.monthlySubmissions()).isEqualTo(-1);

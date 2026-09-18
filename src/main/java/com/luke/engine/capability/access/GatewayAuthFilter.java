@@ -58,7 +58,11 @@ public class GatewayAuthFilter {
                 // Sibling of /api/my-capabilities — was missing here, so it returned any tenant's active
                 // subscriptions for a header-supplied X-Tenant-Id (cross-tenant disclosure) (#20).
                 "/api/my-subscriptions",
-                "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*");
+                "/api/access-requests/*", "/api/my-access-requests", "/api/org/access-requests/*",
+                // Form payments settings (connected Stripe account). The controller resolves the caller
+                // from the Authorization credential itself; listed so a tenant claim in the gateway token
+                // also pins X-Tenant-Id here, like every other user-facing route.
+                "/api/payments/*");
         reg.setName("gatewayAuthFilter");
         reg.setOrder(1); // before the capability access interceptor
         return reg;

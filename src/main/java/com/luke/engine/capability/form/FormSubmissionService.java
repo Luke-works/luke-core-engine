@@ -2,6 +2,7 @@ package com.luke.engine.capability.form;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.luke.engine.document.DocumentService;
+import com.luke.engine.payments.PaymentGate;
 import com.luke.engine.usage.UsageMetric;
 import com.luke.engine.usage.UsageService;
 import java.time.LocalDateTime;
@@ -47,11 +48,22 @@ public class FormSubmissionService {
     private final FormDefinitionRepository forms;
     private final FormVersionRepository versions;
     private final UsageService usage;
+    private final PaymentGate payments;
 
+    /** Without payments wiring (hand-built in tests): a form that takes a payment is refused. */
     public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
                                  DocumentService documents, FormEventPublisher events,
                                  FormDefinitionRepository forms, FormVersionRepository versions,
                                  UsageService usage) {
+        this(instances, outbox, documents, events, forms, versions, usage, PaymentGate.REFUSE);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FormSubmissionService(FormInstanceRepository instances, FormSubmissionOutboxRepository outbox,
+                                 DocumentService documents, FormEventPublisher events,
+                                 FormDefinitionRepository forms, FormVersionRepository versions,
+                                 UsageService usage, PaymentGate payments) {
+        this.payments = payments;
         this.instances = instances;
         this.outbox = outbox;
         this.documents = documents;
@@ -98,10 +110,22 @@ public class FormSubmissionService {
         // incoming delta: an outbound instance carries preparer-supplied values from an earlier save,
         // so a delta alone would look like a submission with required fields missing.
         Map<String, Object> merged = merge(inst.getData(), dataToMerge);
-        Map<String, Object> cleaned = SubmissionValidator.clean(schemaJson, merged);
+        // Payment: whatever the client sent for the charge record is discarded — only the server writes
+        // it. A placeholder goes in before validation so a (legacy) required flag on the field can't 400.
+        java.util.Optional<String> paymentKey = payments.paymentKey(schemaJson);
+        paymentKey.ifPresent(k -> merged.put(k, PaymentGate.paymentValue("unpaid", 0, "", "")));
+        Map<String, Object> cleaned = new java.util.LinkedHashMap<>(SubmissionValidator.clean(schemaJson, merged));
         logDroppedKeys(inst, merged, cleaned);
+        // Price the submission from the schema + validated answers; refuses (4xx) before anything is written.
+        PaymentGate.PendingCharge charge = paymentKey.isPresent()
+                ? payments.price(inst, schemaJson, cleaned, source) : null;
+        boolean awaitingPayment = charge != null && !charge.alreadyPaid();
+        if (charge != null) {
+            cleaned.put(charge.fieldKey(), PaymentGate.paymentValue(charge.alreadyPaid() ? "paid" : "pending",
+                    charge.amountMinor(), charge.currency(), charge.intentId()));
+        }
         inst.setData(cleaned);
-        inst.setState(FormInstanceStates.SUBMITTED);
+        inst.setState(awaitingPayment ? FormInstanceStates.AWAITING_PAYMENT : FormInstanceStates.SUBMITTED);
         if (inst.getSubmittedAt() == null) inst.setSubmittedAt(LocalDateTime.now());
         // Provenance is written HERE, the one choke point every door funnels through, so a submit path
         // added later inherits it and cannot silently skip it (the same reasoning as the validation
@@ -112,7 +136,7 @@ public class FormSubmissionService {
             inst.setSubmittedUserAgent(source.userAgent());
             inst.setSubmittedVia(source.via());
         }
-        markQueued(inst);
+        if (!awaitingPayment) markQueued(inst);
         instances.save(inst);          // assigns the id for a new (embed) instance
         if (StringUtils.hasText(attachmentSourceRef) && !attachmentSourceRef.equals(inst.getId())) {
             // Best-effort: a registry hiccup must never block the submission itself.
@@ -120,11 +144,36 @@ public class FormSubmissionService {
                 documents.linkToInstance(inst.getTenantId(), attachmentSourceRef, inst.getId());
             } catch (RuntimeException ignored) { /* snapshot just omits them */ }
         }
+        if (awaitingPayment) {
+            // Not a received submission yet: no process start, no "submitted" event, no metering until
+            // the payment provider confirms the charge (completeAfterPayment).
+            payments.record(inst, charge);
+            return;
+        }
         enqueue(inst);
         // Emit the forms→workflow lifecycle event on the same transaction, so a
         // submission and its "form submitted" event commit together.
         events.emit(inst, "submitted");
         // Meter the submission — best-effort, isolated tx; never fails the submit.
+        usage.record(inst.getTenantId(), UsageMetric.SUBMISSIONS);
+    }
+
+    /**
+     * Release a paid submission: write the confirmed charge record, mark it SUBMITTED and queue it —
+     * the steps {@link #submit} deferred. Called only by the payments module, only after the payment
+     * provider reported the charge succeeded, inside that settlement's transaction.
+     */
+    @Transactional
+    public void completeAfterPayment(FormInstance inst, String paymentKey, Map<String, Object> paidValue) {
+        if (!FormInstanceStates.AWAITING_PAYMENT.equals(inst.getState())) return;
+        Map<String, Object> data = new java.util.LinkedHashMap<>(inst.getData() != null ? inst.getData() : Map.of());
+        data.put(paymentKey, paidValue);
+        inst.setData(data);
+        inst.setState(FormInstanceStates.SUBMITTED);
+        markQueued(inst);
+        instances.save(inst);
+        enqueue(inst);
+        events.emit(inst, "submitted");
         usage.record(inst.getTenantId(), UsageMetric.SUBMISSIONS);
     }
 

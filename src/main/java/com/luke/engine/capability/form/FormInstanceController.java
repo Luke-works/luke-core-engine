@@ -286,6 +286,19 @@ public class FormInstanceController {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Illegal transition " + inst.getState() + " → " + to);
         }
+        // Awaiting payment is owned by the payments module: only a charge Stripe confirmed may release
+        // it, and only an abandoned (cancelled-at-Stripe) charge may reopen or cancel it. A manual move
+        // either way would release an unpaid submission or strand a live charge.
+        if (FormInstanceStates.AWAITING_PAYMENT.equals(inst.getState()) || FormInstanceStates.AWAITING_PAYMENT.equals(to)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This submission is waiting for its payment; its state changes when the payment does.");
+        }
+        // Marking a form that takes a payment "submitted" by hand would skip the payment entirely.
+        if (FormInstanceStates.SUBMITTED.equals(to) && !FormInstanceStates.SUBMITTED_STATES.contains(inst.getState())
+                && com.luke.engine.payments.PaymentAmountResolver.hasPayment(schemaFor(inst.getTenantId(), inst))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This form takes a payment, so it can only be submitted by the payer.");
+        }
         inst.setState(to);
         if (FormInstanceStates.SUBMITTED.equals(to) && inst.getSubmittedAt() == null) {
             inst.setSubmittedAt(LocalDateTime.now());

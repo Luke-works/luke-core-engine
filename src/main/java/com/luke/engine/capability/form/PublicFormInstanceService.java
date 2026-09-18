@@ -49,11 +49,35 @@ public class PublicFormInstanceService {
     private final RecipientAccessTokens accessTokens;
     private final PortalAccessTokens portalTokens;
     private final com.luke.engine.branding.BrandingPolicy branding;
+    /** Null when payments aren't wired (hand-built in tests) — a paid form is then refused at submit. */
+    private final com.luke.engine.payments.FormPaymentService payments;
+
+    /**
+     * States a recipient may still reach the form in: open, or submitted-but-unpaid (so a payer who
+     * left mid-payment can verify again and finish). Editing and submitting stay open-only.
+     */
+    private static final Set<String> VIEWABLE = union(FormInstanceStates.OPEN, Set.of(FormInstanceStates.AWAITING_PAYMENT));
+
+    private static Set<String> union(Set<String> a, Set<String> b) {
+        Set<String> out = new HashSet<>(a);
+        out.addAll(b);
+        return Set.copyOf(out);
+    }
 
     public PublicFormInstanceService(FormInstanceRepository instances, FormRecipientOtpRepository otps,
             FormDefinitionRepository forms, FormVersionRepository versions, EmailService emails,
             FormSubmissionService submissions, RecipientAccessTokens accessTokens,
             PortalAccessTokens portalTokens, com.luke.engine.branding.BrandingPolicy branding) {
+        this(instances, otps, forms, versions, emails, submissions, accessTokens, portalTokens, branding, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PublicFormInstanceService(FormInstanceRepository instances, FormRecipientOtpRepository otps,
+            FormDefinitionRepository forms, FormVersionRepository versions, EmailService emails,
+            FormSubmissionService submissions, RecipientAccessTokens accessTokens,
+            PortalAccessTokens portalTokens, com.luke.engine.branding.BrandingPolicy branding,
+            com.luke.engine.payments.FormPaymentService payments) {
+        this.payments = payments;
         this.branding = branding;
         this.instances = instances;
         this.otps = otps;
@@ -68,7 +92,7 @@ public class PublicFormInstanceService {
     /** Mail a fresh OTP to the instance's recipient. Returns the (best-effort) email status. */
     @Transactional
     public Map<String, Object> requestOtp(String token) {
-        FormInstance inst = openInstance(token);
+        FormInstance inst = openInstance(token, VIEWABLE);
         String email = recipientEmail(inst);
         if (email == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This form has no recipient email to verify.");
@@ -99,7 +123,7 @@ public class PublicFormInstanceService {
     /** Verify a code; on success mark the instance OPENED and mint a short-lived access token. */
     @Transactional
     public Map<String, Object> verify(String token, String code) {
-        FormInstance inst = openInstance(token);
+        FormInstance inst = openInstance(token, VIEWABLE);
         FormRecipientOtp otp = otps.findByInstanceId(inst.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request a code first."));
         if (LocalDateTime.now().isAfter(otp.getExpiresAt())) {
@@ -127,7 +151,7 @@ public class PublicFormInstanceService {
     /** The render payload for an authenticated recipient: schema + prefill + any saved data. */
     @Transactional(readOnly = true)
     public Map<String, Object> render(String token, String accessToken) {
-        FormInstance inst = authorize(token, accessToken);
+        FormInstance inst = authorize(token, accessToken, VIEWABLE);
         FormDefinition form = forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Form not found."));
         String schema = versions.findByFormIdAndVersion(form.getId(), inst.getVersion())
@@ -147,6 +171,36 @@ public class PublicFormInstanceService {
         // as the embed surface). Covers BOTH the /respond/:token page and the recipient portal, which
         // render from this payload.
         out.put("showBranding", branding.showBadge(inst.getTenantId(), form.isShowBranding()));
+        // Payments: the public keys the card form needs, when this form takes a payment (see FormEmbedController).
+        if (payments != null) {
+            Map<String, Object> payment = payments.publicConfig(inst.getTenantId(), schema, inst.getId());
+            if (payment != null) out.put("payment", payment);
+        }
+        return out;
+    }
+
+    /**
+     * Start — or, for a payer returning to an unpaid submission, resume — this instance's charge.
+     * Deliberately NOT transactional: it runs after the submit transaction has committed and calls Stripe.
+     */
+    public Map<String, Object> startPayment(String token, String accessToken) {
+        FormInstance inst = authorize(token, accessToken, Set.of(FormInstanceStates.AWAITING_PAYMENT));
+        if (payments == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No payment is due for this form.");
+        return payments.startIntent(inst.getTenantId(), inst.getId()).toMap();
+    }
+
+    /** The instance's state right now (after a charge attempt may have released it). */
+    public String currentState(String token) {
+        return instances.findByToken(token).map(FormInstance::getState).orElse(null);
+    }
+
+    /** Check the charge with Stripe after the payer confirmed it (see FormPaymentService#sync). */
+    public Map<String, Object> syncPayment(String token, String accessToken) {
+        FormInstance inst = authorize(token, accessToken,
+                Set.of(FormInstanceStates.AWAITING_PAYMENT, FormInstanceStates.SUBMITTED, FormInstanceStates.PROCESSED));
+        if (payments == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No payment is due for this form.");
+        Map<String, Object> out = new LinkedHashMap<>(payments.sync(inst.getTenantId(), inst.getId()));
+        out.put("state", instances.findById(inst.getId()).map(FormInstance::getState).orElse(inst.getState()));
         return out;
     }
 
@@ -172,8 +226,26 @@ public class PublicFormInstanceService {
     public Map<String, Object> submit(String token, String accessToken, Map<String, Object> data,
                                       SubmissionSource source) {
         FormInstance inst = authorize(token, accessToken);
-        submissions.submit(inst, recipientWritable(inst, data), null, source);
+        Map<String, Object> changes = new LinkedHashMap<>(recipientWritable(inst, data));
+        // The preparer's answers travel with the submission: a locked field the recipient never wrote lives
+        // only in the prefill, yet it still has to pass the required checks and — for a payment form —
+        // price the charge the recipient was shown.
+        Map<String, Object> prefill = inst.getPrefill();
+        Map<String, Object> stored = inst.getData();
+        if (prefill != null && !prefill.isEmpty()) {
+            for (String key : preparerOwned(inst)) {
+                if (prefill.containsKey(key) && (stored == null || !stored.containsKey(key))) changes.put(key, prefill.get(key));
+            }
+        }
+        submissions.submit(inst, changes, null, source);
         return Map.of("ok", true, "instanceId", inst.getId(), "state", inst.getState());
+    }
+
+    /** Before a resubmission: refresh an already-paid charge's refund/dispute state from Stripe. */
+    public void refreshPaidCharge(String token, String accessToken) {
+        if (payments == null) return;
+        FormInstance inst = authorize(token, accessToken);
+        payments.refreshSettled(inst.getTenantId(), inst.getId());
     }
 
     /**
@@ -197,18 +269,10 @@ public class PublicFormInstanceService {
      */
     private Map<String, Object> recipientWritable(FormInstance inst, Map<String, Object> data) {
         if (data == null || data.isEmpty()) return Map.of();
-        FormDefinition form = forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode()).orElse(null);
-        if (form == null) return data; // unknown contract — cleaning happens downstream regardless
-
-        Set<String> preparerOwned = new HashSet<>();
-        for (Map.Entry<String, Object> e : parseRoles(form.getOutboundRolesJson()).entrySet()) {
-            if ("PREPARER".equals(String.valueOf(e.getValue()))) preparerOwned.add(e.getKey());
+        if (forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode()).isEmpty()) {
+            return data; // unknown contract — cleaning happens downstream regardless
         }
-        String schema = versions.findByFormIdAndVersion(form.getId(), inst.getVersion())
-                .map(FormVersion::getSchema).orElse(null);
-        for (FormSupport.FieldRule f : FormSupport.extractFieldRules(schema)) {
-            if (f.attributes().path("disabled").asBoolean(false)) preparerOwned.add(f.key());
-        }
+        Set<String> preparerOwned = preparerOwned(inst);
         if (preparerOwned.isEmpty()) return data;
 
         Map<String, Object> out = new LinkedHashMap<>();
@@ -224,16 +288,37 @@ public class PublicFormInstanceService {
         return out;
     }
 
+    /** The keys the PREPARER owns on this instance's form (role map, or legacy {@code disabled}). */
+    private Set<String> preparerOwned(FormInstance inst) {
+        Set<String> owned = new HashSet<>();
+        FormDefinition form = forms.findByTenantIdAndCode(inst.getTenantId(), inst.getDefinitionCode()).orElse(null);
+        if (form == null) return owned;
+        for (Map.Entry<String, Object> e : parseRoles(form.getOutboundRolesJson()).entrySet()) {
+            if ("PREPARER".equals(String.valueOf(e.getValue()))) owned.add(e.getKey());
+        }
+        String schema = versions.findByFormIdAndVersion(form.getId(), inst.getVersion())
+                .map(FormVersion::getSchema).orElse(null);
+        for (FormSupport.FieldRule f : FormSupport.extractFieldRules(schema)) {
+            if (f.attributes().path("disabled").asBoolean(false)) owned.add(f.key());
+        }
+        return owned;
+    }
+
     // ── internals ─────────────────────────────────────────────────────────────
 
     /** Resolve an OPEN instance by token, or the right 4xx (never leaking whether the token exists). */
     private FormInstance openInstance(String token) {
+        return openInstance(token, FormInstanceStates.OPEN);
+    }
+
+    private FormInstance openInstance(String token, Set<String> allowedStates) {
         FormInstance inst = instances.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This form link isn't valid."));
-        if (inst.isExpired()) {
+        // An unpaid submission is past its fill window by definition — expiry must not strand the payer.
+        if (inst.isExpired() && !FormInstanceStates.AWAITING_PAYMENT.equals(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.GONE, "This form link has expired.");
         }
-        if (!FormInstanceStates.isOpen(inst.getState())) {
+        if (!allowedStates.contains(inst.getState())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This form is no longer open.");
         }
         return inst;
@@ -246,17 +331,21 @@ public class PublicFormInstanceService {
      * match). The instance must still be open in both cases.
      */
     private FormInstance authorize(String token, String accessToken) {
+        return authorize(token, accessToken, FormInstanceStates.OPEN);
+    }
+
+    private FormInstance authorize(String token, String accessToken, Set<String> allowedStates) {
         long now = System.currentTimeMillis();
         // 1) Per-instance recipient token (the single-link /respond flow).
         try {
-            if (token.equals(accessTokens.verify(accessToken, now))) return openInstance(token);
+            if (token.equals(accessTokens.verify(accessToken, now))) return openInstance(token, allowedStates);
         } catch (IllegalArgumentException ignore) {
             /* not an instance token — try the portal session below */
         }
         // 2) Email-scoped portal session (authenticate-once portal).
         try {
             PortalAccessTokens.PortalRef ref = portalTokens.verify(accessToken, now);
-            FormInstance inst = openInstance(token);
+            FormInstance inst = openInstance(token, allowedStates);
             String email = recipientEmail(inst);
             if (email != null && ref.tenantId().equals(inst.getTenantId()) && ref.email().equalsIgnoreCase(email)) {
                 return inst;

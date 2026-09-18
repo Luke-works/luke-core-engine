@@ -36,6 +36,12 @@ public class CapabilityAdminController {
     private final FormInstanceRepository formInstances;
     private final FormAuditEventRepository formAuditEvents;
     private final EmailVerificationRepository emailVerifications;
+    // Form payments: the charge records carry amounts tied to submissions, and the connected-account row
+    // names where the tenant's money went — neither outlives the tenant.
+    private final com.luke.engine.payments.FormPaymentRepository formPayments;
+    private final com.luke.engine.payments.PaymentAccountRepository paymentAccounts;
+    private final com.luke.engine.payments.PaymentConnectStateRepository paymentConnectStates;
+    private final com.luke.engine.payments.PaymentAccountService paymentAccountService;
 
     public CapabilityAdminController(CapabilityGrantRepository grants,
                                      CapabilitySubscriptionRepository subscriptions,
@@ -43,7 +49,15 @@ public class CapabilityAdminController {
                                      InboundEmailRepository inboundEmails,
                                      FormInstanceRepository formInstances,
                                      FormAuditEventRepository formAuditEvents,
-                                     EmailVerificationRepository emailVerifications) {
+                                     EmailVerificationRepository emailVerifications,
+                                     com.luke.engine.payments.FormPaymentRepository formPayments,
+                                     com.luke.engine.payments.PaymentAccountRepository paymentAccounts,
+                                     com.luke.engine.payments.PaymentConnectStateRepository paymentConnectStates,
+                                     com.luke.engine.payments.PaymentAccountService paymentAccountService) {
+        this.formPayments = formPayments;
+        this.paymentAccounts = paymentAccounts;
+        this.paymentConnectStates = paymentConnectStates;
+        this.paymentAccountService = paymentAccountService;
         this.grants = grants;
         this.subscriptions = subscriptions;
         this.emailMessages = emailMessages;
@@ -63,8 +77,13 @@ public class CapabilityAdminController {
         subscriptions.deleteAll(subscriptions.findByTenantId(tenantId));
         inboundEmails.deleteByTenant(tenantId); // received bodies, before their envelopes
         emailMessages.deleteByTenant(tenantId);
+        // Open charges are cancelled and the Stripe grant revoked once this commits (best-effort).
+        paymentAccountService.beforeTenantPurge(tenantId);
+        formPayments.deleteByTenant(tenantId); // charge records, alongside the submissions they priced
         formInstances.deleteByTenant(tenantId);
         formAuditEvents.deleteByTenant(tenantId);
+        paymentAccounts.deleteByTenant(tenantId);
+        paymentConnectStates.deleteByTenant(tenantId);
         emailVerifications.deleteByTenant(tenantId);
         return ResponseEntity.noContent().build();
     }
