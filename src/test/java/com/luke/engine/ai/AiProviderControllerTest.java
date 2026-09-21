@@ -136,6 +136,9 @@ class AiProviderControllerTest {
     @Autowired AiProviderRepository providers;
     @Autowired CapabilitySubscriptionRepository subscriptions;
     @Autowired CapabilityGrantRepository grants;
+    @Autowired AiProviderService ai;
+    @Autowired com.luke.engine.branding.TenantPlanRepository plans;
+    @Autowired com.luke.engine.audit.AuditEventRepository auditEvents;
 
     private String tenant;
     private String owner;
@@ -448,6 +451,105 @@ class AiProviderControllerTest {
         assertThat(row.getDisconnectedAt()).isNotNull();
 
         chat(owner).andExpect(status().isPaymentRequired());
+    }
+
+    /* ── regressions found by adversarial review ─────────────────────────── */
+
+    @Test
+    void aLateRejectionOfAnOldKeyCannotDisableTheNewOne() throws Exception {
+        // A turn can run for the better part of a minute. The more urgently someone replaces a
+        // bad key, the more likely the old key's failure lands AFTER the new one is stored.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        fleetStatus = 402;
+        fleetCredentialSignal = "invalid";
+
+        // Replace the key first, then let the stale turn fail.
+        connect(owner, "groq", "gsk_the_replacement_key_wxyz", null).andExpect(status().isOk());
+        providers.findById(tenant).orElseThrow();
+
+        // Simulate the in-flight turn that was still using the OLD key coming back rejected.
+        ai.markInvalid(tenant, "rejected", KEY);
+        assertThat(providers.findById(tenant).orElseThrow().getStatus())
+                .as("the replacement key must survive the old key's failure")
+                .isEqualTo(AiProvider.CONNECTED);
+
+        // A rejection naming the CURRENT key still marks it.
+        ai.markInvalid(tenant, "rejected", "gsk_the_replacement_key_wxyz");
+        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.INVALID);
+    }
+
+    @Test
+    void anExhaustedAccountDoesNotDisconnectTheWorkspace() throws Exception {
+        // The key works; the account is out of credit. Marking it INVALID would replace the one
+        // message that tells them what to do with "reconnect your provider", which won't help.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        fleetStatus = 402;
+        fleetCredentialSignal = "exhausted";
+        fleetBody = "{\"detail\":\"Your AI provider account is out of credit.\"}";
+
+        chat(owner).andExpect(status().isPaymentRequired());
+        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+    }
+
+    @Test
+    void theFleetIsToldTheTierWeStored_notOneTheBrowserClaimed() throws Exception {
+        // It sizes the workspace's daily token cap, so a client-asserted tier is a
+        // client-chosen spend limit. (It also cannot ride as a browser header: the gateway's
+        // CORS allowlist has no X-Tenant-Tier, so sending it fails every preflight.)
+        plans.save(new com.luke.engine.branding.TenantPlan(tenant, "BUSINESS"));
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        SEEN.clear();
+
+        as(owner, post("/api/ai/agents/form/chat").contentType(MediaType.APPLICATION_JSON)
+                .header("X-Tenant-Tier", "ENTERPRISE")      // a lie from the client
+                .content("{\"message\":\"hi\"}")).andExpect(status().isOk());
+
+        assertThat(SEEN.get(0).headers()).containsEntry("x-tenant-tier", "BUSINESS");
+    }
+
+    @Test
+    void theFleetCanStillTellCallersApartForRateLimiting() throws Exception {
+        // Every request now originates from the engine, so without a forwarded client IP the
+        // fleet's per-caller limit collapses into one bucket for the whole workspace.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        SEEN.clear();
+        as(owner, post("/api/ai/agents/form/chat").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"message\":\"hi\"}")).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsKey("x-forwarded-for");
+    }
+
+    @Test
+    void connectingANewKeyIsAuditedAsARotationAndARepasteIsNot() throws Exception {
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());          // first ever key
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());          // the same key again
+        connect(owner, "groq", "gsk_a_genuinely_new_key_wxyz", null).andExpect(status().isOk());
+
+        // Asserted as a sequence, not "the latest": H2 stamps these within the same millisecond,
+        // so ordering between them is not a thing to rely on.
+        assertThat(aiAudits()).containsExactly(
+                "ai.provider.connected",   // nothing was there before
+                "ai.provider.connected",   // a re-save is not a rotation
+                "ai.provider.updated");    // a new key replacing a live one is
+    }
+
+    private List<String> aiAudits() {
+        List<String> actions = auditEvents
+                .findByTenantIdOrderByCreatedAtDesc(tenant, org.springframework.data.domain.PageRequest.of(0, 50))
+                .stream()
+                .map(com.luke.engine.audit.AuditEvent::getAction)
+                .filter(a -> a.startsWith("ai.provider."))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        java.util.Collections.reverse(actions);   // oldest first
+        return actions;
+    }
+
+    @Test
+    void theConnectPageIsToldWhatEachProvidersKeysLookLike() throws Exception {
+        // The key field's placeholder reads this; without it the hint silently never renders.
+        JsonNode view = body(as(member, get("/api/ai/provider")).andExpect(status().isOk()));
+        assertThat(view.path("providers")).isNotEmpty();
+        view.path("providers").forEach(p ->
+                assertThat(p.path("keyPrefix").asText()).as("%s", p.path("id").asText()).isNotBlank());
     }
 
     @Test

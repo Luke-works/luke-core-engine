@@ -28,10 +28,13 @@ public class AiProperties {
             // One generated value in a shared env group then serves both sides, so the engine's
             // key and the fleet's can never drift apart and 401 every turn.
             @Value("${luke.ai.service-key:${AGENTS_API_KEY:}}") String serviceKey,
-            @Value("${luke.ai.timeout-ms:90000}") int timeoutMs) {
+            // 45s, not 90: this timeout is how long one agent turn may hold a Tomcat worker,
+            // so it is a bound on blast radius as much as on patience. Every other server-to-
+            // server client here sits between 3s and 30s.
+            @Value("${luke.ai.timeout-ms:45000}") int timeoutMs) {
         this.agentsUrl = trimToNull(agentsUrl);
         this.serviceKey = trimToNull(serviceKey);
-        this.timeoutMs = timeoutMs > 0 ? timeoutMs : 90_000;
+        this.timeoutMs = timeoutMs > 0 ? timeoutMs : 45_000;
     }
 
     private static String trimToNull(String raw) {

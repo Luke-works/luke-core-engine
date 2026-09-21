@@ -48,6 +48,16 @@ public class PlanFeatures {
         return tier(tenantId).attachments();
     }
 
+    /**
+     * The tenant's tier id (e.g. {@code "PRO"}), for callers that need to name it rather than
+     * ask a yes/no question — the AI proxy sends it to the agent fleet so a workspace's daily
+     * token cap is sized by what it actually pays for. Server-side on purpose: it used to be a
+     * header the browser set, which is a client-controlled input deciding a spend limit.
+     */
+    public String tierId(String tenantId) {
+        return tier(tenantId).id();
+    }
+
     /** The tenant's tier, failing closed to FREE on a missing row or a lookup error. */
     private PlanCatalog tier(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return PlanCatalog.FREE;

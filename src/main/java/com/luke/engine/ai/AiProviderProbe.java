@@ -60,7 +60,31 @@ public class AiProviderProbe {
         }
     }
 
+    /**
+     * Whether a key can be put on a header at all: visible ASCII only, no control characters.
+     *
+     * <p>This check exists to keep the key OUT OF OUR LOGS. {@code HttpRequest.Builder.header()}
+     * validates the value itself and throws an {@code IllegalArgumentException} whose message
+     * quotes the offending value in full — so one stray newline in a pasted key, and the key
+     * lands in the exception, the stack trace and the log. Checking first means the bad value
+     * never reaches the builder.
+     */
+    private static boolean headerSafe(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x21 || c > 0x7E) return false;  // control chars, space, tab, CR, LF, non-ASCII
+        }
+        return true;
+    }
+
     public Result verify(AiProviderCatalog.Provider provider, String apiKey) {
+        if (apiKey == null || apiKey.isEmpty() || !headerSafe(apiKey)) {
+            // Never echo the value — not even a fragment. This is almost always a copy-paste
+            // that caught a newline or a smart quote.
+            return new Result(Outcome.INVALID, List.of(),
+                    "That key contains characters " + provider.label() + " keys never have. "
+                            + "Copy it again, without any spaces or line breaks.");
+        }
         HttpRequest.Builder req = HttpRequest.newBuilder()
                 .timeout(Duration.ofSeconds(20))
                 .header("Accept", "application/json")
@@ -99,12 +123,33 @@ public class AiProviderProbe {
             return new Result(Outcome.UNREACHABLE, List.of(),
                     provider.label() + " is rate-limiting this account right now. The key looks fine; try again shortly.");
         }
+        if (status == 400 && rejectsKey(res.body())) {
+            // Google's Generative Language API returns 400 INVALID_ARGUMENT with reason
+            // API_KEY_INVALID for a wrong, mistyped or deleted key. Reported as UNREACHABLE it
+            // becomes a 503 "try again in a moment", and the workspace can never connect.
+            return new Result(Outcome.INVALID, List.of(),
+                    provider.label() + " rejected this key. Check you copied it in full, and that it hasn't been revoked.");
+        }
         if (status / 100 != 2) {
             log.warn("ai: {} models probe returned {}", provider.id(), status);
             return new Result(Outcome.UNREACHABLE, List.of(),
                     provider.label() + " returned an unexpected error (" + status + "). Try again in a moment.");
         }
         return new Result(Outcome.OK, parseModels(res.body()), null);
+    }
+
+    /**
+     * Whether a client-error body is the provider saying "this key is not valid".
+     *
+     * <p>Only consulted for a 400, and only for phrases a provider actually uses — a body that
+     * merely mentions a key must not cost a workspace its connection.
+     */
+    private boolean rejectsKey(String body) {
+        if (body == null) return false;
+        String b = body.toLowerCase(java.util.Locale.ROOT);
+        return b.contains("api_key_invalid") || b.contains("api key not valid")
+                || b.contains("invalid api key") || b.contains("invalid_api_key")
+                || b.contains("api key expired");
     }
 
     /**

@@ -72,8 +72,10 @@ public class AiProviderService {
         AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
         out.put("connected", row != null);
         out.put("providers", AiProviderCatalog.all().stream().map(p -> Map.of(
-                "id", p.id(), "label", p.label(),
-                "defaultModel", p.defaultModel(), "consoleUrl", p.consoleUrl())).toList());
+                "id", p.id(), "label", p.label(), "defaultModel", p.defaultModel(),
+                // The connect page shows this as the key field's placeholder, so a wrong-provider
+                // paste is obvious before it is submitted.
+                "keyPrefix", p.keyPrefix(), "consoleUrl", p.consoleUrl())).toList());
 
         AiProvider any = repository.findById(tenantId).orElse(null);
         if (any == null) return out;
@@ -124,7 +126,11 @@ public class AiProviderService {
      * <p>Verified before it is stored: an unusable key must never become the workspace's
      * configured state, because the next thing anyone does is try to build a form with it.
      */
-    @Transactional
+    // NOT @Transactional: this calls the provider, and a JPA transaction opened around that
+    // pins a pooled JDBC connection for the whole round trip (up to 30s against a pool of 8) —
+    // a handful of concurrent connects would starve every other query in the engine. The writes
+    // below commit individually; the ordering comment at the secret write is what keeps the
+    // partial states harmless.
     public Map<String, Object> connect(String tenantId, String userId, String providerId,
                                        String apiKey, String model) {
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(providerId)
@@ -155,12 +161,19 @@ public class AiProviderService {
 
         String chosen = normalizeModel(model, result.models(), provider);
 
-        // Secret first: if this fails, we have not told anyone they are connected.
+        // Secret first, and deliberately in its own transaction: if this fails we have told
+        // nobody they are connected, and if the row save below fails the stored secret is inert
+        // (resolve() needs a usable row) and is overwritten by the next connect.
         secrets.put(tenantId, AiProvider.SECRET_NAME, key, ManagedBy.TENANT);
 
         AiProvider row = repository.findById(tenantId).orElseGet(() -> new AiProvider(tenantId));
-        boolean rotation = AiProvider.CONNECTED.equals(row.getStatus())
-                && fingerprint(key).equals(row.getKeyFingerprint());
+        // A rotation is a NEW key REPLACING a live one. Three things must hold, and each has
+        // been wrong at some point: there must be an existing key (a fresh row defaults to
+        // status CONNECTED with no fingerprint, so the status alone says nothing), it must
+        // still be live, and the incoming key must actually differ.
+        boolean rotation = row.getKeyFingerprint() != null
+                && AiProvider.CONNECTED.equals(row.getStatus())
+                && !fingerprint(key).equals(row.getKeyFingerprint());
         row.setProvider(provider.id());
         row.setModel(chosen);
         row.setStatus(AiProvider.CONNECTED);
@@ -189,7 +202,7 @@ public class AiProviderService {
      * account can run. A probe that comes back empty is not an error: the workspace simply
      * keeps the provider default.
      */
-    @Transactional(readOnly = true)
+    // NOT @Transactional: calls the provider — see connect().
     public List<String> models(String tenantId) {
         AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -222,7 +235,7 @@ public class AiProviderService {
      * <p>Used by the connect page and after a turn fails. An UNREACHABLE outcome changes
      * nothing — see {@link #markInvalid}.
      */
-    @Transactional
+    // NOT @Transactional: calls the provider — see connect().
     public Map<String, Object> verify(String tenantId) {
         AiProvider row = repository.findById(tenantId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "This workspace hasn't connected an AI provider."));
@@ -263,9 +276,17 @@ public class AiProviderService {
      * the provider had a bad minute is the worst failure mode this feature has.
      */
     @Transactional
-    public void markInvalid(String tenantId, String message) {
+    public void markInvalid(String tenantId, String message, String keyUsed) {
         repository.findById(tenantId).ifPresent(row -> {
             if (!AiProvider.CONNECTED.equals(row.getStatus())) return;
+            // Only the key that actually failed may be marked. A turn can take a minute and a
+            // half; if the workspace reconnected with a good key meanwhile, the late failure
+            // of the OLD key would otherwise switch off the NEW one — and the more urgently
+            // someone fixes a bad key, the more likely they hit exactly that window.
+            if (keyUsed != null && !fingerprint(keyUsed).equals(row.getKeyFingerprint())) {
+                log.debug("ai: ignoring a rejection for tenant {} — the key has changed since", tenantId);
+                return;
+            }
             row.setStatus(AiProvider.INVALID);
             row.setLastError(message);
             repository.save(row);

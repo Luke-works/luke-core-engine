@@ -186,6 +186,50 @@ class AiProviderProbeTest {
         }
     }
 
+    /* ── regressions found by adversarial review ─────────────────────────── */
+
+    @Test
+    void aKeyWithAStrayNewlineNeverReachesTheRequestBuilder() {
+        // HttpRequest.Builder.header() validates the value and throws an IllegalArgumentException
+        // that QUOTES IT IN FULL — so one newline in a pasted key put the key in our logs.
+        for (String bad : new String[] {"gsk_secret\nmore", "gsk_secret\r\n", "gsk secret",
+                                        "gsk_secret\t", "gsk_\u201Csmartquote\u201D"}) {
+            AiProviderProbe.Result r = probe.verify(provider(AiProviderCatalog.Auth.BEARER), bad);
+            assertThat(r.outcome()).as("%s", bad).isEqualTo(AiProviderProbe.Outcome.INVALID);
+            assertThat(r.message()).doesNotContain("secret").doesNotContain(bad);
+            assertThat(seen).as("nothing should go on the wire").isEmpty();
+        }
+    }
+
+    @Test
+    void anEmptyKeyIsRejectedWithoutACall() {
+        assertThat(probe.verify(provider(AiProviderCatalog.Auth.BEARER), "").outcome())
+                .isEqualTo(AiProviderProbe.Outcome.INVALID);
+        assertThat(probe.verify(provider(AiProviderCatalog.Auth.BEARER), null).outcome())
+                .isEqualTo(AiProviderProbe.Outcome.INVALID);
+        assertThat(seen).isEmpty();
+    }
+
+    @Test
+    void googleSaysABadKeyWithA400NotA401() {
+        // Reported as UNREACHABLE this becomes a 503 "try again in a moment", and the workspace
+        // could never connect a mistyped Gemini key — it would just be told to keep waiting.
+        status = 400;
+        reply = "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\","
+                + "\"message\":\"API key not valid. Please pass a valid API key.\"}}";
+        AiProviderProbe.Result r = probe.verify(provider(AiProviderCatalog.Auth.QUERY), "AIzaWrong");
+        assertThat(r.outcome()).isEqualTo(AiProviderProbe.Outcome.INVALID);
+        assertThat(r.message()).contains("rejected this key");
+    }
+
+    @Test
+    void anOrdinary400IsStillNotAJudgementOnTheKey() {
+        status = 400;
+        reply = "{\"error\":{\"message\":\"pageSize must be positive\"}}";
+        assertThat(probe.verify(provider(AiProviderCatalog.Auth.QUERY), "AIzaGood").outcome())
+                .isEqualTo(AiProviderProbe.Outcome.UNREACHABLE);
+    }
+
     @Test
     void everyCatalogEntryIsUsable() {
         // A provider the agents service doesn't know would 400 every turn after a successful connect.

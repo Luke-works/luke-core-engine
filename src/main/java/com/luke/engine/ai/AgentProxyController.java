@@ -1,8 +1,11 @@
 package com.luke.engine.ai;
 
 import com.luke.engine.capability.access.CapabilityAccessService;
+import com.luke.engine.capability.signature.ClientIp;
 import com.luke.engine.capability.access.CapabilityLevel;
+import com.luke.engine.branding.PlanFeatures;
 import com.luke.engine.config.ApiCallerResolver;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -10,6 +13,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.regex.Pattern;
 import org.finos.fluxnova.bpm.engine.IdentityService;
 import org.slf4j.Logger;
@@ -60,6 +65,24 @@ public class AgentProxyController {
     private static final int MAX_BODY_BYTES = 1_000_000;
 
     /**
+     * An agent turn blocks its Tomcat worker for the whole LLM call, so bound how many can do
+     * that at once. Before this feature, LLM latency never touched an engine thread — the
+     * browser called the fleet directly. Unbounded, a single workspace firing concurrent turns
+     * pins the shared worker pool (Tomcat's default is 200) for up to the turn timeout, and
+     * every other tenant's form submission and capability check queues behind it.
+     *
+     * <p>Fail fast with 429 rather than queueing: a caller that waits still holds a thread,
+     * which is the thing being rationed.
+     */
+    private static final int MAX_IN_FLIGHT = 24;
+
+    /** No one workspace may take more than this share of the budget above. */
+    private static final int MAX_IN_FLIGHT_PER_TENANT = 4;
+
+    private final Semaphore inFlight = new Semaphore(MAX_IN_FLIGHT);
+    private final ConcurrentHashMap<String, Semaphore> perTenant = new ConcurrentHashMap<>();
+
+    /**
      * Which capability an agent belongs to. An agent turn edits that capability's content and
      * spends the workspace's money, so the bar is the capability's ordinary WRITE — the same
      * bar as making the change by hand. An unlisted slug is refused rather than defaulted:
@@ -76,18 +99,20 @@ public class AgentProxyController {
     private final ApiCallerResolver callers;
     private final IdentityService identity;
     private final CapabilityAccessService access;
+    private final PlanFeatures plans;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)  // a redirect must never carry the key elsewhere
             .build();
 
     public AgentProxyController(AiProviderService providers, AiProperties props, ApiCallerResolver callers,
-                                IdentityService identity, CapabilityAccessService access) {
+                                IdentityService identity, CapabilityAccessService access, PlanFeatures plans) {
         this.providers = providers;
         this.props = props;
         this.callers = callers;
         this.identity = identity;
         this.access = access;
+        this.plans = plans;
     }
 
     @PostMapping(value = "/{slug}/{op}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -95,7 +120,8 @@ public class AgentProxyController {
                                        @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
                                        @PathVariable String slug,
                                        @PathVariable String op,
-                                       @RequestBody(required = false) String body) {
+                                       @RequestBody(required = false) String body,
+                                       HttpServletRequest http) {
         if (!props.enabled()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "AI features aren't available on this Lukeflow environment yet.");
@@ -114,6 +140,7 @@ public class AgentProxyController {
                     "You don't have access to use the assistant here.");
         }
 
+        String clientIp = ClientIp.resolve(http);
         String payload = body == null ? "{}" : body;
         if (payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_BODY_BYTES) {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "That's too much content for one request.");
@@ -130,6 +157,16 @@ public class AgentProxyController {
                 .header("Accept", MediaType.APPLICATION_JSON_VALUE)
                 // The tenant the fleet sees is the one WE verified, never one a client claimed.
                 .header("X-Tenant-Id", tenantId)
+                // The fleet's per-caller rate limit keys on tenant + client IP. Every request now
+                // originates here, so without this the IP is a constant and RATE_LIMIT_MAX quietly
+                // becomes one shared bucket for the whole workspace instead of a per-user cap.
+                .header("X-Forwarded-For", clientIp)
+                // Sizes that workspace's daily token cap. Resolved from the stored plan, NOT from
+                // the browser: a client-asserted tier is a client-chosen spend limit. (It also
+                // can't ride as a browser header any more — the gateway's CORS allowlist is
+                // Authorization/Content-Type/Accept/X-Tenant-Id, so sending it would fail every
+                // preflight and block all AI calls.)
+                .header("X-Tenant-Tier", plans.tierId(tenantId))
                 .header("X-AI-Provider", credential.provider())
                 .header("X-AI-Key", credential.apiKey())
                 .POST(HttpRequest.BodyPublishers.ofString(payload));
@@ -140,21 +177,19 @@ public class AgentProxyController {
             req.header("X-Agents-Key", props.serviceKey());
         }
 
-        HttpResponse<String> res;
-        try {
-            res = http.send(req.build(), HttpResponse.BodyHandlers.ofString());
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            log.warn("ai: agent {}/{} unreachable for tenant {}: {}", slug, op, tenantId, e.toString());
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "The AI service is temporarily unavailable. Please try again shortly.");
-        }
+        HttpResponse<String> res = send(req.build(), tenantId, slug, op);
 
         // The fleet tells us WHY a turn failed; only it knows, and only we can act on it,
         // because we are the ones holding the key.
         String signal = res.headers().firstValue("X-AI-Credential").orElse("");
         if ("invalid".equalsIgnoreCase(signal)) {
-            providers.markInvalid(tenantId, "Your AI provider rejected this key. Reconnect your provider.");
+            // Pass the key we actually used: by the time a 90-second turn fails, the workspace
+            // may already have reconnected with a good one, and the old key's failure must not
+            // disable the new one. "exhausted" is deliberately NOT handled here — that account
+            // is out of credit, which the workspace fixes with their provider, not by
+            // reconnecting, and disconnecting them would only hide the real message.
+            providers.markInvalid(tenantId, "Your AI provider rejected this key. Reconnect your provider.",
+                    credential.apiKey());
         }
 
         // Pass the fleet's own status and body through: its error messages are already written
@@ -162,6 +197,43 @@ public class AgentProxyController {
         return ResponseEntity.status(res.statusCode())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(res.body());
+    }
+
+    /**
+     * The one blocking call, under a global and a per-tenant budget.
+     *
+     * <p>Both permits are released in {@code finally}, including on the 429 path, so a refused
+     * caller never leaks the slot it did not get.
+     */
+    private HttpResponse<String> send(HttpRequest request, String tenantId, String slug, String op) {
+        Semaphore tenantSlots = perTenant.computeIfAbsent(tenantId, t -> new Semaphore(MAX_IN_FLIGHT_PER_TENANT));
+        if (!tenantSlots.tryAcquire()) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many assistant requests at once. Finish one and try again.");
+        }
+        try {
+            if (!inFlight.tryAcquire()) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                        "The assistant is busy right now. Please try again shortly.");
+            }
+            try {
+                return http.send(request, HttpResponse.BodyHandlers.ofString());
+            } finally {
+                inFlight.release();
+            }
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("ai: agent {}/{} unreachable for tenant {}: {}", slug, op, tenantId, e.toString());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "The AI service is temporarily unavailable. Please try again shortly.");
+        } finally {
+            tenantSlots.release();
+            // One tiny Semaphore per tenant; drop idle ones if the map ever gets silly,
+            // mirroring MinionRateLimiter's stale-window sweep.
+            if (perTenant.size() > 10_000) {
+                perTenant.values().removeIf(sem -> sem.availablePermits() == MAX_IN_FLIGHT_PER_TENANT);
+            }
+        }
     }
 
     private String requireMember(String auth, String tenantId) {
