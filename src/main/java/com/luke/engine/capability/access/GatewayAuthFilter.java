@@ -62,7 +62,11 @@ public class GatewayAuthFilter {
                 // Form payments settings (connected Stripe account). The controller resolves the caller
                 // from the Authorization credential itself; listed so a tenant claim in the gateway token
                 // also pins X-Tenant-Id here, like every other user-facing route.
-                "/api/payments/*");
+                "/api/payments/*",
+                // AI provider settings + the agent proxy. The proxy decrypts the workspace's own
+                // LLM key and attaches it to the turn, so the tenant it acts for must come from the
+                // verified token, never from a header a client could set.
+                "/api/ai/*");
         reg.setName("gatewayAuthFilter");
         reg.setOrder(1); // before the capability access interceptor
         return reg;
