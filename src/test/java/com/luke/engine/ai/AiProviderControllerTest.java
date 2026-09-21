@@ -515,6 +515,10 @@ class AiProviderControllerTest {
         SEEN.clear();
         as(owner, post("/api/ai/agents/form/chat").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"message\":\"hi\"}")).andExpect(status().isOk());
+        // X-Caller-Ip is what the fleet reads (trusted only from a caller holding the service
+        // key); X-Forwarded-For stays as the fallback. Relying on hop-counting alone was too
+        // fragile: the appended-entry count depends on the engine→fleet network path.
+        assertThat(SEEN.get(0).headers()).containsKey("x-caller-ip");
         assertThat(SEEN.get(0).headers()).containsKey("x-forwarded-for");
     }
 

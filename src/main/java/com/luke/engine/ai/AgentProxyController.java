@@ -160,6 +160,10 @@ public class AgentProxyController {
                 // The fleet's per-caller rate limit keys on tenant + client IP. Every request now
                 // originates here, so without this the IP is a constant and RATE_LIMIT_MAX quietly
                 // becomes one shared bucket for the whole workspace instead of a per-user cap.
+                // X-Caller-Ip is what the fleet actually reads (it trusts it only from a caller
+                // holding the service key); X-Forwarded-For is kept as the fallback for a
+                // deployment where the service key is not set.
+                .header("X-Caller-Ip", clientIp)
                 .header("X-Forwarded-For", clientIp)
                 // Sizes that workspace's daily token cap. Resolved from the stored plan, NOT from
                 // the browser: a client-asserted tier is a client-chosen spend limit. (It also
