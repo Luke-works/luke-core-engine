@@ -23,7 +23,7 @@ public class AiProperties {
     private final int timeoutMs;
 
     public AiProperties(
-            @Value("${luke.ai.agents-url:${VITE_FORM_AGENT_URL:}}") String agentsUrl,
+            @Value("${luke.ai.agents-url:}") String agentsUrl,
             // Falls back to AGENTS_API_KEY, which is the name the agents service reads it under.
             // One generated value in a shared env group then serves both sides, so the engine's
             // key and the fleet's can never drift apart and 401 every turn.
