@@ -997,3 +997,23 @@
         received_at timestamp(6) not null,
         primary key (id)
     );
+
+-- ── from V27__ai_provider.sql ──────────────────────────────────────────────────────────────────────
+-- The API key is NOT here: it lives in luke_secrets under 'ai.provider-key' (AES-256-GCM).
+
+    create table if not exists luke_ai_provider (
+        id varchar(255) not null,
+        provider varchar(255) not null,
+        model varchar(255),
+        status varchar(255) not null,
+        key_last4 varchar(8),
+        key_fingerprint varchar(64),
+        connected_by varchar(255),
+        connected_at timestamp(6),
+        verified_at timestamp(6),
+        disconnected_at timestamp(6),
+        last_error varchar(500),
+        created_at timestamp(6) not null,
+        updated_at timestamp(6),
+        primary key (id)
+    );

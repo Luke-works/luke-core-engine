@@ -42,6 +42,8 @@ public class CapabilityAdminController {
     private final com.luke.engine.payments.PaymentAccountRepository paymentAccounts;
     private final com.luke.engine.payments.PaymentConnectStateRepository paymentConnectStates;
     private final com.luke.engine.payments.PaymentAccountService paymentAccountService;
+    /** The workspace's own LLM API key must not outlive the workspace. */
+    private final com.luke.engine.ai.AiProviderService aiProviders;
 
     public CapabilityAdminController(CapabilityGrantRepository grants,
                                      CapabilitySubscriptionRepository subscriptions,
@@ -53,11 +55,13 @@ public class CapabilityAdminController {
                                      com.luke.engine.payments.FormPaymentRepository formPayments,
                                      com.luke.engine.payments.PaymentAccountRepository paymentAccounts,
                                      com.luke.engine.payments.PaymentConnectStateRepository paymentConnectStates,
-                                     com.luke.engine.payments.PaymentAccountService paymentAccountService) {
+                                     com.luke.engine.payments.PaymentAccountService paymentAccountService,
+                                     com.luke.engine.ai.AiProviderService aiProviders) {
         this.formPayments = formPayments;
         this.paymentAccounts = paymentAccounts;
         this.paymentConnectStates = paymentConnectStates;
         this.paymentAccountService = paymentAccountService;
+        this.aiProviders = aiProviders;
         this.grants = grants;
         this.subscriptions = subscriptions;
         this.emailMessages = emailMessages;
@@ -85,6 +89,10 @@ public class CapabilityAdminController {
         paymentAccounts.deleteByTenant(tenantId);
         paymentConnectStates.deleteByTenant(tenantId);
         emailVerifications.deleteByTenant(tenantId);
+        // The workspace's own LLM API key (in luke_secrets) and the row naming its provider. A
+        // credential that outlived the workspace would keep billing someone for an account
+        // nobody can see any more.
+        aiProviders.forget(tenantId);
         return ResponseEntity.noContent().build();
     }
 
