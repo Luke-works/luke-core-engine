@@ -47,16 +47,44 @@ public class AiProviderProbe {
         /** The provider says no — revoked, mistyped, or for a different account. */
         INVALID,
         /** We could not reach the provider, or it failed. Says nothing about the key. */
-        UNREACHABLE
+        UNREACHABLE,
+        /**
+         * The provider authenticated the key and then refused the request.
+         *
+         * <p>Distinct from both: the key is not in question, and waiting will not help. It means
+         * this account cannot do what we asked — the wrong kind of key, a plan that lacks the
+         * endpoint, a region restriction. The only useful thing we can do is repeat what the
+         * provider said, because they know why and we do not.
+         */
+        REFUSED
     }
 
     /**
-     * @param models model ids this key may use, best-effort and possibly empty — a provider
+     * One model this key may use, and whether it can do what the assistant needs.
+     *
+     * <p>{@code chat} means: it generates text from a prompt, so an agent turn could run on it.
+     * A provider's model list is every model the account can reach across ALL modalities —
+     * Groq lists Whisper (speech-to-text) and Orpheus (text-to-speech) beside its chat models,
+     * OpenAI lists embeddings and image models — and offering those as equal choices is a trap:
+     * pick one and every turn fails with a provider error nobody can act on.
+     *
+     * @param id    the model id to send upstream
+     * @param chat  false when we can tell it is not a text-generating model
+     */
+    public record ModelInfo(String id, boolean chat) {}
+
+    /**
+     * @param models models this key may use, best-effort and possibly empty — a provider
      *               that authenticates the key but lists nothing is still {@code OK}
      */
-    public record Result(Outcome outcome, List<String> models, String message) {
+    public record Result(Outcome outcome, List<ModelInfo> models, String message) {
         public boolean ok() {
             return outcome == Outcome.OK;
+        }
+
+        /** Just the ids, for validation and for callers that do not care about capability. */
+        public List<String> modelIds() {
+            return models.stream().map(ModelInfo::id).toList();
         }
     }
 
@@ -130,12 +158,51 @@ public class AiProviderProbe {
             return new Result(Outcome.INVALID, List.of(),
                     provider.label() + " rejected this key. Check you copied it in full, and that it hasn't been revoked.");
         }
+        if (status / 100 == 4) {
+            // A 4xx that is not 401/403/429 means the key authenticated and the REQUEST was
+            // refused. Reported as UNREACHABLE this became a 503 "try again in a moment" — advice
+            // that can never work — while the provider's own explanation, the one actionable
+            // thing in the exchange, was dropped on the floor.
+            String said = providerMessage(res.body());
+            log.warn("ai: {} refused the models request with {}: {}", provider.id(), status,
+                    said == null ? "(no message in body)" : said);
+            return new Result(Outcome.REFUSED, List.of(), said == null
+                    ? provider.label() + " refused this request (" + status + "). Check this key has access to "
+                            + provider.label() + "'s API."
+                    : provider.label() + " said: " + said);
+        }
         if (status / 100 != 2) {
-            log.warn("ai: {} models probe returned {}", provider.id(), status);
+            log.warn("ai: {} models probe returned {}: {}", provider.id(), status, providerMessage(res.body()));
             return new Result(Outcome.UNREACHABLE, List.of(),
                     provider.label() + " returned an unexpected error (" + status + "). Try again in a moment.");
         }
         return new Result(Outcome.OK, parseModels(res.body()), null);
+    }
+
+    /**
+     * The provider's own error message, if their body carries one.
+     *
+     * <p>Every provider here nests it differently ({@code error.message} for Anthropic, OpenAI and
+     * Google; a bare {@code message} elsewhere), so this walks the shapes we know and gives up
+     * quietly. It is the provider's text about their own refusal — it contains nothing of ours,
+     * and never the key, which is why it is safe both to log and to show.
+     */
+    private String providerMessage(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode root = json.readTree(body);
+            for (JsonNode candidate : new JsonNode[] {root.path("error").path("message"),
+                                                      root.path("message"),
+                                                      root.path("error").path("status"),
+                                                      root.path("detail")}) {
+                String text = candidate.isTextual() ? candidate.asText().trim() : "";
+                // Bounded: a provider that returns an essay must not fill our logs or a dialog.
+                if (!text.isEmpty()) return text.length() > 300 ? text.substring(0, 300) + "…" : text;
+            }
+        } catch (Exception e) {  // NOSONAR - an unparseable body is not worth failing over
+            log.debug("ai: could not read the provider's error body: {}", e.toString());
+        }
+        return null;
     }
 
     /**
@@ -160,8 +227,8 @@ public class AiProviderProbe {
      * not break connecting, so anything unparseable degrades to an empty list — the key is
      * still good, the workspace just gets the provider's default model instead of a picker.
      */
-    private List<String> parseModels(String body) {
-        List<String> out = new ArrayList<>();
+    private List<ModelInfo> parseModels(String body) {
+        List<ModelInfo> out = new ArrayList<>();
         try {
             JsonNode root = json.readTree(body);
             JsonNode items = root.has("data") ? root.get("data") : root.get("models");
@@ -173,14 +240,64 @@ public class AiProviderProbe {
                         String name = item.path("name").asText("");
                         id = name.startsWith("models/") ? name.substring("models/".length()) : name;
                     }
-                    if (id != null && !id.isBlank()) out.add(id);
+                    if (id != null && !id.isBlank()) out.add(new ModelInfo(id, isChatModel(item, id)));
                 }
             }
         } catch (Exception e) {  // NOSONAR - an unreadable list must not fail a valid key
             log.debug("ai: could not parse the model list: {}", e.toString());
             return List.of();
         }
-        out.sort(Comparator.naturalOrder());
+        out.sort(Comparator.comparing(ModelInfo::id));
         return List.copyOf(out);
+    }
+
+    /**
+     * Whether this entry looks like something an agent turn could run on.
+     *
+     * <p><b>Ask the provider before guessing at the name.</b> Most of them say so structurally:
+     * Groq and OpenAI report {@code max_completion_tokens} on models that generate text, and
+     * Google lists {@code generateContent} in {@code supportedGenerationMethods}. Where a
+     * provider says nothing we fall back to name families, which is a guess about names they own
+     * — the same kind of guess that wrongly refused a real Google key — so it is used only to
+     * DEMOTE a model into a second group, never to hide it.
+     *
+     * <p>Unknown therefore resolves to {@code false}: a demoted chat model is still one click
+     * away and obvious, whereas a promoted speech-to-text model is a trap that fails every turn.
+     */
+    private boolean isChatModel(JsonNode item, String id) {
+        // 1. Google is explicit about it.
+        JsonNode methods = item.path("supportedGenerationMethods");
+        if (methods.isArray()) {
+            for (JsonNode m : methods) {
+                if ("generateContent".equals(m.asText())) return true;
+            }
+            return false;  // it listed its methods and generateContent was not among them
+        }
+        // 2. OpenAI-shaped providers report an output budget only for models that produce text.
+        for (String field : new String[] {"max_completion_tokens", "max_output_tokens", "max_tokens"}) {
+            JsonNode n = item.path(field);
+            if (n.isNumber() && n.asLong() > 0) return !isKnownNonChatName(id);
+        }
+        // 3. Nothing structural to go on — fall back to the name, and demote when unsure.
+        return isKnownChatName(id) && !isKnownNonChatName(id);
+    }
+
+    /** Name families that are certainly NOT text generation, across the providers we support. */
+    private static boolean isKnownNonChatName(String id) {
+        String n = id.toLowerCase(java.util.Locale.ROOT);
+        return java.util.stream.Stream.of(
+                        "whisper", "transcribe", "tts", "speech", "orpheus", "audio",
+                        "embed", "rerank", "moderation", "guard", "safeguard",
+                        "dall-e", "imagen", "veo", "image", "video")
+                .anyMatch(n::contains);
+    }
+
+    /** Name families we are confident DO generate text, for providers that tell us nothing. */
+    private static boolean isKnownChatName(String id) {
+        String n = id.toLowerCase(java.util.Locale.ROOT);
+        return java.util.stream.Stream.of(
+                        "gpt", "claude", "llama", "gemini", "mistral", "mixtral", "qwen",
+                        "deepseek", "gemma", "kimi", "allam", "command", "grok", "phi")
+                .anyMatch(n::contains);
     }
 }

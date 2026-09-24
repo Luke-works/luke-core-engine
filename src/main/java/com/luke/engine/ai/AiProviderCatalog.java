@@ -63,6 +63,16 @@ public final class AiProviderCatalog {
 
     private static final List<Provider> ALL = List.of(GROQ, OPENAI, ANTHROPIC, GEMINI);
 
+    /** The provider whose key format {@code key} matches, if any — for a better error message. */
+    public static Optional<Provider> looksLikeKeyOf(String key) {
+        if (key == null || key.isBlank()) return Optional.empty();
+        // Anthropic first: sk-ant- would otherwise match OpenAI's looser sk- prefix.
+        return ALL.stream()
+                .sorted((a, b) -> Integer.compare(b.keyPrefix().length(), a.keyPrefix().length()))
+                .filter(p -> looksLikeKeyFor(p, key))
+                .findFirst();
+    }
+
     private AiProviderCatalog() {}
 
     public static List<Provider> all() {
@@ -78,11 +88,17 @@ public final class AiProviderCatalog {
     /**
      * Whether {@code key} looks like a key for {@code provider}.
      *
-     * <p>Only a paste-error guard — the real check is {@link AiProviderProbe}, which asks the
-     * provider. It earns its place because the failure it catches is common (keys for two
-     * providers sit side by side in a password manager) and the message it enables is far
-     * better than a bare 401. Anthropic is checked before OpenAI because {@code sk-ant-} also
-     * starts with {@code sk-}.
+     * <p><b>Advisory only — never a reason to refuse a key.</b> It began as a pre-flight guard
+     * that rejected a mismatched prefix before any network call, and that was wrong: a prefix is
+     * a guess about a format the provider owns and may change, and the guess blocked a real
+     * Google key that did not begin with {@code AIza}. Refusing on a heuristic while a
+     * definitive check ({@link AiProviderProbe}, which asks the provider) sits one line below it
+     * is backwards.
+     *
+     * <p>It still earns its place, but only for the message AFTER a refusal: when the provider
+     * rejects a key that looks like another provider's, "that looks like an OpenAI key" is far
+     * more useful than repeating the provider's 401. Anthropic is checked before OpenAI because
+     * {@code sk-ant-} also starts with {@code sk-}.
      */
     public static boolean looksLikeKeyFor(Provider provider, String key) {
         if (key == null || key.isBlank()) return false;

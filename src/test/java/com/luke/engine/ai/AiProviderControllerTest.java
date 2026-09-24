@@ -108,12 +108,20 @@ class AiProviderControllerTest {
     static class FakeProbe extends AiProviderProbe {
         volatile Outcome outcome = Outcome.OK;
         volatile List<String> models = List.of();
+        volatile String message = null;
         final List<String> keysSeen = new ArrayList<>();
+
+        /** Set explicitly when a test cares about capability; otherwise every id is chat. */
+        volatile List<ModelInfo> modelInfos = null;
 
         @Override
         public Result verify(AiProviderCatalog.Provider provider, String apiKey) {
             keysSeen.add(apiKey);
-            return new Result(outcome, models, outcome == Outcome.OK ? null : "provider says no");
+            List<ModelInfo> infos = modelInfos != null
+                    ? modelInfos
+                    : models.stream().map(id -> new ModelInfo(id, true)).toList();
+            return new Result(outcome, infos,
+                    outcome == Outcome.OK ? null : (message != null ? message : "provider says no"));
         }
     }
 
@@ -153,6 +161,8 @@ class AiProviderControllerTest {
         fleetCredentialSignal = null;
         probe.outcome = AiProviderProbe.Outcome.OK;
         probe.models = List.of();
+        probe.message = null;
+        probe.modelInfos = null;
         probe.keysSeen.clear();
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -261,9 +271,38 @@ class AiProviderControllerTest {
     }
 
     @Test
-    void aKeyForTheWrongProviderIsCaughtBeforeAnyNetworkCall() throws Exception {
-        connect(owner, "openai", "sk-ant-api03-wrong-one", null).andExpect(status().isBadRequest());
-        assertThat(probe.keysSeen).as("a paste error must not cost a round trip").isEmpty();
+    void anUnfamiliarKeyFormatIsStillOfferedToTheProvider() throws Exception {
+        // The prefix check used to REFUSE before any network call. That blocked a real Google key
+        // that did not start with "AIza" — a guess about a format the provider owns, overruling
+        // the definitive check one line below it.
+        probe.outcome = AiProviderProbe.Outcome.OK;
+        connect(owner, "gemini", "some-new-google-key-format", null).andExpect(status().isOk());
+        assertThat(probe.keysSeen).as("the provider must get the final say").isNotEmpty();
+    }
+
+    @Test
+    void aRefusedKeyThatLooksLikeAnothersSaysSo() throws Exception {
+        // What the prefix check is actually good for: explaining a refusal, not preventing a try.
+        probe.outcome = AiProviderProbe.Outcome.INVALID;
+        String body = connect(owner, "openai", "sk-ant-api03-wrong-one", null)
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("Anthropic");
+        assertThat(providers.findById(tenant)).isEmpty();
+    }
+
+    @Test
+    void aProviderThatRefusesTheRequestIsNotReportedAsAnOutage() throws Exception {
+        // The key authenticated and the provider refused the REQUEST — wrong kind of key, a plan
+        // without the endpoint, a region restriction. Reported as UNREACHABLE this became a 503
+        // "try again in a moment": advice that can never work, with the provider's own
+        // explanation — the one actionable thing in the exchange — dropped.
+        probe.outcome = AiProviderProbe.Outcome.REFUSED;
+        probe.message = "Anthropic said: this credential cannot access the Models API.";
+        String body = connect(owner, "anthropic", "sk-ant-valid-but-wrong-kind", null)
+                .andExpect(status().isBadRequest())   // NOT 503
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("cannot access the Models API");
         assertThat(providers.findById(tenant)).isEmpty();
     }
 
@@ -638,6 +677,10 @@ class AiProviderControllerTest {
 
         JsonNode seen = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
         assertThat(seen.path("models")).hasSize(2);
+        // Each entry says whether a turn could run on it — a form builder cannot run on a
+        // speech-to-text model, and the provider lists every modality the account can reach.
+        assertThat(seen.path("models").get(0).has("id")).isTrue();
+        assertThat(seen.path("models").get(0).has("chat")).isTrue();
         assertThat(seen.toString()).doesNotContain(KEY);
     }
 
@@ -754,6 +797,25 @@ class AiProviderControllerTest {
 
         JsonNode after = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
         assertThat(after.path("models").toString()).contains("claude-haiku");
+    }
+
+    @Test
+    void theListSaysWhichModelsCouldActuallyBuildSomething() throws Exception {
+        // Groq lists Whisper and Orpheus beside its chat models; OpenAI lists embeddings and
+        // image models. Offering those as equal choices is a trap: pick one and every turn fails
+        // with a provider error the user cannot act on.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        probe.modelInfos = List.of(
+                new AiProviderProbe.ModelInfo("openai/gpt-oss-120b", true),
+                new AiProviderProbe.ModelInfo("whisper-large-v3", false),
+                new AiProviderProbe.ModelInfo("meta-llama/llama-prompt-guard-2-86m", false));
+
+        JsonNode models = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()))
+                .path("models");
+        assertThat(models).hasSize(3);   // nothing hidden — a wrong guess must not make one unreachable
+        assertThat(models.get(0).path("id").asText()).isEqualTo("openai/gpt-oss-120b");
+        assertThat(models.get(0).path("chat").asBoolean()).isTrue();
+        assertThat(models.get(2).path("chat").asBoolean()).isFalse();
     }
 
     @Test

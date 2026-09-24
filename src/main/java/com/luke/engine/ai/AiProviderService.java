@@ -50,7 +50,7 @@ public class AiProviderService {
     /** How long a workspace's model list is reused before we ask the provider again. */
     private static final long MODELS_TTL_NANOS = java.time.Duration.ofMinutes(5).toNanos();
 
-    private record CachedModels(List<String> models, long readAt) {
+    private record CachedModels(List<AiProviderProbe.ModelInfo> models, long readAt) {
         boolean isStale() {
             return System.nanoTime() - readAt > MODELS_TTL_NANOS;
         }
@@ -203,7 +203,8 @@ public class AiProviderService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "That doesn't look like a model name.");
             }
-            List<String> available = availableModels(tenantId, row);
+            List<String> available = availableModels(tenantId, row).stream()
+                    .map(AiProviderProbe.ModelInfo::id).toList();
             if (!available.isEmpty() && !available.contains(chosen)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Your workspace's AI account can't use \"" + chosen + "\".");
@@ -261,7 +262,7 @@ public class AiProviderService {
      * known list (or an empty one, which every caller already handles) rather than queueing behind
      * it. One request per tenant per TTL reaches the provider, however many members are looking.
      */
-    private List<String> availableModels(String tenantId, AiProvider row) {
+    private List<AiProviderProbe.ModelInfo> availableModels(String tenantId, AiProvider row) {
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider()).orElse(null);
         if (provider == null) return List.of();
 
@@ -277,7 +278,7 @@ public class AiProviderService {
         try {
             CachedModels current = modelCache.get(cacheKey);
             if (current != null && !current.isStale()) return current.models();
-            List<String> models = secrets.get(tenantId, AiProvider.SECRET_NAME)
+            List<AiProviderProbe.ModelInfo> models = secrets.get(tenantId, AiProvider.SECRET_NAME)
                     .filter(k -> !k.isBlank())
                     .map(k -> probe.verify(provider, k).models())
                     .orElse(List.of());
@@ -298,8 +299,23 @@ public class AiProviderService {
         modelCache.keySet().removeIf(k -> k.startsWith(tenantId + "\u0000"));
     }
 
+    /**
+     * The wire shape for a model list: id plus whether an agent turn could run on it.
+     *
+     * <p>A provider lists every model the account can reach across all modalities. Offering
+     * Whisper or an embedding model as an equal choice is a trap — pick one and every turn fails
+     * — so the capability travels with the id and the UI groups on it. Nothing is hidden: the
+     * classification is partly a guess about names the provider owns, and a wrong guess should
+     * demote a model, never make it unreachable.
+     */
+    public static List<Map<String, Object>> describe(List<AiProviderProbe.ModelInfo> models) {
+        return models.stream()
+                .map(m -> Map.<String, Object>of("id", m.id(), "chat", m.chat()))
+                .toList();
+    }
+
     /** Models any member may choose from — the same list, without needing the owner's rights. */
-    public List<String> modelsForMembers(String tenantId) {
+    public List<AiProviderProbe.ModelInfo> modelsForMembers(String tenantId) {
         AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
                         "Connect an AI provider to use the assistant."));
@@ -329,16 +345,18 @@ public class AiProviderService {
         if (key.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Paste your " + provider.label() + " API key.");
         }
-        if (!AiProviderCatalog.looksLikeKeyFor(provider, key)) {
-            // Catches the common paste error (two providers' keys side by side in a password
-            // manager) with a better message than the provider's bare 401.
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "That doesn't look like a " + provider.label() + " key — they start with \""
-                            + provider.keyPrefix() + "\".");
-        }
-
+        // NOTE: the key's prefix is NOT checked here any more. A prefix is a guess about a format
+        // the provider owns, and the guess blocked a real Google key that did not start with
+        // "AIza" — refusing on a heuristic while the definitive check sits on the next line. Ask
+        // the provider; use the prefix only to explain a refusal (see below).
         AiProviderProbe.Result result = probe.verify(provider, key);
         if (result.outcome() == AiProviderProbe.Outcome.INVALID) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, withKeyHint(provider, key, result.message()));
+        }
+        if (result.outcome() == AiProviderProbe.Outcome.REFUSED) {
+            // The key authenticated and the provider refused the request — the wrong kind of key,
+            // a plan without the endpoint, a region restriction. Waiting will not fix it, so this
+            // must not be a 503: repeat what the provider said, since they know why and we don't.
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, result.message());
         }
         if (result.outcome() == AiProviderProbe.Outcome.UNREACHABLE) {
@@ -347,7 +365,7 @@ public class AiProviderService {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, result.message());
         }
 
-        String chosen = normalizeModel(model, result.models(), provider);
+        String chosen = normalizeModel(model, result.modelIds(), provider);
 
         // Secret first, and deliberately in its own transaction: if this fails we have told
         // nobody they are connected, and if the row save below fails the stored secret is inert
@@ -380,27 +398,8 @@ public class AiProviderService {
         log.info("ai: tenant {} connected {} (model={})", tenantId, provider.id(), chosen);
 
         Map<String, Object> out = new LinkedHashMap<>(view(tenantId));
-        out.put("models", result.models());
+        out.put("models", describe(result.models()));
         return out;
-    }
-
-    /**
-     * The models this workspace's key may actually use, for the model picker.
-     *
-     * <p>Read live from the provider rather than hardcoded, so the list reflects what their
-     * account can run. A probe that comes back empty is not an error: the workspace simply
-     * keeps the provider default.
-     */
-    // NOT @Transactional: calls the provider — see connect().
-    public List<String> models(String tenantId) {
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "This workspace hasn't connected an AI provider."));
-        AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Unknown provider on this workspace."));
-        String key = secrets.get(tenantId, AiProvider.SECRET_NAME)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No stored key for this workspace."));
-        return probe.verify(provider, key).models();
     }
 
     /** Change the model without re-pasting the key. */
@@ -541,6 +540,25 @@ public class AiProviderService {
                     "Your " + provider.label() + " account can't use \"" + chosen + "\".");
         }
         return chosen;
+    }
+
+    /**
+     * Add "that looks like an X key" when a refused key matches a different provider's format.
+     *
+     * <p>This is what the prefix check is actually good for: not deciding whether to try, but
+     * explaining a refusal once the provider has spoken. The common case is two keys sitting
+     * beside each other in a password manager.
+     */
+    private String withKeyHint(AiProviderCatalog.Provider provider, String key, String message) {
+        return AiProviderCatalog.looksLikeKeyOf(key)
+                .filter(other -> !other.id().equals(provider.id()))
+                .map(other -> message + " That looks like " + article(other.label()) + " "
+                        + other.label() + " key — pick " + other.label() + " above if it is.")
+                .orElse(message);
+    }
+
+    private static String article(String label) {
+        return "AEIOU".indexOf(Character.toUpperCase(label.charAt(0))) >= 0 ? "an" : "a";
     }
 
     private static String lastFour(String key) {
