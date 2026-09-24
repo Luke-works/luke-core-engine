@@ -41,6 +41,16 @@ public class AiUserPreference {
     /** The chosen model, or null to follow the workspace's setting. */
     private String model;
 
+    /**
+     * Which provider the choice was made for.
+     *
+     * <p>A model name only means something to the provider that offers it. When a workspace
+     * switches providers every member's stored model becomes nonsense, and sending it anyway
+     * fails that person's turns while the owner's own work fine. Stamping the provider lets a
+     * stale choice be ignored rather than acted on.
+     */
+    private String provider;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -77,6 +87,14 @@ public class AiUserPreference {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getProvider() {
+        return provider;
+    }
+
+    public void setProvider(String provider) {
+        this.provider = provider;
     }
 
     public LocalDateTime getUpdatedAt() {

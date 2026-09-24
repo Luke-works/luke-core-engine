@@ -653,6 +653,109 @@ class AiProviderControllerTest {
         grants.save(g);
     }
 
+    /* ── regressions found by adversarial review (round 2) ────────────────── */
+
+    @Test
+    void everyResponseSaysWhetherAiExistsAndWhoMayChangeIt() throws Exception {
+        // The UI replaces its whole state with each response. When only the GETs carried these,
+        // a SUCCESSFUL save returned a view missing both — and the page concluded the feature had
+        // vanished: the settings card collapsed to "AI isn't available here" and the panel picker
+        // unmounted itself.
+        probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        grantForms(member, "contributor");
+
+        List<ResultActions> responses = List.of(
+                as(owner, get("/api/ai/provider")),
+                connect(owner, "groq", KEY, null),
+                as(owner, post("/api/ai/provider/verify")),
+                as(owner, get("/api/ai/preference")),
+                chooseMyModel(owner, "llama-3.3-70b-versatile"),
+                as(owner, put("/api/ai/provider/model").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"model\":\"\"}")),
+                as(owner, delete("/api/ai/provider")));
+
+        for (ResultActions r : responses) {
+            JsonNode b = body(r.andExpect(status().isOk()));
+            assertThat(b.has("enabled")).as("enabled on %s", b).isTrue();
+            assertThat(b.has("canManage")).as("canManage on %s", b).isTrue();
+        }
+    }
+
+    @Test
+    void aModelChosenForOneProviderIsNotSentToAnother() throws Exception {
+        // A workspace that switches providers keeps every member's stored model. Sent anyway,
+        // "llama-3.3-70b-versatile" fails every turn for that person while the owner's own work
+        // fine — a support case nobody would guess at.
+        probe.models = List.of("llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+        chooseMyModel(member, "llama-3.3-70b-versatile").andExpect(status().isOk());
+
+        // The owner moves the workspace to a different provider.
+        probe.models = List.of("claude-haiku-4-5-20251001");
+        connect(owner, "anthropic", "sk-ant-new-account-key", null).andExpect(status().isOk());
+
+        assertThat(body(as(member, get("/api/ai/preference"))).path("model").isNull())
+                .as("a choice made for Groq must not survive as an Anthropic choice").isTrue();
+
+        SEEN.clear();
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "anthropic");
+        assertThat(SEEN.get(0).headers())
+                .containsEntry("x-ai-model", AiProviderCatalog.ANTHROPIC.defaultModel());
+    }
+
+    @Test
+    void aModelNameThatCouldNotRideOnAHeaderIsRefused() throws Exception {
+        // Not redundant with the allow-list: when the provider can't be read the list is empty and
+        // everything passes it. This value goes onto an outbound header on EVERY turn, where a
+        // stray character makes the request builder throw — failing the turn and putting the
+        // offending value in the log.
+        probe.outcome = AiProviderProbe.Outcome.OK;
+        probe.models = List.of();               // provider unreadable → no allow-list to lean on
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        for (String bad : new String[] {"model\nInjected: yes", "model\r\nx", "mod el", "modèle"}) {
+            chooseMyModel(member, bad).andExpect(status().isBadRequest());
+        }
+        // A plain name still goes through when there is no list to check against.
+        chooseMyModel(member, "some-unlisted-model").andExpect(status().isOk());
+    }
+
+    @Test
+    void theProvidersModelListIsNotReReadOnEveryMemberRequest() throws Exception {
+        // Reading it is an authenticated HTTP call to the provider on the request thread. Owner-only
+        // that was bounded by one trusted principal; at member level every member of every
+        // workspace could drive it, pinning workers and hammering the workspace's own account.
+        probe.models = List.of("openai/gpt-oss-120b");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+        int afterConnect = probe.keysSeen.size();
+
+        for (int i = 0; i < 25; i++) {
+            as(member, get("/api/ai/provider/models")).andExpect(status().isOk());
+        }
+        assertThat(probe.keysSeen.size() - afterConnect)
+                .as("25 member requests must not become 25 provider calls")
+                .isLessThanOrEqualTo(1);
+    }
+
+    @Test
+    void reconnectingDropsTheCachedModelList() throws Exception {
+        // Otherwise a workspace that fixes a bad key, or switches provider, keeps being offered
+        // the previous account's models until the TTL lapses.
+        probe.models = List.of("openai/gpt-oss-120b");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        as(member, get("/api/ai/provider/models")).andExpect(status().isOk());
+
+        probe.models = List.of("claude-haiku-4-5-20251001");
+        connect(owner, "anthropic", "sk-ant-other-key", null).andExpect(status().isOk());
+
+        JsonNode after = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
+        assertThat(after.path("models").toString()).contains("claude-haiku");
+    }
+
     @Test
     void verifyRecordsWhatTheProviderSaysWithoutGuessing() throws Exception {
         connect(owner, "groq", KEY, null).andExpect(status().isOk());

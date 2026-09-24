@@ -12,6 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -43,6 +46,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class AiProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(AiProviderService.class);
+
+    /** How long a workspace's model list is reused before we ask the provider again. */
+    private static final long MODELS_TTL_NANOS = java.time.Duration.ofMinutes(5).toNanos();
+
+    private record CachedModels(List<String> models, long readAt) {
+        boolean isStale() {
+            return System.nanoTime() - readAt > MODELS_TTL_NANOS;
+        }
+    }
+
+    private final Map<String, CachedModels> modelCache = new ConcurrentHashMap<>();
+    private final Map<String, Lock> modelLocks = new ConcurrentHashMap<>();
 
     private final AiProviderRepository repository;
     private final AiUserPreferenceRepository preferences;
@@ -126,9 +141,15 @@ public class AiProviderService {
      */
     private String modelFor(String tenantId, String userId, AiProvider row) {
         if (userId != null) {
-            String mine = preferences.findByTenantIdAndUserId(tenantId, userId)
-                    .map(AiUserPreference::getModel).orElse(null);
-            if (mine != null && !mine.isBlank()) return mine;
+            AiUserPreference mine = preferences.findByTenantIdAndUserId(tenantId, userId).orElse(null);
+            // Only honour a choice made for the provider currently connected. A workspace that
+            // switches from Groq to Anthropic keeps every member's stored model, and
+            // "llama-3.3-70b-versatile" sent to Anthropic fails every turn for that person while
+            // the owner sees their own turns work fine — a support case nobody would guess at.
+            if (mine != null && mine.getModel() != null && !mine.getModel().isBlank()
+                    && java.util.Objects.equals(mine.getProvider(), row.getProvider())) {
+                return mine.getModel();
+            }
         }
         return effectiveModel(row);
     }
@@ -144,8 +165,12 @@ public class AiProviderService {
         out.put("provider", row == null ? null : row.getProvider());
         // The workspace's setting, shown as the "follow the workspace" option's label.
         out.put("workspaceModel", row == null ? null : effectiveModel(row));
-        out.put("model", preferences.findByTenantIdAndUserId(tenantId, userId)
-                .map(AiUserPreference::getModel).orElse(null));
+        // Only surface a choice that still applies to the connected provider, so the picker shows
+        // what a turn would ACTUALLY run on rather than a stale name from a previous provider.
+        AiUserPreference mine = preferences.findByTenantIdAndUserId(tenantId, userId).orElse(null);
+        boolean mineApplies = mine != null && mine.getModel() != null && row != null
+                && java.util.Objects.equals(mine.getProvider(), row.getProvider());
+        out.put("model", mineApplies ? mine.getModel() : null);
         out.put("effectiveModel", row == null ? null : modelFor(tenantId, userId, row));
         return out;
     }
@@ -158,7 +183,9 @@ public class AiProviderService {
      * member deciding what we send upstream. When the list can't be read we fall back to a length
      * bound rather than refusing — a provider outage should not stop someone changing a setting.
      */
-    @Transactional
+    // NOT @Transactional: this validates against the provider, and a JPA transaction opened around
+    // that pins a pooled JDBC connection for the whole round trip — the hazard connect() warns
+    // about, reached here by a path any MEMBER can call. The save below is its own transaction.
     public Map<String, Object> chooseMyModel(String tenantId, String userId, String model) {
         AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
@@ -168,27 +195,107 @@ public class AiProviderService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That model name is too long.");
         }
         if (!chosen.isEmpty()) {
+            // The character check is NOT redundant with the list check below. When the provider
+            // can't be read the list is empty and every model passes, and this value goes onto an
+            // outbound header on every turn — where a stray character makes HttpRequest.Builder
+            // throw, failing the turn and putting the offending value in the log.
+            if (!headerSafe(chosen)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "That doesn't look like a model name.");
+            }
             List<String> available = availableModels(tenantId, row);
             if (!available.isEmpty() && !available.contains(chosen)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Your workspace's AI account can't use \"" + chosen + "\".");
             }
         }
-        AiUserPreference pref = preferences.findByTenantIdAndUserId(tenantId, userId)
-                .orElseGet(() -> new AiUserPreference(java.util.UUID.randomUUID().toString(), tenantId, userId));
-        pref.setModel(chosen.isEmpty() ? null : chosen);
-        preferences.save(pref);
+        saveMyModel(tenantId, userId, row.getProvider(), chosen.isEmpty() ? null : chosen);
         return preference(tenantId, userId);
     }
 
-    /** Models the workspace's key may use, empty when the provider can't be read right now. */
+    /**
+     * The database half of {@link #chooseMyModel}.
+     *
+     * <p>No {@code @Transactional}: it is called from within this bean, so the annotation would
+     * never reach the proxy and would mislead the next reader into thinking the read and the
+     * write were atomic. They are not, and need not be — the only racer for one person's own
+     * preference row is that same person in another tab, where last-write-wins is the honest
+     * answer. The repository save is transactional in its own right.
+     */
+    void saveMyModel(String tenantId, String userId, String provider, String model) {
+        AiUserPreference pref = preferences.findByTenantIdAndUserId(tenantId, userId)
+                .orElseGet(() -> new AiUserPreference(java.util.UUID.randomUUID().toString(), tenantId, userId));
+        pref.setModel(model);
+        // Stamped with the provider it was chosen for — see modelFor().
+        pref.setProvider(provider);
+        preferences.save(pref);
+    }
+
+    /**
+     * Whether a model name can go on an outbound header: visible ASCII only.
+     *
+     * <p>Same reason as {@link AiProviderProbe}'s check on the key — {@code
+     * HttpRequest.Builder.header()} validates the value and throws an exception that quotes it in
+     * full. A model name is member-supplied, so without this a member can fail every one of their
+     * own turns and write their chosen string into our logs.
+     */
+    private static boolean headerSafe(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x21 || c > 0x7E) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Models the workspace's key may use, empty when the provider can't be read right now.
+     *
+     * <p><b>Memoised, and deliberately.</b> Reading this list is an authenticated HTTP call to the
+     * provider on the request thread. While it was owner-only that cost was bounded by one trusted
+     * principal per workspace; it is now reachable by every MEMBER, so without a cache any member
+     * could pin Tomcat workers and hammer the workspace's provider account — the same property
+     * {@link AgentProxyController} rations for agent turns. The list changes when a provider ships
+     * a model, not per request, so a short TTL costs nothing real.
+     *
+     * <p>Single-flight: on a cold miss the first caller probes and everyone else gets the last
+     * known list (or an empty one, which every caller already handles) rather than queueing behind
+     * it. One request per tenant per TTL reaches the provider, however many members are looking.
+     */
     private List<String> availableModels(String tenantId, AiProvider row) {
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider()).orElse(null);
         if (provider == null) return List.of();
-        return secrets.get(tenantId, AiProvider.SECRET_NAME)
-                .filter(k -> !k.isBlank())
-                .map(k -> probe.verify(provider, k).models())
-                .orElse(List.of());
+
+        String cacheKey = tenantId + "\u0000" + provider.id();
+        CachedModels hit = modelCache.get(cacheKey);
+        if (hit != null && !hit.isStale()) return hit.models();
+
+        Lock lock = modelLocks.computeIfAbsent(cacheKey, k -> new ReentrantLock());
+        if (!lock.tryLock()) {
+            // Someone else is already asking. Serve what we have rather than hold this thread.
+            return hit == null ? List.of() : hit.models();
+        }
+        try {
+            CachedModels current = modelCache.get(cacheKey);
+            if (current != null && !current.isStale()) return current.models();
+            List<String> models = secrets.get(tenantId, AiProvider.SECRET_NAME)
+                    .filter(k -> !k.isBlank())
+                    .map(k -> probe.verify(provider, k).models())
+                    .orElse(List.of());
+            // An empty result is cached too: a provider that is down should be asked once a TTL,
+            // not once per member request.
+            modelCache.put(cacheKey, new CachedModels(models, System.nanoTime()));
+            if (modelCache.size() > 10_000) {
+                modelCache.values().removeIf(CachedModels::isStale);
+            }
+            return models;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Drop a workspace's cached list — its key or provider just changed. */
+    private void forgetCachedModels(String tenantId) {
+        modelCache.keySet().removeIf(k -> k.startsWith(tenantId + "\u0000"));
     }
 
     /** Models any member may choose from — the same list, without needing the owner's rights. */
@@ -266,6 +373,7 @@ public class AiProviderService {
         row.setDisconnectedAt(null);
         row.setLastError(null);
         repository.save(row);
+        forgetCachedModels(tenantId);  // new key or new provider — the old list is not theirs
 
         audit.record(rotation ? "ai.provider.updated" : "ai.provider.connected", "ai_provider", tenantId,
                 tenantId, userId, false, Map.of("provider", provider.id(), "model", String.valueOf(chosen)));

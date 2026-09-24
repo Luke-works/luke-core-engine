@@ -1026,6 +1026,7 @@
         tenant_id varchar(255) not null,
         user_id varchar(255) not null,
         model varchar(255),
+        provider varchar(255),
         created_at timestamp(6) not null,
         updated_at timestamp(6),
         primary key (id)
