@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -53,7 +54,7 @@ public class AiProviderController {
 
     public record ConnectBody(String provider, String apiKey, String model) {}
 
-    public record ModelBody(String model) {}
+    public record ModelBody(String provider, String model) {}
 
     /**
      * Whether this deployment has an agent fleet at all, and what a workspace could connect to.
@@ -89,13 +90,24 @@ public class AiProviderController {
                 userId, tenantId);
     }
 
-    /** Re-check the stored key against the provider. */
-    @PostMapping("/provider/verify")
+    /** Re-check one connected provider's stored key against it. */
+    @PostMapping("/provider/{provider}/verify")
     public Map<String, Object> verify(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
-                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                      @PathVariable String provider) {
         String userId = requireOwner(auth, tenantId);
         requireEnabled();
-        return withFlags(providers.verify(tenantId), userId, tenantId);
+        return withFlags(providers.verify(tenantId, provider), userId, tenantId);
+    }
+
+    /** Which connected provider a turn uses when the person running it hasn't picked one. */
+    @PutMapping("/provider/{provider}/default")
+    public Map<String, Object> setDefault(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
+                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                          @PathVariable String provider) {
+        String userId = requireOwner(auth, tenantId);
+        requireEnabled();
+        return withFlags(providers.setPreferred(tenantId, userId, provider), userId, tenantId);
     }
 
     /**
@@ -136,24 +148,27 @@ public class AiProviderController {
                                              @RequestBody ModelBody body) {
         String userId = requireMember(auth, tenantId);
         requireEnabled();
-        return withFlags(providers.chooseMyModel(tenantId, userId, body.model()), userId, tenantId);
+        return withFlags(providers.chooseMyModel(tenantId, userId, body.provider(), body.model()),
+                userId, tenantId);
     }
 
-    /** Change the model without re-pasting the key. */
-    @PutMapping("/provider/model")
+    /** Change one provider's workspace model without re-pasting its key. */
+    @PutMapping("/provider/{provider}/model")
     public Map<String, Object> chooseModel(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                           @PathVariable String provider,
                                            @RequestBody ModelBody body) {
         String userId = requireOwner(auth, tenantId);
         requireEnabled();
-        return withFlags(providers.chooseModel(tenantId, userId, body.model()), userId, tenantId);
+        return withFlags(providers.chooseModel(tenantId, userId, provider, body.model()), userId, tenantId);
     }
 
-    @DeleteMapping("/provider")
+    @DeleteMapping("/provider/{provider}")
     public Map<String, Object> disconnect(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
-                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                          @PathVariable String provider) {
         String userId = requireOwner(auth, tenantId);
-        return withFlags(providers.disconnect(tenantId, userId), userId, tenantId);
+        return withFlags(providers.disconnect(tenantId, userId, provider), userId, tenantId);
     }
 
 

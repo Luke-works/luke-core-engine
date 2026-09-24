@@ -80,37 +80,50 @@ public class AiProviderService {
     /* ── reading ──────────────────────────────────────────────────────────── */
 
     /**
-     * What the connect page shows. Contains no key — {@code keyLast4} is the only fragment,
-     * and it is there so a human can tell which of their keys is in use.
+     * What the settings page shows: every provider this workspace has connected, with the
+     * status of each, plus the catalog of ones it could add.
+     *
+     * <p>Contains no key — {@code keyLast4} is the only fragment, so a human can tell which of
+     * their keys is which.
      */
     @Transactional(readOnly = true)
     public Map<String, Object> view(String tenantId) {
         Map<String, Object> out = new LinkedHashMap<>();
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
-        out.put("connected", row != null);
+        List<AiProvider> rows = repository.findByTenantIdOrderByProviderAsc(tenantId);
+        List<Map<String, Object>> connected = rows.stream()
+                .filter(r -> !AiProvider.DISCONNECTED.equals(r.getStatus()))
+                .map(this::describeConnection)
+                .toList();
+
+        out.put("connections", connected);
+        // True when at least one can actually run a turn — what every AI panel gates on.
+        out.put("connected", rows.stream().anyMatch(AiProvider::usable));
         out.put("providers", AiProviderCatalog.all().stream().map(p -> Map.of(
                 "id", p.id(), "label", p.label(), "defaultModel", p.defaultModel(),
-                // The connect page shows this as the key field's placeholder, so a wrong-provider
-                // paste is obvious before it is submitted.
-                "keyPrefix", p.keyPrefix(), "consoleUrl", p.consoleUrl())).toList());
-
-        AiProvider any = repository.findById(tenantId).orElse(null);
-        if (any == null) return out;
-
-        out.put("status", any.getStatus());
-        out.put("provider", any.getProvider());
-        AiProviderCatalog.find(any.getProvider())
-                .ifPresent(p -> out.put("providerLabel", p.label()));
-        // The effective model: what they picked, or what the provider falls back to. The page
-        // shows this either way, so "no model chosen" never reads as "no model".
-        out.put("model", any.getModel());
-        out.put("effectiveModel", effectiveModel(any));
-        out.put("keyLast4", any.getKeyLast4());
-        out.put("connectedAt", any.getConnectedAt());
-        out.put("connectedBy", any.getConnectedBy());
-        out.put("verifiedAt", any.getVerifiedAt());
-        out.put("lastError", any.getLastError());
+                // Shown as the key field's placeholder, so a wrong-provider paste is obvious
+                // before it is submitted. NEVER used to refuse a key — see AiProviderCatalog.
+                "keyPrefix", p.keyPrefix(), "consoleUrl", p.consoleUrl(),
+                // So the page can offer "Add" for what is missing and "Replace key" for what is not.
+                "connected", rows.stream().anyMatch(r -> r.getProvider().equals(p.id()) && r.usable()))).toList());
         return out;
+    }
+
+    /** One connected provider, as a human may see it. Never the key. */
+    private Map<String, Object> describeConnection(AiProvider row) {
+        Map<String, Object> c = new LinkedHashMap<>();
+        c.put("provider", row.getProvider());
+        AiProviderCatalog.find(row.getProvider()).ifPresent(p -> c.put("label", p.label()));
+        c.put("status", row.getStatus());
+        c.put("preferred", row.isPreferred());
+        c.put("model", row.getModel());
+        // Shown whether or not they picked one, so "no model chosen" never reads as "no model".
+        c.put("effectiveModel", effectiveModel(row));
+        c.put("keyLast4", row.getKeyLast4());
+        c.put("connectedAt", row.getConnectedAt());
+        c.put("connectedBy", row.getConnectedBy());
+        c.put("verifiedAt", row.getVerifiedAt());
+        c.put("lastError", row.getLastError());
+        return c;
     }
 
     private String effectiveModel(AiProvider row) {
@@ -120,38 +133,71 @@ public class AiProviderService {
     }
 
     /**
-     * The credential to attach to an agent turn, or empty when this workspace cannot run one.
+     * A row that can no longer serve a turn must not keep the default — hand it to one that can.
      *
-     * <p>Empty covers every "no" — never connected, disconnected, marked invalid, or the row
-     * exists but its secret has gone. The caller turns that into the single 402 the UI knows
-     * how to render; it must not need to distinguish them.
+     * <p>{@link AiProvider} documents the invariant ("exactly one connected provider per
+     * workspace carries this"), and nothing enforced it: {@code preferred} was cleared only by
+     * disconnect(), so a row marked INVALID kept the flag, a newly connected provider took the
+     * flag too (connect()'s guard only looks at USABLE rows), and repairing the first left two.
+     * {@link #preferredProvider} then picks whichever provider id sorts first — not a decision
+     * anyone made — and the settings page hides "Make default" on every preferred row, so with
+     * two of them neither offers the fix.
      */
-    @Transactional(readOnly = true)
-    public Optional<Resolved> resolve(String tenantId, String userId) {
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
-        if (row == null) return Optional.empty();
-        return secrets.get(tenantId, AiProvider.SECRET_NAME)
-                .filter(key -> !key.isBlank())
-                .map(key -> new Resolved(row.getProvider(), key, modelFor(tenantId, userId, row)));
+    private void demote(AiProvider row) {
+        if (!row.isPreferred()) return;
+        row.setPreferred(false);
+        repository.save(row);
+        repository.findByTenantIdOrderByProviderAsc(row.getTenantId()).stream()
+                .filter(AiProvider::usable)
+                .filter(other -> !other.getId().equals(row.getId()))
+                .findFirst()
+                .ifPresent(next -> {
+                    next.setPreferred(true);
+                    repository.save(next);
+                });
+    }
+
+    /** The provider a turn uses when the person running it has expressed no preference. */
+    private Optional<AiProvider> preferredProvider(String tenantId) {
+        List<AiProvider> usable = repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
+                .filter(AiProvider::usable).toList();
+        // The flag first; falling back to the only/first usable one keeps a turn running even if
+        // the flag were ever lost, rather than failing over bookkeeping.
+        return usable.stream().filter(AiProvider::isPreferred).findFirst()
+                .or(() -> usable.stream().findFirst());
     }
 
     /**
-     * The model this person's turn runs on: their own choice, else the workspace's, else the
-     * provider's default. The key is the workspace's either way — only the model is theirs.
+     * The credential to attach to an agent turn, or empty when this workspace cannot run one.
+     *
+     * <p>Which provider depends on the person: their own choice names one, and otherwise the
+     * workspace's preferred one is used. Empty covers every "no" — nothing connected, all
+     * disconnected or invalid, or the row exists but its secret has gone. The caller turns that
+     * into the single 402 the UI knows how to render; it must not need to distinguish them.
      */
-    private String modelFor(String tenantId, String userId, AiProvider row) {
-        if (userId != null) {
-            AiUserPreference mine = preferences.findByTenantIdAndUserId(tenantId, userId).orElse(null);
-            // Only honour a choice made for the provider currently connected. A workspace that
-            // switches from Groq to Anthropic keeps every member's stored model, and
-            // "llama-3.3-70b-versatile" sent to Anthropic fails every turn for that person while
-            // the owner sees their own turns work fine — a support case nobody would guess at.
-            if (mine != null && mine.getModel() != null && !mine.getModel().isBlank()
-                    && java.util.Objects.equals(mine.getProvider(), row.getProvider())) {
-                return mine.getModel();
-            }
+    @Transactional(readOnly = true)
+    public Optional<Resolved> resolve(String tenantId, String userId) {
+        AiUserPreference mine = userId == null ? null
+                : preferences.findByTenantIdAndUserId(tenantId, userId).orElse(null);
+
+        AiProvider row = null;
+        if (mine != null && mine.getProvider() != null) {
+            // Only if that provider is still connected and usable — a workspace can remove one
+            // out from under a member who had chosen it.
+            row = repository.findByTenantIdAndProvider(tenantId, mine.getProvider())
+                    .filter(AiProvider::usable).orElse(null);
         }
-        return effectiveModel(row);
+        if (row == null) row = preferredProvider(tenantId).orElse(null);
+        if (row == null) return Optional.empty();
+
+        AiProvider chosen = row;
+        String model = (mine != null && mine.getModel() != null && !mine.getModel().isBlank()
+                && chosen.getProvider().equals(mine.getProvider()))
+                ? mine.getModel()
+                : effectiveModel(chosen);
+        return secrets.get(tenantId, chosen.secretName())
+                .filter(key -> !key.isBlank())
+                .map(key -> new Resolved(chosen.getProvider(), key, model));
     }
 
     /* ── one person's model choice ────────────────────────────────────────── */
@@ -160,25 +206,36 @@ public class AiProviderService {
     @Transactional(readOnly = true)
     public Map<String, Object> preference(String tenantId, String userId) {
         Map<String, Object> out = new LinkedHashMap<>();
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
-        out.put("connected", row != null);
-        out.put("provider", row == null ? null : row.getProvider());
-        // The workspace's setting, shown as the "follow the workspace" option's label.
-        out.put("workspaceModel", row == null ? null : effectiveModel(row));
-        // Only surface a choice that still applies to the connected provider, so the picker shows
-        // what a turn would ACTUALLY run on rather than a stale name from a previous provider.
+        AiProvider fallback = preferredProvider(tenantId).orElse(null);
         AiUserPreference mine = preferences.findByTenantIdAndUserId(tenantId, userId).orElse(null);
-        boolean mineApplies = mine != null && mine.getModel() != null && row != null
-                && java.util.Objects.equals(mine.getProvider(), row.getProvider());
+
+        // Only surface a choice whose provider is STILL connected, so the picker shows what a
+        // turn would actually run on rather than a name from a provider since removed.
+        boolean mineApplies = mine != null && mine.getModel() != null && mine.getProvider() != null
+                && repository.findByTenantIdAndProvider(tenantId, mine.getProvider())
+                        .filter(AiProvider::usable).isPresent();
+
+        out.put("connected", fallback != null);
+        out.put("provider", mineApplies ? mine.getProvider() : (fallback == null ? null : fallback.getProvider()));
         out.put("model", mineApplies ? mine.getModel() : null);
-        out.put("effectiveModel", row == null ? null : modelFor(tenantId, userId, row));
+        // The workspace's own setting, offered as the "follow the workspace" option's label.
+        out.put("workspaceProvider", fallback == null ? null : fallback.getProvider());
+        out.put("workspaceModel", fallback == null ? null : effectiveModel(fallback));
+        out.put("effectiveModel", mineApplies ? mine.getModel()
+                : (fallback == null ? null : effectiveModel(fallback)));
+        // Labels for the providers this workspace actually has, so the picker can head each
+        // group with "Anthropic" rather than "anthropic" without hardcoding a name table.
+        out.put("providers", repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
+                .filter(AiProvider::usable)
+                .map(r -> Map.of("id", r.getProvider(), "label", label(r.getProvider())))
+                .toList());
         return out;
     }
 
     /**
-     * Choose the model this person's turns run on. Blank means "follow the workspace".
+     * Choose the provider and model this person's turns run on. Blank means "follow the workspace".
      *
-     * <p>Validated against the provider's live model list, not merely bounded: this string is now
+     * <p>Validated against that provider's live model list, not merely bounded: this string is
      * chosen by any member and travels to the provider on every turn, so an unchecked value is a
      * member deciding what we send upstream. When the list can't be read we fall back to a length
      * bound rather than refusing — a provider outage should not stop someone changing a setting.
@@ -186,32 +243,55 @@ public class AiProviderService {
     // NOT @Transactional: this validates against the provider, and a JPA transaction opened around
     // that pins a pooled JDBC connection for the whole round trip — the hazard connect() warns
     // about, reached here by a path any MEMBER can call. The save below is its own transaction.
-    public Map<String, Object> chooseMyModel(String tenantId, String userId, String model) {
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
-                        "Connect an AI provider to use the assistant."));
+    public Map<String, Object> chooseMyModel(String tenantId, String userId, String providerId, String model) {
         String chosen = model == null ? "" : model.trim();
+        if (chosen.isEmpty()) {
+            // Back to following the workspace: forget the provider too, or a later reconnect of
+            // that provider would silently resurrect an old choice.
+            saveMyModel(tenantId, userId, null, null);
+            return preference(tenantId, userId);
+        }
         if (chosen.length() > 200) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That model name is too long.");
         }
-        if (!chosen.isEmpty()) {
-            // The character check is NOT redundant with the list check below. When the provider
-            // can't be read the list is empty and every model passes, and this value goes onto an
-            // outbound header on every turn — where a stray character makes HttpRequest.Builder
-            // throw, failing the turn and putting the offending value in the log.
-            if (!headerSafe(chosen)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "That doesn't look like a model name.");
-            }
-            List<String> available = availableModels(tenantId, row).stream()
-                    .map(AiProviderProbe.ModelInfo::id).toList();
-            if (!available.isEmpty() && !available.contains(chosen)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Your workspace's AI account can't use \"" + chosen + "\".");
-            }
+        // The character check is NOT redundant with the list check below. When the provider can't
+        // be read the list is empty and every model passes, and this value goes onto an outbound
+        // header on every turn — where a stray character makes HttpRequest.Builder throw, failing
+        // the turn and putting the offending value in the log.
+        if (!headerSafe(chosen)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That doesn't look like a model name.");
         }
-        saveMyModel(tenantId, userId, row.getProvider(), chosen.isEmpty() ? null : chosen);
+
+        AiProvider row = usableProvider(tenantId, providerId);
+        List<String> available = availableModels(tenantId, row).stream()
+                .map(AiProviderProbe.ModelInfo::id).toList();
+        if (!available.isEmpty() && !available.contains(chosen)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Your workspace's " + label(row.getProvider()) + " account can't use \"" + chosen + "\".");
+        }
+        saveMyModel(tenantId, userId, row.getProvider(), chosen);
         return preference(tenantId, userId);
+    }
+
+    /**
+     * The row for one connected provider, or the workspace's preferred one when none is named.
+     *
+     * <p>402 rather than 404 throughout: to the UI "this workspace cannot run a turn" is one
+     * state with one remedy, whoever caused it.
+     */
+    private AiProvider usableProvider(String tenantId, String providerId) {
+        if (providerId == null || providerId.isBlank()) {
+            return preferredProvider(tenantId).orElseThrow(() -> new ResponseStatusException(
+                    HttpStatus.PAYMENT_REQUIRED, "Connect an AI provider to use the assistant."));
+        }
+        return repository.findByTenantIdAndProvider(tenantId, providerId.trim().toLowerCase(java.util.Locale.ROOT))
+                .filter(AiProvider::usable)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                        "That AI provider isn't connected for this workspace."));
+    }
+
+    private static String label(String providerId) {
+        return AiProviderCatalog.find(providerId).map(AiProviderCatalog.Provider::label).orElse(providerId);
     }
 
     /**
@@ -227,7 +307,6 @@ public class AiProviderService {
         AiUserPreference pref = preferences.findByTenantIdAndUserId(tenantId, userId)
                 .orElseGet(() -> new AiUserPreference(java.util.UUID.randomUUID().toString(), tenantId, userId));
         pref.setModel(model);
-        // Stamped with the provider it was chosen for — see modelFor().
         pref.setProvider(provider);
         preferences.save(pref);
     }
@@ -249,7 +328,7 @@ public class AiProviderService {
     }
 
     /**
-     * Models the workspace's key may use, empty when the provider can't be read right now.
+     * Models one provider's key may use, empty when it can't be read right now.
      *
      * <p><b>Memoised, and deliberately.</b> Reading this list is an authenticated HTTP call to the
      * provider on the request thread. While it was owner-only that cost was bounded by one trusted
@@ -260,7 +339,7 @@ public class AiProviderService {
      *
      * <p>Single-flight: on a cold miss the first caller probes and everyone else gets the last
      * known list (or an empty one, which every caller already handles) rather than queueing behind
-     * it. One request per tenant per TTL reaches the provider, however many members are looking.
+     * it. One request per provider per TTL reaches it, however many members are looking.
      */
     private List<AiProviderProbe.ModelInfo> availableModels(String tenantId, AiProvider row) {
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider()).orElse(null);
@@ -278,7 +357,7 @@ public class AiProviderService {
         try {
             CachedModels current = modelCache.get(cacheKey);
             if (current != null && !current.isStale()) return current.models();
-            List<AiProviderProbe.ModelInfo> models = secrets.get(tenantId, AiProvider.SECRET_NAME)
+            List<AiProviderProbe.ModelInfo> models = secrets.get(tenantId, row.secretName())
                     .filter(k -> !k.isBlank())
                     .map(k -> probe.verify(provider, k).models())
                     .orElse(List.of());
@@ -299,8 +378,12 @@ public class AiProviderService {
         modelCache.keySet().removeIf(k -> k.startsWith(tenantId + "\u0000"));
     }
 
+    /** One model a workspace could pick, and which of its providers offers it. */
+    public record OfferedModel(String provider, String id, boolean chat) {}
+
     /**
-     * The wire shape for a model list: id plus whether an agent turn could run on it.
+     * The wire shape for a model list: which provider offers it, its id, and whether an agent
+     * turn could run on it.
      *
      * <p>A provider lists every model the account can reach across all modalities. Offering
      * Whisper or an embedding model as an equal choice is a trap — pick one and every turn fails
@@ -308,18 +391,35 @@ public class AiProviderService {
      * classification is partly a guess about names the provider owns, and a wrong guess should
      * demote a model, never make it unreachable.
      */
-    public static List<Map<String, Object>> describe(List<AiProviderProbe.ModelInfo> models) {
+    public static List<Map<String, Object>> describe(List<OfferedModel> models) {
         return models.stream()
-                .map(m -> Map.<String, Object>of("id", m.id(), "chat", m.chat()))
+                .map(m -> Map.<String, Object>of("provider", m.provider(), "id", m.id(), "chat", m.chat()))
                 .toList();
     }
 
-    /** Models any member may choose from — the same list, without needing the owner's rights. */
-    public List<AiProviderProbe.ModelInfo> modelsForMembers(String tenantId) {
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
-                        "Connect an AI provider to use the assistant."));
-        return availableModels(tenantId, row);
+    /**
+     * Everything this workspace could pick, across EVERY connected provider.
+     *
+     * <p>The point of connecting more than one: a person can run on the cheap fast provider for
+     * a quick draft and the capable one for something hard, without an owner switching anything.
+     * Readable by any member — everyone picks their own, and it carries model names, never a key.
+     */
+    public List<OfferedModel> modelsForMembers(String tenantId) {
+        List<AiProvider> usable = repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
+                .filter(AiProvider::usable).toList();
+        if (usable.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                    "Connect an AI provider to use the assistant.");
+        }
+        List<OfferedModel> out = new java.util.ArrayList<>();
+        for (AiProvider row : usable) {
+            // One provider being unreadable must not hide the others: availableModels already
+            // degrades to an empty list rather than throwing.
+            for (AiProviderProbe.ModelInfo m : availableModels(tenantId, row)) {
+                out.add(new OfferedModel(row.getProvider(), m.id(), m.chat()));
+            }
+        }
+        return List.copyOf(out);
     }
 
     /* ── connecting ───────────────────────────────────────────────────────── */
@@ -367,12 +467,12 @@ public class AiProviderService {
 
         String chosen = normalizeModel(model, result.modelIds(), provider);
 
-        // Secret first, and deliberately in its own transaction: if this fails we have told
-        // nobody they are connected, and if the row save below fails the stored secret is inert
-        // (resolve() needs a usable row) and is overwritten by the next connect.
-        secrets.put(tenantId, AiProvider.SECRET_NAME, key, ManagedBy.TENANT);
+        // Under THIS provider's own name. One shared name was what made connecting a second
+        // provider silently destroy the first one's key.
+        secrets.put(tenantId, AiProvider.secretName(provider.id()), key, ManagedBy.TENANT);
 
-        AiProvider row = repository.findById(tenantId).orElseGet(() -> new AiProvider(tenantId));
+        AiProvider row = repository.findByTenantIdAndProvider(tenantId, provider.id())
+                .orElseGet(() -> new AiProvider(tenantId, provider.id()));
         // A rotation is a NEW key REPLACING a live one. Three things must hold, and each has
         // been wrong at some point: there must be an existing key (a fresh row defaults to
         // status CONNECTED with no fingerprint, so the status alone says nothing), it must
@@ -380,7 +480,6 @@ public class AiProviderService {
         boolean rotation = row.getKeyFingerprint() != null
                 && AiProvider.CONNECTED.equals(row.getStatus())
                 && !fingerprint(key).equals(row.getKeyFingerprint());
-        row.setProvider(provider.id());
         row.setModel(chosen);
         row.setStatus(AiProvider.CONNECTED);
         row.setKeyLast4(lastFour(key));
@@ -391,29 +490,36 @@ public class AiProviderService {
         row.setDisconnectedAt(null);
         row.setLastError(null);
         repository.save(row);
-        forgetCachedModels(tenantId);  // new key or new provider — the old list is not theirs
+        forgetCachedModels(tenantId);  // a new key for this provider — the old list is not its
+
+        // The first provider a workspace connects is the one turns default to. Later ones join
+        // beside it without stealing that, unless the workspace says so explicitly.
+        if (repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
+                .filter(AiProvider::usable).noneMatch(AiProvider::isPreferred)) {
+            row.setPreferred(true);
+            repository.save(row);
+        }
 
         audit.record(rotation ? "ai.provider.updated" : "ai.provider.connected", "ai_provider", tenantId,
                 tenantId, userId, false, Map.of("provider", provider.id(), "model", String.valueOf(chosen)));
         log.info("ai: tenant {} connected {} (model={})", tenantId, provider.id(), chosen);
 
         Map<String, Object> out = new LinkedHashMap<>(view(tenantId));
-        out.put("models", describe(result.models()));
+        out.put("models", describe(result.models().stream()
+                .map(m -> new OfferedModel(provider.id(), m.id(), m.chat())).toList()));
         return out;
     }
 
     /** Change the model without re-pasting the key. */
     @Transactional
-    public Map<String, Object> chooseModel(String tenantId, String userId, String model) {
-        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "This workspace hasn't connected an AI provider."));
+    public Map<String, Object> chooseModel(String tenantId, String userId, String providerId, String model) {
+        AiProvider row = usableProvider(tenantId, providerId);
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Unknown provider on this workspace."));
         row.setModel(normalizeModel(model, List.of(), provider));
         repository.save(row);
         audit.record("ai.provider.model-changed", "ai_provider", tenantId, tenantId, userId, false,
-                Map.of("model", String.valueOf(row.getModel())));
+                Map.of("provider", row.getProvider(), "model", String.valueOf(row.getModel())));
         return view(tenantId);
     }
 
@@ -424,22 +530,24 @@ public class AiProviderService {
      * nothing — see {@link #markInvalid}.
      */
     // NOT @Transactional: calls the provider — see connect().
-    public Map<String, Object> verify(String tenantId) {
-        AiProvider row = repository.findById(tenantId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "This workspace hasn't connected an AI provider."));
+    public Map<String, Object> verify(String tenantId, String providerId) {
+        AiProvider row = repository.findByTenantIdAndProvider(tenantId, providerId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "That provider isn't connected for this workspace."));
         AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Unknown provider on this workspace."));
-        String key = secrets.get(tenantId, AiProvider.SECRET_NAME).orElse(null);
+        String key = secrets.get(tenantId, row.secretName()).orElse(null);
         if (key == null || key.isBlank()) {
             // The row says connected but the secret is gone — treat it as disconnected rather
             // than leaving a workspace that can never run a turn looking healthy.
             row.setStatus(AiProvider.DISCONNECTED);
             row.setLastError("The stored key is missing. Connect your provider again.");
             repository.save(row);
+            demote(row);
             return view(tenantId);
         }
 
         AiProviderProbe.Result result = probe.verify(provider, key);
+        boolean demoteAfterSave = false;
         switch (result.outcome()) {
             case OK -> {
                 row.setStatus(AiProvider.CONNECTED);
@@ -449,10 +557,17 @@ public class AiProviderService {
             case INVALID -> {
                 row.setStatus(AiProvider.INVALID);
                 row.setLastError(result.message());
+                demoteAfterSave = true;
+            }
+            case REFUSED -> {
+                // The provider took the key and refused the request. Not a verdict on the key,
+                // so the row is not marked INVALID — but record what they said so it is visible.
+                row.setLastError(result.message());
             }
             case UNREACHABLE -> { /* our problem, not theirs — leave the row exactly as it was */ }
         }
         repository.save(row);
+        if (demoteAfterSave) demote(row);
         return view(tenantId);
     }
 
@@ -464,8 +579,10 @@ public class AiProviderService {
      * the provider had a bad minute is the worst failure mode this feature has.
      */
     @Transactional
-    public void markInvalid(String tenantId, String message, String keyUsed) {
-        repository.findById(tenantId).ifPresent(row -> {
+    public void markInvalid(String tenantId, String providerId, String message, String keyUsed) {
+        // Only the provider whose key was actually used. A workspace may have several connected,
+        // and one refusing says nothing about the others.
+        repository.findByTenantIdAndProvider(tenantId, providerId).ifPresent(row -> {
             if (!AiProvider.CONNECTED.equals(row.getStatus())) return;
             // Only the key that actually failed may be marked. A turn can take a minute and a
             // half; if the workspace reconnected with a good key meanwhile, the late failure
@@ -478,6 +595,7 @@ public class AiProviderService {
             row.setStatus(AiProvider.INVALID);
             row.setLastError(message);
             repository.save(row);
+            demote(row);  // it cannot serve a turn now, so it must not stay the default
             audit.record("ai.provider.invalid", "ai_provider", tenantId, tenantId, "system", false,
                     Map.of("provider", String.valueOf(row.getProvider())));
             log.warn("ai: tenant {} provider {} rejected the stored key", tenantId, row.getProvider());
@@ -494,27 +612,60 @@ public class AiProviderService {
      * nothing to wind down first.
      */
     @Transactional
-    public Map<String, Object> disconnect(String tenantId, String userId) {
-        AiProvider row = repository.findById(tenantId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "This workspace hasn't connected an AI provider."));
-        secrets.delete(tenantId, AiProvider.SECRET_NAME);
+    public Map<String, Object> disconnect(String tenantId, String userId, String providerId) {
+        AiProvider row = repository.findByTenantIdAndProvider(tenantId, providerId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "That provider isn't connected for this workspace."));
+        secrets.delete(tenantId, row.secretName());
         row.setStatus(AiProvider.DISCONNECTED);
         row.setDisconnectedAt(LocalDateTime.now());
         row.setKeyFingerprint(null);
         row.setKeyLast4(null);
         row.setLastError(null);
         repository.save(row);
+        forgetCachedModels(tenantId);
+        // Removing the default must not leave the workspace with none, or turns start failing
+        // for everyone who never chose a provider.
+        demote(row);
         audit.record("ai.provider.disconnected", "ai_provider", tenantId, tenantId, userId, false,
                 Map.of("provider", String.valueOf(row.getProvider())));
+        return view(tenantId);
+    }
+
+    /** Choose which connected provider a turn uses when the person running it hasn't picked one. */
+    @Transactional
+    public Map<String, Object> setPreferred(String tenantId, String userId, String providerId) {
+        AiProvider chosen = repository.findByTenantIdAndProvider(tenantId, providerId)
+                .filter(AiProvider::usable)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "That provider isn't connected for this workspace."));
+        for (AiProvider row : repository.findByTenantIdOrderByProviderAsc(tenantId)) {
+            // Exactly one, always: two would make "which provider runs this turn" depend on row
+            // order, and none would strand everyone who never picked one.
+            boolean shouldBe = row.getId().equals(chosen.getId());
+            if (row.isPreferred() != shouldBe) {
+                row.setPreferred(shouldBe);
+                repository.save(row);
+            }
+        }
+        audit.record("ai.provider.default-changed", "ai_provider", tenantId, tenantId, userId, false,
+                Map.of("provider", providerId));
         return view(tenantId);
     }
 
     /** Called when a tenant is purged: the key must not outlive the workspace. */
     @Transactional
     public void forget(String tenantId) {
-        secrets.delete(tenantId, AiProvider.SECRET_NAME);
+        // Every provider's key, not just one: a workspace may have connected several.
+        for (AiProvider row : repository.findByTenantIdOrderByProviderAsc(tenantId)) {
+            secrets.delete(tenantId, row.secretName());
+        }
+        // The pre-multi-provider name. A workspace whose row was already DISCONNECTED when V29
+        // ran kept its secret under the old name, and a purge driven only by rows would leave a
+        // live credential behind forever.
+        secrets.delete(tenantId, "ai.provider-key");
         preferences.deleteByTenant(tenantId);
-        repository.deleteById(tenantId);
+        repository.deleteByTenant(tenantId);
+        forgetCachedModels(tenantId);
     }
 
     /** Called when a user is deprovisioned: their model choices go with them. */
