@@ -556,6 +556,103 @@ class AiProviderControllerTest {
                 assertThat(p.path("keyPrefix").asText()).as("%s", p.path("id").asText()).isNotBlank());
     }
 
+    /* ── each person's own model, on the workspace's key ──────────────────── */
+
+    private ResultActions chooseMyModel(String user, String model) throws Exception {
+        return as(user, put("/api/ai/preference").contentType(MediaType.APPLICATION_JSON)
+                .content(JSON.writeValueAsString(java.util.Collections.singletonMap("model", model))));
+    }
+
+    @Test
+    void aMemberPicksTheirOwnModelWithoutTouchingTheWorkspaceKey() throws Exception {
+        probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        // The model is each person's own, so this is member-level — unlike connecting a key.
+        chooseMyModel(member, "llama-3.3-70b-versatile").andExpect(status().isOk());
+
+        SEEN.clear();
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-model", "llama-3.3-70b-versatile");
+        // Same key as everyone else: only the model is theirs.
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-key", KEY);
+    }
+
+    @Test
+    void onePersonsChoiceNeverChangesAnyoneElses() throws Exception {
+        probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        chooseMyModel(member, "llama-3.3-70b-versatile").andExpect(status().isOk());
+
+        SEEN.clear();
+        chat(owner).andExpect(status().isOk());
+        // The owner never chose one, so they follow the workspace — not the member's pick.
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-model", AiProviderCatalog.GROQ.defaultModel());
+    }
+
+    @Test
+    void aBlankChoiceGoesBackToFollowingTheWorkspace() throws Exception {
+        probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, "openai/gpt-oss-120b").andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        chooseMyModel(member, "llama-3.3-70b-versatile").andExpect(status().isOk());
+        assertThat(body(chooseMyModel(member, "")).path("model").isNull()).isTrue();
+
+        SEEN.clear();
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-model", "openai/gpt-oss-120b");
+    }
+
+    @Test
+    void aMemberCannotSendAnArbitraryModelUpstream() throws Exception {
+        // This string now reaches the provider on every turn and is chosen by any member, so an
+        // unchecked value is a member deciding what we send to someone else's account.
+        probe.models = List.of("openai/gpt-oss-120b");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        chooseMyModel(member, "../../etc/passwd").andExpect(status().isBadRequest());
+        chooseMyModel(member, "a".repeat(201)).andExpect(status().isBadRequest());
+
+        SEEN.clear();
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-model", AiProviderCatalog.GROQ.defaultModel());
+    }
+
+    @Test
+    void anOutsiderHasNoPreferenceToReadOrWrite() throws Exception {
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        as(outsider, get("/api/ai/preference")).andExpect(status().isForbidden());
+        chooseMyModel(outsider, "anything").andExpect(status().isForbidden());
+    }
+
+    @Test
+    void everyMemberCanReadTheModelListToChooseFrom() throws Exception {
+        // Model NAMES, never the key — and everyone picks their own, so this can't be owner-only.
+        probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+
+        JsonNode seen = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
+        assertThat(seen.path("models")).hasSize(2);
+        assertThat(seen.toString()).doesNotContain(KEY);
+    }
+
+    @Test
+    void thereIsNothingToChooseUntilTheWorkspaceConnectsAKey() throws Exception {
+        assertThat(body(as(member, get("/api/ai/preference"))).path("connected").asBoolean()).isFalse();
+        chooseMyModel(member, "whatever").andExpect(status().isPaymentRequired());
+    }
+
+    private void grantForms(String user, String level) {
+        CapabilityGrant g = new CapabilityGrant(tenant, user, "FORMS");
+        g.setLevel(level);
+        grants.save(g);
+    }
+
     @Test
     void verifyRecordsWhatTheProviderSaysWithoutGuessing() throws Exception {
         connect(owner, "groq", KEY, null).andExpect(status().isOk());

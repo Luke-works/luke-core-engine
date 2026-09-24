@@ -101,6 +101,8 @@ public class CapabilityAdminController {
     @Transactional // #62: the batch grant delete is atomic (no partially-purged user).
     public ResponseEntity<Void> purgeUser(@PathVariable String userId) {
         grants.deleteAll(grants.findByUserId(userId));
+        // Their per-workspace AI model choices. No secret, but no reason to outlive them either.
+        aiProviders.forgetUser(userId);
         return ResponseEntity.noContent().build();
     }
 }

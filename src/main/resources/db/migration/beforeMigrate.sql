@@ -1017,3 +1017,19 @@
         updated_at timestamp(6),
         primary key (id)
     );
+
+-- ── from V28__ai_user_model_pref.sql ───────────────────────────────────────────────────────────────
+-- Per-person model choice within a workspace. Holds no secret.
+
+    create table if not exists luke_ai_user_pref (
+        id varchar(255) not null,
+        tenant_id varchar(255) not null,
+        user_id varchar(255) not null,
+        model varchar(255),
+        created_at timestamp(6) not null,
+        updated_at timestamp(6),
+        primary key (id)
+    );
+
+    create unique index if not exists uq_ai_user_pref on luke_ai_user_pref (tenant_id, user_id);
+    create index if not exists idx_ai_user_pref_tenant on luke_ai_user_pref (tenant_id);

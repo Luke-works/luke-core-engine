@@ -45,13 +45,15 @@ public class AiProviderService {
     private static final Logger log = LoggerFactory.getLogger(AiProviderService.class);
 
     private final AiProviderRepository repository;
+    private final AiUserPreferenceRepository preferences;
     private final SecretStore secrets;
     private final AiProviderProbe probe;
     private final AdminAuditService audit;
 
-    public AiProviderService(AiProviderRepository repository, SecretStore secrets,
-                             AiProviderProbe probe, AdminAuditService audit) {
+    public AiProviderService(AiProviderRepository repository, AiUserPreferenceRepository preferences,
+                             SecretStore secrets, AiProviderProbe probe, AdminAuditService audit) {
         this.repository = repository;
+        this.preferences = preferences;
         this.secrets = secrets;
         this.probe = probe;
         this.audit = audit;
@@ -110,12 +112,91 @@ public class AiProviderService {
      * how to render; it must not need to distinguish them.
      */
     @Transactional(readOnly = true)
-    public Optional<Resolved> resolve(String tenantId) {
+    public Optional<Resolved> resolve(String tenantId, String userId) {
         AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
         if (row == null) return Optional.empty();
         return secrets.get(tenantId, AiProvider.SECRET_NAME)
                 .filter(key -> !key.isBlank())
-                .map(key -> new Resolved(row.getProvider(), key, effectiveModel(row)));
+                .map(key -> new Resolved(row.getProvider(), key, modelFor(tenantId, userId, row)));
+    }
+
+    /**
+     * The model this person's turn runs on: their own choice, else the workspace's, else the
+     * provider's default. The key is the workspace's either way — only the model is theirs.
+     */
+    private String modelFor(String tenantId, String userId, AiProvider row) {
+        if (userId != null) {
+            String mine = preferences.findByTenantIdAndUserId(tenantId, userId)
+                    .map(AiUserPreference::getModel).orElse(null);
+            if (mine != null && !mine.isBlank()) return mine;
+        }
+        return effectiveModel(row);
+    }
+
+    /* ── one person's model choice ────────────────────────────────────────── */
+
+    /** What this person's assistant runs on, and what else they could pick. */
+    @Transactional(readOnly = true)
+    public Map<String, Object> preference(String tenantId, String userId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable).orElse(null);
+        out.put("connected", row != null);
+        out.put("provider", row == null ? null : row.getProvider());
+        // The workspace's setting, shown as the "follow the workspace" option's label.
+        out.put("workspaceModel", row == null ? null : effectiveModel(row));
+        out.put("model", preferences.findByTenantIdAndUserId(tenantId, userId)
+                .map(AiUserPreference::getModel).orElse(null));
+        out.put("effectiveModel", row == null ? null : modelFor(tenantId, userId, row));
+        return out;
+    }
+
+    /**
+     * Choose the model this person's turns run on. Blank means "follow the workspace".
+     *
+     * <p>Validated against the provider's live model list, not merely bounded: this string is now
+     * chosen by any member and travels to the provider on every turn, so an unchecked value is a
+     * member deciding what we send upstream. When the list can't be read we fall back to a length
+     * bound rather than refusing — a provider outage should not stop someone changing a setting.
+     */
+    @Transactional
+    public Map<String, Object> chooseMyModel(String tenantId, String userId, String model) {
+        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                        "Connect an AI provider to use the assistant."));
+        String chosen = model == null ? "" : model.trim();
+        if (chosen.length() > 200) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That model name is too long.");
+        }
+        if (!chosen.isEmpty()) {
+            List<String> available = availableModels(tenantId, row);
+            if (!available.isEmpty() && !available.contains(chosen)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Your workspace's AI account can't use \"" + chosen + "\".");
+            }
+        }
+        AiUserPreference pref = preferences.findByTenantIdAndUserId(tenantId, userId)
+                .orElseGet(() -> new AiUserPreference(java.util.UUID.randomUUID().toString(), tenantId, userId));
+        pref.setModel(chosen.isEmpty() ? null : chosen);
+        preferences.save(pref);
+        return preference(tenantId, userId);
+    }
+
+    /** Models the workspace's key may use, empty when the provider can't be read right now. */
+    private List<String> availableModels(String tenantId, AiProvider row) {
+        AiProviderCatalog.Provider provider = AiProviderCatalog.find(row.getProvider()).orElse(null);
+        if (provider == null) return List.of();
+        return secrets.get(tenantId, AiProvider.SECRET_NAME)
+                .filter(k -> !k.isBlank())
+                .map(k -> probe.verify(provider, k).models())
+                .orElse(List.of());
+    }
+
+    /** Models any member may choose from — the same list, without needing the owner's rights. */
+    public List<String> modelsForMembers(String tenantId) {
+        AiProvider row = repository.findById(tenantId).filter(AiProvider::usable)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                        "Connect an AI provider to use the assistant."));
+        return availableModels(tenantId, row);
     }
 
     /* ── connecting ───────────────────────────────────────────────────────── */
@@ -325,7 +406,14 @@ public class AiProviderService {
     @Transactional
     public void forget(String tenantId) {
         secrets.delete(tenantId, AiProvider.SECRET_NAME);
+        preferences.deleteByTenant(tenantId);
         repository.deleteById(tenantId);
+    }
+
+    /** Called when a user is deprovisioned: their model choices go with them. */
+    @Transactional
+    public void forgetUser(String userId) {
+        preferences.deleteByUser(userId);
     }
 
     /* ── helpers ──────────────────────────────────────────────────────────── */

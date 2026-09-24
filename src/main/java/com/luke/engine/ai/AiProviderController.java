@@ -101,14 +101,44 @@ public class AiProviderController {
         return providers.verify(tenantId);
     }
 
-    /** The models this workspace's own key may use — read live from their provider. */
+    /**
+     * The models this workspace's key may use — read live from the provider.
+     *
+     * <p>Any MEMBER, not just the owner: everyone picks their own model, so everyone needs the
+     * list. It reveals model names, never the key.
+     */
     @GetMapping("/provider/models")
     public Map<String, Object> models(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                       @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
-        requireOwner(auth, tenantId);
+        requireMember(auth, tenantId);
         requireEnabled();
-        List<String> models = providers.models(tenantId);
-        return Map.of("models", models);
+        return Map.of("models", providers.modelsForMembers(tenantId));
+    }
+
+    /** This person's own model choice — what their turns run on. */
+    @GetMapping("/preference")
+    public Map<String, Object> preference(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
+                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+        String userId = requireMember(auth, tenantId);
+        Map<String, Object> out = new LinkedHashMap<>(providers.preference(tenantId, userId));
+        out.put("enabled", props.enabled());
+        return out;
+    }
+
+    /**
+     * Choose the model THIS person's turns run on. Blank follows the workspace's setting.
+     *
+     * <p>Member-level on purpose: the key is the owner's to manage, the model is each person's
+     * own. Nobody can change anyone else's — the user is taken from the credential, never from
+     * the request body.
+     */
+    @PutMapping("/preference")
+    public Map<String, Object> chooseMyModel(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
+                                             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                             @RequestBody ModelBody body) {
+        String userId = requireMember(auth, tenantId);
+        requireEnabled();
+        return providers.chooseMyModel(tenantId, userId, body.model());
     }
 
     /** Change the model without re-pasting the key. */

@@ -147,7 +147,8 @@ public class AgentProxyController {
         }
 
         // No provider connected → the single 402 the UI turns into "Connect your AI provider".
-        AiProviderService.Resolved credential = providers.resolve(tenantId).orElseThrow(() ->
+        // The workspace's key, on THIS person's chosen model.
+        AiProviderService.Resolved credential = providers.resolve(tenantId, userId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
                         "Connect an AI provider to use the assistant."));
 
