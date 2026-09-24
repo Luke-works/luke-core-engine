@@ -76,11 +76,7 @@ public class AiProviderController {
     public Map<String, Object> get(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                    @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
         String userId = requireMember(auth, tenantId);
-        Map<String, Object> out = new LinkedHashMap<>(providers.view(tenantId));
-        out.put("enabled", props.enabled());
-        // Only an owner sees a "Connect" button, so tell the page which it is dealing with.
-        out.put("canManage", TenantOwnership.isOwner(identity, userId, tenantId));
-        return out;
+        return withFlags(providers.view(tenantId), userId, tenantId);
     }
 
     @PutMapping("/provider")
@@ -89,26 +85,55 @@ public class AiProviderController {
                                        @RequestBody ConnectBody body) {
         String userId = requireOwner(auth, tenantId);
         requireEnabled();
-        return providers.connect(tenantId, userId, body.provider(), body.apiKey(), body.model());
+        return withFlags(providers.connect(tenantId, userId, body.provider(), body.apiKey(), body.model()),
+                userId, tenantId);
     }
 
     /** Re-check the stored key against the provider. */
     @PostMapping("/provider/verify")
     public Map<String, Object> verify(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                       @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
-        requireOwner(auth, tenantId);
+        String userId = requireOwner(auth, tenantId);
         requireEnabled();
-        return providers.verify(tenantId);
+        return withFlags(providers.verify(tenantId), userId, tenantId);
     }
 
-    /** The models this workspace's own key may use — read live from their provider. */
+    /**
+     * The models this workspace's key may use — read live from the provider.
+     *
+     * <p>Any MEMBER, not just the owner: everyone picks their own model, so everyone needs the
+     * list. It reveals model names, never the key.
+     */
     @GetMapping("/provider/models")
     public Map<String, Object> models(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                       @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
-        requireOwner(auth, tenantId);
+        requireMember(auth, tenantId);
         requireEnabled();
-        List<String> models = providers.models(tenantId);
-        return Map.of("models", models);
+        return Map.of("models", providers.modelsForMembers(tenantId));
+    }
+
+    /** This person's own model choice — what their turns run on. */
+    @GetMapping("/preference")
+    public Map<String, Object> preference(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
+                                          @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+        String userId = requireMember(auth, tenantId);
+        return withFlags(providers.preference(tenantId, userId), userId, tenantId);
+    }
+
+    /**
+     * Choose the model THIS person's turns run on. Blank follows the workspace's setting.
+     *
+     * <p>Member-level on purpose: the key is the owner's to manage, the model is each person's
+     * own. Nobody can change anyone else's — the user is taken from the credential, never from
+     * the request body.
+     */
+    @PutMapping("/preference")
+    public Map<String, Object> chooseMyModel(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
+                                             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                             @RequestBody ModelBody body) {
+        String userId = requireMember(auth, tenantId);
+        requireEnabled();
+        return withFlags(providers.chooseMyModel(tenantId, userId, body.model()), userId, tenantId);
     }
 
     /** Change the model without re-pasting the key. */
@@ -118,14 +143,30 @@ public class AiProviderController {
                                            @RequestBody ModelBody body) {
         String userId = requireOwner(auth, tenantId);
         requireEnabled();
-        return providers.chooseModel(tenantId, userId, body.model());
+        return withFlags(providers.chooseModel(tenantId, userId, body.model()), userId, tenantId);
     }
 
     @DeleteMapping("/provider")
     public Map<String, Object> disconnect(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
                                           @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
         String userId = requireOwner(auth, tenantId);
-        return providers.disconnect(tenantId, userId);
+        return withFlags(providers.disconnect(tenantId, userId), userId, tenantId);
+    }
+
+
+    /**
+     * Every response from this controller carries the same two flags the UI needs to decide what
+     * to render: whether this deployment has AI at all, and whether this caller may change it.
+     *
+     * <p>They were attached only on the GETs, so a successful PUT returned a view missing both —
+     * and a UI that replaces its state with the response concluded the feature had vanished.
+     * Attached here so a new endpoint cannot forget.
+     */
+    private Map<String, Object> withFlags(Map<String, Object> view, String userId, String tenantId) {
+        Map<String, Object> out = new LinkedHashMap<>(view);
+        out.put("enabled", props.enabled());
+        out.put("canManage", TenantOwnership.isOwner(identity, userId, tenantId));
+        return out;
     }
 
     /* ── authorization ────────────────────────────────────────────────────── */
