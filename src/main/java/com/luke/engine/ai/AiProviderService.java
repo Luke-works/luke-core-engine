@@ -329,16 +329,18 @@ public class AiProviderService {
         if (key.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Paste your " + provider.label() + " API key.");
         }
-        if (!AiProviderCatalog.looksLikeKeyFor(provider, key)) {
-            // Catches the common paste error (two providers' keys side by side in a password
-            // manager) with a better message than the provider's bare 401.
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "That doesn't look like a " + provider.label() + " key — they start with \""
-                            + provider.keyPrefix() + "\".");
-        }
-
+        // NOTE: the key's prefix is NOT checked here any more. A prefix is a guess about a format
+        // the provider owns, and the guess blocked a real Google key that did not start with
+        // "AIza" — refusing on a heuristic while the definitive check sits on the next line. Ask
+        // the provider; use the prefix only to explain a refusal (see below).
         AiProviderProbe.Result result = probe.verify(provider, key);
         if (result.outcome() == AiProviderProbe.Outcome.INVALID) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, withKeyHint(provider, key, result.message()));
+        }
+        if (result.outcome() == AiProviderProbe.Outcome.REFUSED) {
+            // The key authenticated and the provider refused the request — the wrong kind of key,
+            // a plan without the endpoint, a region restriction. Waiting will not fix it, so this
+            // must not be a 503: repeat what the provider said, since they know why and we don't.
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, result.message());
         }
         if (result.outcome() == AiProviderProbe.Outcome.UNREACHABLE) {
@@ -541,6 +543,25 @@ public class AiProviderService {
                     "Your " + provider.label() + " account can't use \"" + chosen + "\".");
         }
         return chosen;
+    }
+
+    /**
+     * Add "that looks like an X key" when a refused key matches a different provider's format.
+     *
+     * <p>This is what the prefix check is actually good for: not deciding whether to try, but
+     * explaining a refusal once the provider has spoken. The common case is two keys sitting
+     * beside each other in a password manager.
+     */
+    private String withKeyHint(AiProviderCatalog.Provider provider, String key, String message) {
+        return AiProviderCatalog.looksLikeKeyOf(key)
+                .filter(other -> !other.id().equals(provider.id()))
+                .map(other -> message + " That looks like " + article(other.label()) + " "
+                        + other.label() + " key — pick " + other.label() + " above if it is.")
+                .orElse(message);
+    }
+
+    private static String article(String label) {
+        return "AEIOU".indexOf(Character.toUpperCase(label.charAt(0))) >= 0 ? "an" : "a";
     }
 
     private static String lastFour(String key) {

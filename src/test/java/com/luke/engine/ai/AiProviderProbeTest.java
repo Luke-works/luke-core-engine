@@ -223,11 +223,41 @@ class AiProviderProbeTest {
     }
 
     @Test
-    void anOrdinary400IsStillNotAJudgementOnTheKey() {
+    void anOrdinary400IsARefusalOfTheRequest_notAVerdictOnTheKeyAndNotAnOutage() {
+        // The key authenticated; the provider refused what we asked for. Calling that UNREACHABLE
+        // turned it into "try again in a moment" — advice that can never work — and threw away
+        // the provider's own explanation, which is the only actionable thing in the exchange.
         status = 400;
         reply = "{\"error\":{\"message\":\"pageSize must be positive\"}}";
-        assertThat(probe.verify(provider(AiProviderCatalog.Auth.QUERY), "AIzaGood").outcome())
-                .isEqualTo(AiProviderProbe.Outcome.UNREACHABLE);
+        AiProviderProbe.Result r = probe.verify(provider(AiProviderCatalog.Auth.QUERY), "AIzaGood");
+        assertThat(r.outcome()).isEqualTo(AiProviderProbe.Outcome.REFUSED);
+        assertThat(r.message()).contains("pageSize must be positive");
+    }
+
+    @Test
+    void aRefusalWithNoReadableMessageStillSaysSomethingUseful() {
+        status = 400;
+        reply = "<html>go away</html>";
+        AiProviderProbe.Result r = probe.verify(provider(AiProviderCatalog.Auth.BEARER), "sk-good");
+        assertThat(r.outcome()).isEqualTo(AiProviderProbe.Outcome.REFUSED);
+        assertThat(r.message()).contains("refused this request");
+    }
+
+    @Test
+    void aProvidersErrorMessageIsBoundedBeforeItReachesALogOrADialog() {
+        status = 400;
+        reply = "{\"error\":{\"message\":\"" + "x".repeat(900) + "\"}}";
+        String message = probe.verify(provider(AiProviderCatalog.Auth.BEARER), "sk-good").message();
+        assertThat(message.length()).isLessThan(400);
+    }
+
+    @Test
+    void a5xxIsStillOurProblemAndStillSaysTryAgain() {
+        status = 502;
+        reply = "{\"error\":{\"message\":\"upstream boom\"}}";
+        AiProviderProbe.Result r = probe.verify(provider(AiProviderCatalog.Auth.BEARER), "sk-good");
+        assertThat(r.outcome()).isEqualTo(AiProviderProbe.Outcome.UNREACHABLE);
+        assertThat(r.message()).contains("Try again");
     }
 
     @Test

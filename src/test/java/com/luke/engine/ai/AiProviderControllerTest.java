@@ -108,12 +108,14 @@ class AiProviderControllerTest {
     static class FakeProbe extends AiProviderProbe {
         volatile Outcome outcome = Outcome.OK;
         volatile List<String> models = List.of();
+        volatile String message = null;
         final List<String> keysSeen = new ArrayList<>();
 
         @Override
         public Result verify(AiProviderCatalog.Provider provider, String apiKey) {
             keysSeen.add(apiKey);
-            return new Result(outcome, models, outcome == Outcome.OK ? null : "provider says no");
+            return new Result(outcome, models,
+                    outcome == Outcome.OK ? null : (message != null ? message : "provider says no"));
         }
     }
 
@@ -153,6 +155,7 @@ class AiProviderControllerTest {
         fleetCredentialSignal = null;
         probe.outcome = AiProviderProbe.Outcome.OK;
         probe.models = List.of();
+        probe.message = null;
         probe.keysSeen.clear();
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -261,9 +264,38 @@ class AiProviderControllerTest {
     }
 
     @Test
-    void aKeyForTheWrongProviderIsCaughtBeforeAnyNetworkCall() throws Exception {
-        connect(owner, "openai", "sk-ant-api03-wrong-one", null).andExpect(status().isBadRequest());
-        assertThat(probe.keysSeen).as("a paste error must not cost a round trip").isEmpty();
+    void anUnfamiliarKeyFormatIsStillOfferedToTheProvider() throws Exception {
+        // The prefix check used to REFUSE before any network call. That blocked a real Google key
+        // that did not start with "AIza" — a guess about a format the provider owns, overruling
+        // the definitive check one line below it.
+        probe.outcome = AiProviderProbe.Outcome.OK;
+        connect(owner, "gemini", "some-new-google-key-format", null).andExpect(status().isOk());
+        assertThat(probe.keysSeen).as("the provider must get the final say").isNotEmpty();
+    }
+
+    @Test
+    void aRefusedKeyThatLooksLikeAnothersSaysSo() throws Exception {
+        // What the prefix check is actually good for: explaining a refusal, not preventing a try.
+        probe.outcome = AiProviderProbe.Outcome.INVALID;
+        String body = connect(owner, "openai", "sk-ant-api03-wrong-one", null)
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("Anthropic");
+        assertThat(providers.findById(tenant)).isEmpty();
+    }
+
+    @Test
+    void aProviderThatRefusesTheRequestIsNotReportedAsAnOutage() throws Exception {
+        // The key authenticated and the provider refused the REQUEST — wrong kind of key, a plan
+        // without the endpoint, a region restriction. Reported as UNREACHABLE this became a 503
+        // "try again in a moment": advice that can never work, with the provider's own
+        // explanation — the one actionable thing in the exchange — dropped.
+        probe.outcome = AiProviderProbe.Outcome.REFUSED;
+        probe.message = "Anthropic said: this credential cannot access the Models API.";
+        String body = connect(owner, "anthropic", "sk-ant-valid-but-wrong-kind", null)
+                .andExpect(status().isBadRequest())   // NOT 503
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("cannot access the Models API");
         assertThat(providers.findById(tenant)).isEmpty();
     }
 

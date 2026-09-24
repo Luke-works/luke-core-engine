@@ -47,7 +47,16 @@ public class AiProviderProbe {
         /** The provider says no — revoked, mistyped, or for a different account. */
         INVALID,
         /** We could not reach the provider, or it failed. Says nothing about the key. */
-        UNREACHABLE
+        UNREACHABLE,
+        /**
+         * The provider authenticated the key and then refused the request.
+         *
+         * <p>Distinct from both: the key is not in question, and waiting will not help. It means
+         * this account cannot do what we asked — the wrong kind of key, a plan that lacks the
+         * endpoint, a region restriction. The only useful thing we can do is repeat what the
+         * provider said, because they know why and we do not.
+         */
+        REFUSED
     }
 
     /**
@@ -130,12 +139,51 @@ public class AiProviderProbe {
             return new Result(Outcome.INVALID, List.of(),
                     provider.label() + " rejected this key. Check you copied it in full, and that it hasn't been revoked.");
         }
+        if (status / 100 == 4) {
+            // A 4xx that is not 401/403/429 means the key authenticated and the REQUEST was
+            // refused. Reported as UNREACHABLE this became a 503 "try again in a moment" — advice
+            // that can never work — while the provider's own explanation, the one actionable
+            // thing in the exchange, was dropped on the floor.
+            String said = providerMessage(res.body());
+            log.warn("ai: {} refused the models request with {}: {}", provider.id(), status,
+                    said == null ? "(no message in body)" : said);
+            return new Result(Outcome.REFUSED, List.of(), said == null
+                    ? provider.label() + " refused this request (" + status + "). Check this key has access to "
+                            + provider.label() + "'s API."
+                    : provider.label() + " said: " + said);
+        }
         if (status / 100 != 2) {
-            log.warn("ai: {} models probe returned {}", provider.id(), status);
+            log.warn("ai: {} models probe returned {}: {}", provider.id(), status, providerMessage(res.body()));
             return new Result(Outcome.UNREACHABLE, List.of(),
                     provider.label() + " returned an unexpected error (" + status + "). Try again in a moment.");
         }
         return new Result(Outcome.OK, parseModels(res.body()), null);
+    }
+
+    /**
+     * The provider's own error message, if their body carries one.
+     *
+     * <p>Every provider here nests it differently ({@code error.message} for Anthropic, OpenAI and
+     * Google; a bare {@code message} elsewhere), so this walks the shapes we know and gives up
+     * quietly. It is the provider's text about their own refusal — it contains nothing of ours,
+     * and never the key, which is why it is safe both to log and to show.
+     */
+    private String providerMessage(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode root = json.readTree(body);
+            for (JsonNode candidate : new JsonNode[] {root.path("error").path("message"),
+                                                      root.path("message"),
+                                                      root.path("error").path("status"),
+                                                      root.path("detail")}) {
+                String text = candidate.isTextual() ? candidate.asText().trim() : "";
+                // Bounded: a provider that returns an essay must not fill our logs or a dialog.
+                if (!text.isEmpty()) return text.length() > 300 ? text.substring(0, 300) + "…" : text;
+            }
+        } catch (Exception e) {  // NOSONAR - an unparseable body is not worth failing over
+            log.debug("ai: could not read the provider's error body: {}", e.toString());
+        }
+        return null;
     }
 
     /**
