@@ -792,6 +792,56 @@ class AiProviderControllerTest {
     }
 
     @Test
+    void repairingAFailedProviderDoesNotLeaveTwoDefaults() throws Exception {
+        // The sequence that broke the invariant AiProvider's own javadoc states. Nothing cleared
+        // `preferred` when a row went INVALID, and connect()'s guard only looks at USABLE rows —
+        // so repairing the first provider left two defaults, resolved by whichever provider id
+        // sorts first. Worse, the settings page hides "Make default" on any preferred row, so
+        // with two of them neither offered the fix.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        assertThat(row("groq").isPreferred()).isTrue();
+
+        // The Groq key is revoked and a turn discovers it.
+        ai.markInvalid(tenant, "groq", "revoked", KEY);
+        assertThat(row("groq").isPreferred()).as("an unusable provider must not keep the default").isFalse();
+
+        // The owner connects a second provider to keep working — it takes the default.
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        assertThat(row("anthropic").isPreferred()).isTrue();
+
+        // …and then repairs the first.
+        connect(owner, "groq", "gsk_the_repaired_key", null).andExpect(status().isOk());
+
+        assertThat(preferredCount()).as("exactly one default, always").isEqualTo(1);
+        assertThat(row("anthropic").isPreferred())
+                .as("repairing a provider must not silently take the default back").isTrue();
+
+        // And the workspace can still move it deliberately.
+        as(owner, put("/api/ai/provider/groq/default")).andExpect(status().isOk());
+        assertThat(preferredCount()).isEqualTo(1);
+        assertThat(row("groq").isPreferred()).isTrue();
+    }
+
+    @Test
+    void aProviderThatFailsVerificationAlsoGivesUpTheDefault() throws Exception {
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        assertThat(row("groq").isPreferred()).isTrue();
+
+        probe.outcome = AiProviderProbe.Outcome.INVALID;
+        as(owner, post("/api/ai/provider/groq/verify")).andExpect(status().isOk());
+
+        assertThat(row("groq").isPreferred()).isFalse();
+        assertThat(row("anthropic").isPreferred()).as("handed on, not lost").isTrue();
+        assertThat(preferredCount()).isEqualTo(1);
+    }
+
+    private long preferredCount() {
+        return providers.findByTenantIdOrderByProviderAsc(tenant).stream()
+                .filter(AiProvider::isPreferred).count();
+    }
+
+    @Test
     void removingTheDefaultHandsItToWhatIsLeft() throws Exception {
         // Otherwise the workspace keeps providers but every turn fails for anyone who never
         // picked one — a state nobody would think to look for.

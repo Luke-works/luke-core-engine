@@ -132,6 +132,31 @@ public class AiProviderService {
                 .map(AiProviderCatalog.Provider::defaultModel).orElse(null);
     }
 
+    /**
+     * A row that can no longer serve a turn must not keep the default — hand it to one that can.
+     *
+     * <p>{@link AiProvider} documents the invariant ("exactly one connected provider per
+     * workspace carries this"), and nothing enforced it: {@code preferred} was cleared only by
+     * disconnect(), so a row marked INVALID kept the flag, a newly connected provider took the
+     * flag too (connect()'s guard only looks at USABLE rows), and repairing the first left two.
+     * {@link #preferredProvider} then picks whichever provider id sorts first — not a decision
+     * anyone made — and the settings page hides "Make default" on every preferred row, so with
+     * two of them neither offers the fix.
+     */
+    private void demote(AiProvider row) {
+        if (!row.isPreferred()) return;
+        row.setPreferred(false);
+        repository.save(row);
+        repository.findByTenantIdOrderByProviderAsc(row.getTenantId()).stream()
+                .filter(AiProvider::usable)
+                .filter(other -> !other.getId().equals(row.getId()))
+                .findFirst()
+                .ifPresent(next -> {
+                    next.setPreferred(true);
+                    repository.save(next);
+                });
+    }
+
     /** The provider a turn uses when the person running it has expressed no preference. */
     private Optional<AiProvider> preferredProvider(String tenantId) {
         List<AiProvider> usable = repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
@@ -517,10 +542,12 @@ public class AiProviderService {
             row.setStatus(AiProvider.DISCONNECTED);
             row.setLastError("The stored key is missing. Connect your provider again.");
             repository.save(row);
+            demote(row);
             return view(tenantId);
         }
 
         AiProviderProbe.Result result = probe.verify(provider, key);
+        boolean demoteAfterSave = false;
         switch (result.outcome()) {
             case OK -> {
                 row.setStatus(AiProvider.CONNECTED);
@@ -530,10 +557,17 @@ public class AiProviderService {
             case INVALID -> {
                 row.setStatus(AiProvider.INVALID);
                 row.setLastError(result.message());
+                demoteAfterSave = true;
+            }
+            case REFUSED -> {
+                // The provider took the key and refused the request. Not a verdict on the key,
+                // so the row is not marked INVALID — but record what they said so it is visible.
+                row.setLastError(result.message());
             }
             case UNREACHABLE -> { /* our problem, not theirs — leave the row exactly as it was */ }
         }
         repository.save(row);
+        if (demoteAfterSave) demote(row);
         return view(tenantId);
     }
 
@@ -561,6 +595,7 @@ public class AiProviderService {
             row.setStatus(AiProvider.INVALID);
             row.setLastError(message);
             repository.save(row);
+            demote(row);  // it cannot serve a turn now, so it must not stay the default
             audit.record("ai.provider.invalid", "ai_provider", tenantId, tenantId, "system", false,
                     Map.of("provider", String.valueOf(row.getProvider())));
             log.warn("ai: tenant {} provider {} rejected the stored key", tenantId, row.getProvider());
@@ -586,21 +621,11 @@ public class AiProviderService {
         row.setKeyFingerprint(null);
         row.setKeyLast4(null);
         row.setLastError(null);
-        boolean wasPreferred = row.isPreferred();
-        row.setPreferred(false);
         repository.save(row);
         forgetCachedModels(tenantId);
-
-        // Removing the default must not leave the workspace with none: hand it to whatever is
-        // still usable, or turns would start failing for people who never chose a provider.
-        if (wasPreferred) {
-            repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
-                    .filter(AiProvider::usable).findFirst()
-                    .ifPresent(next -> {
-                        next.setPreferred(true);
-                        repository.save(next);
-                    });
-        }
+        // Removing the default must not leave the workspace with none, or turns start failing
+        // for everyone who never chose a provider.
+        demote(row);
         audit.record("ai.provider.disconnected", "ai_provider", tenantId, tenantId, userId, false,
                 Map.of("provider", String.valueOf(row.getProvider())));
         return view(tenantId);
@@ -634,6 +659,10 @@ public class AiProviderService {
         for (AiProvider row : repository.findByTenantIdOrderByProviderAsc(tenantId)) {
             secrets.delete(tenantId, row.secretName());
         }
+        // The pre-multi-provider name. A workspace whose row was already DISCONNECTED when V29
+        // ran kept its secret under the old name, and a purge driven only by rows would leave a
+        // live credential behind forever.
+        secrets.delete(tenantId, "ai.provider-key");
         preferences.deleteByTenant(tenantId);
         repository.deleteByTenant(tenantId);
         forgetCachedModels(tenantId);

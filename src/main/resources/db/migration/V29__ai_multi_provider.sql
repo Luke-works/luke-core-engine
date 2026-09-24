@@ -18,8 +18,11 @@ alter table luke_ai_provider add column if not exists preferred boolean;
 
 -- The old id WAS the tenant id.
 update luke_ai_provider set tenant_id = id where tenant_id is null;
--- A workspace had at most one, so whatever it had is the one turns should default to.
-update luke_ai_provider set preferred = true where preferred is null;
+-- A workspace had at most one, so whatever it had is the one turns should default to — but only
+-- if it can actually serve a turn. Marking a DISCONNECTED or INVALID row the default would carry
+-- a flag the application never clears into the new schema, and the next provider connected would
+-- take the flag too: two defaults, resolved by whichever provider id sorts first.
+update luke_ai_provider set preferred = (status = 'CONNECTED') where preferred is null;
 
 alter table luke_ai_provider alter column tenant_id set not null;
 alter table luke_ai_provider alter column preferred set not null;
@@ -31,6 +34,9 @@ create unique index if not exists uq_ai_provider_tenant on luke_ai_provider (ten
 create index if not exists idx_ai_provider_tenant on luke_ai_provider (tenant_id);
 
 -- Move each stored key to its provider-specific name, so a second provider cannot overwrite it.
+-- An inner join on purpose: a tenant with an 'ai.provider-key' secret but NO provider row cannot
+-- be renamed, because nothing records which provider that key belongs to. Those keep the old name
+-- and are cleaned up by the tenant purge, which deletes the legacy name explicitly.
 update luke_secrets s
    set name = 'ai.provider-key.' || p.provider
   from luke_ai_provider p
