@@ -224,7 +224,7 @@ class AiProviderControllerTest {
     void anOutsiderSeesNothingAndChangesNothing() throws Exception {
         as(outsider, get("/api/ai/provider")).andExpect(status().isForbidden());
         connect(outsider, "groq", KEY, null).andExpect(status().isForbidden());
-        as(outsider, delete("/api/ai/provider")).andExpect(status().isForbidden());
+        as(outsider, delete("/api/ai/provider/groq")).andExpect(status().isForbidden());
         mvc.perform(get("/api/ai/provider").header("X-Tenant-Id", tenant)).andExpect(status().isUnauthorized());
     }
 
@@ -246,8 +246,8 @@ class AiProviderControllerTest {
     void theKeyGoesToTheEncryptedSecretStoreAndNeverIntoTheRow() throws Exception {
         connect(owner, "groq", KEY, null).andExpect(status().isOk());
 
-        assertThat(secrets.get(tenant, AiProvider.SECRET_NAME)).contains(KEY);
-        AiProvider row = providers.findById(tenant).orElseThrow();
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).contains(KEY);
+        AiProvider row = row("groq");
         assertThat(row.getStatus()).isEqualTo(AiProvider.CONNECTED);
         assertThat(row.getKeyLast4()).isEqualTo("abcd");
         assertThat(row.getKeyFingerprint()).hasSize(64).doesNotContain(KEY);
@@ -288,7 +288,7 @@ class AiProviderControllerTest {
                 .andExpect(status().isBadRequest())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).contains("Anthropic");
-        assertThat(providers.findById(tenant)).isEmpty();
+        assertThat(providers.findByTenantIdAndProvider(tenant, "groq")).isEmpty();
     }
 
     @Test
@@ -303,15 +303,15 @@ class AiProviderControllerTest {
                 .andExpect(status().isBadRequest())   // NOT 503
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(body).contains("cannot access the Models API");
-        assertThat(providers.findById(tenant)).isEmpty();
+        assertThat(providers.findByTenantIdAndProvider(tenant, "groq")).isEmpty();
     }
 
     @Test
     void aKeyTheProviderRefusesIsNeverStored() throws Exception {
         probe.outcome = AiProviderProbe.Outcome.INVALID;
         connect(owner, "groq", KEY, null).andExpect(status().isBadRequest());
-        assertThat(providers.findById(tenant)).isEmpty();
-        assertThat(secrets.get(tenant, AiProvider.SECRET_NAME)).isEmpty();
+        assertThat(providers.findByTenantIdAndProvider(tenant, "groq")).isEmpty();
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).isEmpty();
     }
 
     @Test
@@ -319,8 +319,8 @@ class AiProviderControllerTest {
         // Storing an unverified key would show "connected" while every turn fails.
         probe.outcome = AiProviderProbe.Outcome.UNREACHABLE;
         connect(owner, "groq", KEY, null).andExpect(status().isServiceUnavailable());
-        assertThat(providers.findById(tenant)).isEmpty();
-        assertThat(secrets.get(tenant, AiProvider.SECRET_NAME)).isEmpty();
+        assertThat(providers.findByTenantIdAndProvider(tenant, "groq")).isEmpty();
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).isEmpty();
     }
 
     @Test
@@ -328,15 +328,16 @@ class AiProviderControllerTest {
         probe.models = List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
         connect(owner, "groq", KEY, "some-model-they-dont-have").andExpect(status().isBadRequest());
         connect(owner, "groq", KEY, "llama-3.3-70b-versatile").andExpect(status().isOk());
-        assertThat(providers.findById(tenant).orElseThrow().getModel()).isEqualTo("llama-3.3-70b-versatile");
+        assertThat(row("groq").getModel()).isEqualTo("llama-3.3-70b-versatile");
     }
 
     @Test
     void noModelMeansTheProviderDefaultRatherThanAFrozenOne() throws Exception {
         connect(owner, "groq", KEY, "   ").andExpect(status().isOk());
         // Stored as null so the default tracks the catalog instead of whatever it was today.
-        assertThat(providers.findById(tenant).orElseThrow().getModel()).isNull();
-        assertThat(body(as(owner, get("/api/ai/provider"))).path("effectiveModel").asText())
+        assertThat(row("groq").getModel()).isNull();
+        assertThat(connection(body(as(owner, get("/api/ai/provider"))), "groq")
+                .path("effectiveModel").asText())
                 .isEqualTo(AiProviderCatalog.GROQ.defaultModel());
     }
 
@@ -437,7 +438,7 @@ class AiProviderControllerTest {
         fleetBody = "{\"detail\":\"Your AI provider rejected this workspace's API key.\"}";
 
         chat(owner).andExpect(status().isPaymentRequired());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.INVALID);
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.INVALID);
 
         // The next turn is refused here, without troubling the provider again.
         SEEN.clear();
@@ -453,11 +454,11 @@ class AiProviderControllerTest {
         fleetStatus = 503;
         fleetBody = "{\"detail\":\"temporarily unavailable\"}";
         chat(owner).andExpect(status().isServiceUnavailable());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
 
         fleetStatus = 429;
         chat(owner).andExpect(status().isTooManyRequests());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
     }
 
     @Test
@@ -468,11 +469,11 @@ class AiProviderControllerTest {
         chat(owner).andExpect(status().isPaymentRequired());
 
         connect(owner, "groq", "gsk_a_fresh_working_key_wxyz", null).andExpect(status().isOk());
-        AiProvider row = providers.findById(tenant).orElseThrow();
+        AiProvider row = row("groq");
         assertThat(row.getStatus()).isEqualTo(AiProvider.CONNECTED);
         assertThat(row.getLastError()).isNull();
         assertThat(row.getKeyLast4()).isEqualTo("wxyz");
-        assertThat(secrets.get(tenant, AiProvider.SECRET_NAME)).contains("gsk_a_fresh_working_key_wxyz");
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).contains("gsk_a_fresh_working_key_wxyz");
     }
 
     /* ── disconnecting ────────────────────────────────────────────────────── */
@@ -480,10 +481,10 @@ class AiProviderControllerTest {
     @Test
     void disconnectingDestroysTheKeyButKeepsTheAuditTrail() throws Exception {
         connect(owner, "groq", KEY, null).andExpect(status().isOk());
-        as(owner, delete("/api/ai/provider")).andExpect(status().isOk());
+        as(owner, delete("/api/ai/provider/groq")).andExpect(status().isOk());
 
-        assertThat(secrets.get(tenant, AiProvider.SECRET_NAME)).isEmpty();
-        AiProvider row = providers.findById(tenant).orElseThrow();
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).isEmpty();
+        AiProvider row = row("groq");
         assertThat(row.getStatus()).isEqualTo(AiProvider.DISCONNECTED);
         assertThat(row.getKeyFingerprint()).isNull();
         assertThat(row.getConnectedBy()).isEqualTo(owner);   // who did it survives
@@ -504,17 +505,17 @@ class AiProviderControllerTest {
 
         // Replace the key first, then let the stale turn fail.
         connect(owner, "groq", "gsk_the_replacement_key_wxyz", null).andExpect(status().isOk());
-        providers.findById(tenant).orElseThrow();
+        row("groq");
 
         // Simulate the in-flight turn that was still using the OLD key coming back rejected.
-        ai.markInvalid(tenant, "rejected", KEY);
-        assertThat(providers.findById(tenant).orElseThrow().getStatus())
+        ai.markInvalid(tenant, "groq", "rejected", KEY);
+        assertThat(row("groq").getStatus())
                 .as("the replacement key must survive the old key's failure")
                 .isEqualTo(AiProvider.CONNECTED);
 
         // A rejection naming the CURRENT key still marks it.
-        ai.markInvalid(tenant, "rejected", "gsk_the_replacement_key_wxyz");
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.INVALID);
+        ai.markInvalid(tenant, "groq", "rejected", "gsk_the_replacement_key_wxyz");
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.INVALID);
     }
 
     @Test
@@ -527,7 +528,7 @@ class AiProviderControllerTest {
         fleetBody = "{\"detail\":\"Your AI provider account is out of credit.\"}";
 
         chat(owner).andExpect(status().isPaymentRequired());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
     }
 
     @Test
@@ -598,8 +599,12 @@ class AiProviderControllerTest {
     /* ── each person's own model, on the workspace's key ──────────────────── */
 
     private ResultActions chooseMyModel(String user, String model) throws Exception {
+        return chooseMyModel(user, "groq", model);
+    }
+
+    private ResultActions chooseMyModel(String user, String provider, String model) throws Exception {
         return as(user, put("/api/ai/preference").contentType(MediaType.APPLICATION_JSON)
-                .content(JSON.writeValueAsString(java.util.Collections.singletonMap("model", model))));
+                .content(JSON.writeValueAsString(java.util.Map.of("provider", provider, "model", model))));
     }
 
     @Test
@@ -690,6 +695,19 @@ class AiProviderControllerTest {
         chooseMyModel(member, "whatever").andExpect(status().isPaymentRequired());
     }
 
+    /** The stored row for one of this tenant's providers. */
+    private AiProvider row(String provider) {
+        return providers.findByTenantIdAndProvider(tenant, provider).orElseThrow();
+    }
+
+    /** One entry of the settings view's `connections` list. */
+    private JsonNode connection(JsonNode view, String provider) {
+        for (JsonNode c : view.path("connections")) {
+            if (provider.equals(c.path("provider").asText())) return c;
+        }
+        throw new AssertionError("no connection for " + provider + " in " + view);
+    }
+
     private void grantForms(String user, String level) {
         CapabilityGrant g = new CapabilityGrant(tenant, user, "FORMS");
         g.setLevel(level);
@@ -710,12 +728,12 @@ class AiProviderControllerTest {
         List<ResultActions> responses = List.of(
                 as(owner, get("/api/ai/provider")),
                 connect(owner, "groq", KEY, null),
-                as(owner, post("/api/ai/provider/verify")),
+                as(owner, post("/api/ai/provider/groq/verify")),
                 as(owner, get("/api/ai/preference")),
                 chooseMyModel(owner, "llama-3.3-70b-versatile"),
-                as(owner, put("/api/ai/provider/model").contentType(MediaType.APPLICATION_JSON)
+                as(owner, put("/api/ai/provider/groq/model").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"model\":\"\"}")),
-                as(owner, delete("/api/ai/provider")));
+                as(owner, delete("/api/ai/provider/groq")));
 
         for (ResultActions r : responses) {
             JsonNode b = body(r.andExpect(status().isOk()));
@@ -725,27 +743,107 @@ class AiProviderControllerTest {
     }
 
     @Test
-    void aModelChosenForOneProviderIsNotSentToAnother() throws Exception {
-        // A workspace that switches providers keeps every member's stored model. Sent anyway,
-        // "llama-3.3-70b-versatile" fails every turn for that person while the owner's own work
-        // fine — a support case nobody would guess at.
+    void connectingASecondProviderLeavesTheFirstAlone() throws Exception {
+        // This used to be impossible: one row, one secret name, so adding Gemini overwrote the
+        // Groq key outright — silently, and with no way back. Someone who had verified Groq and
+        // then added a second provider simply lost the first key.
         probe.models = List.of("llama-3.3-70b-versatile");
         connect(owner, "groq", KEY, null).andExpect(status().isOk());
         grantForms(member, "contributor");
-        chooseMyModel(member, "llama-3.3-70b-versatile").andExpect(status().isOk());
+        chooseMyModel(member, "groq", "llama-3.3-70b-versatile").andExpect(status().isOk());
 
-        // The owner moves the workspace to a different provider.
         probe.models = List.of("claude-haiku-4-5-20251001");
-        connect(owner, "anthropic", "sk-ant-new-account-key", null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second-account", null).andExpect(status().isOk());
 
-        assertThat(body(as(member, get("/api/ai/preference"))).path("model").isNull())
-                .as("a choice made for Groq must not survive as an Anthropic choice").isTrue();
+        // Both keys are still there, each under its own name.
+        assertThat(secrets.get(tenant, AiProvider.secretName("groq"))).contains(KEY);
+        assertThat(secrets.get(tenant, AiProvider.secretName("anthropic"))).contains("sk-ant-second-account");
+        assertThat(row("groq").usable()).isTrue();
+        assertThat(row("anthropic").usable()).isTrue();
 
+        // And the member's Groq choice still runs on Groq — adding a provider changed nothing
+        // for anyone who had already chosen one.
+        SEEN.clear();
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "groq");
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-key", KEY);
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-model", "llama-3.3-70b-versatile");
+    }
+
+    @Test
+    void theFirstProviderConnectedIsTheOneTurnsDefaultTo() throws Exception {
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        assertThat(row("groq").isPreferred()).isTrue();
+        assertThat(row("anthropic").isPreferred()).as("a later provider must not steal the default").isFalse();
+
+        // Somebody who never chose runs on the default.
+        SEEN.clear();
+        chat(owner).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "groq");
+
+        as(owner, put("/api/ai/provider/anthropic/default")).andExpect(status().isOk());
+        assertThat(row("groq").isPreferred()).isFalse();
+        assertThat(row("anthropic").isPreferred()).isTrue();
+
+        SEEN.clear();
+        chat(owner).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "anthropic");
+    }
+
+    @Test
+    void removingTheDefaultHandsItToWhatIsLeft() throws Exception {
+        // Otherwise the workspace keeps providers but every turn fails for anyone who never
+        // picked one — a state nobody would think to look for.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        as(owner, delete("/api/ai/provider/groq")).andExpect(status().isOk());
+
+        assertThat(row("anthropic").isPreferred()).isTrue();
+        SEEN.clear();
+        chat(owner).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "anthropic");
+    }
+
+    @Test
+    void removingAProviderStopsHonouringChoicesMadeForIt() throws Exception {
+        // A member chose Groq; the owner removes Groq. Sending "llama-3.3-70b-versatile" to
+        // Anthropic would fail every turn for that person while the owner's own worked fine.
+        probe.models = List.of("llama-3.3-70b-versatile");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+        chooseMyModel(member, "groq", "llama-3.3-70b-versatile").andExpect(status().isOk());
+
+        as(owner, delete("/api/ai/provider/groq")).andExpect(status().isOk());
+
+        assertThat(body(as(member, get("/api/ai/preference"))).path("model").isNull()).isTrue();
         SEEN.clear();
         chat(member).andExpect(status().isOk());
         assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "anthropic");
         assertThat(SEEN.get(0).headers())
                 .containsEntry("x-ai-model", AiProviderCatalog.ANTHROPIC.defaultModel());
+    }
+
+    @Test
+    void twoPeopleCanRunOnDifferentProvidersAtTheSameTime() throws Exception {
+        // The whole point of connecting more than one: a quick draft on the cheap fast provider
+        // while someone else works through something hard on the capable one, same workspace.
+        probe.models = List.of("llama-3.3-70b-versatile", "claude-haiku-4-5-20251001");
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        connect(owner, "anthropic", "sk-ant-second", null).andExpect(status().isOk());
+        grantForms(member, "contributor");
+
+        chooseMyModel(owner, "groq", "llama-3.3-70b-versatile").andExpect(status().isOk());
+        chooseMyModel(member, "anthropic", "claude-haiku-4-5-20251001").andExpect(status().isOk());
+
+        SEEN.clear();
+        chat(owner).andExpect(status().isOk());
+        chat(member).andExpect(status().isOk());
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-provider", "groq");
+        assertThat(SEEN.get(0).headers()).containsEntry("x-ai-key", KEY);
+        assertThat(SEEN.get(1).headers()).containsEntry("x-ai-provider", "anthropic");
+        assertThat(SEEN.get(1).headers()).containsEntry("x-ai-key", "sk-ant-second");
     }
 
     @Test
@@ -823,16 +921,16 @@ class AiProviderControllerTest {
         connect(owner, "groq", KEY, null).andExpect(status().isOk());
 
         probe.outcome = AiProviderProbe.Outcome.INVALID;
-        as(owner, post("/api/ai/provider/verify")).andExpect(status().isOk());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.INVALID);
+        as(owner, post("/api/ai/provider/groq/verify")).andExpect(status().isOk());
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.INVALID);
 
         probe.outcome = AiProviderProbe.Outcome.OK;
-        as(owner, post("/api/ai/provider/verify")).andExpect(status().isOk());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+        as(owner, post("/api/ai/provider/groq/verify")).andExpect(status().isOk());
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
 
         // UNREACHABLE is our problem, not theirs: the row must be left exactly as it was.
         probe.outcome = AiProviderProbe.Outcome.UNREACHABLE;
-        as(owner, post("/api/ai/provider/verify")).andExpect(status().isOk());
-        assertThat(providers.findById(tenant).orElseThrow().getStatus()).isEqualTo(AiProvider.CONNECTED);
+        as(owner, post("/api/ai/provider/groq/verify")).andExpect(status().isOk());
+        assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
     }
 }

@@ -3,47 +3,76 @@ package com.luke.engine.ai;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 /**
- * A workspace's connected AI provider — one row per tenant ({@code id} IS the tenantId).
+ * One provider account a workspace has connected — Groq, OpenAI, Anthropic or Gemini.
+ *
+ * <p><b>A workspace may connect several.</b> This began as one row per tenant, which meant
+ * connecting a second provider silently overwrote the first one's key: someone who had verified
+ * Groq and then added Gemini lost the Groq key entirely, with no warning and no way back. Each
+ * provider now has its own row and its own secret, so adding one never destroys another, and a
+ * workspace can keep a cheap fast provider beside a more capable one.
  *
  * <p><strong>The key is not here.</strong> It lives in {@code luke_secrets} under
- * {@code ai.provider-key}, encrypted with AES-256-GCM like every other tenant secret. This row
- * holds only what we can safely show a human and what we need to decide whether a turn may run:
- * which provider, which model, whether the key last worked, and a fingerprint that lets us tell
- * "they rotated the key" from "they re-saved the same one" without keeping the key twice.
+ * {@code ai.provider-key.<provider>}, encrypted with AES-256-GCM like every other tenant secret.
+ * This row holds only what we can safely show a human and what we need to decide whether a turn
+ * may run: which provider, which model, whether the key last worked, and a fingerprint that lets
+ * us tell "they rotated the key" from "they re-saved the same one".
  *
- * <p>A disconnected workspace keeps its row (who connected it, when, when it ended) and loses
- * its secret. The row is the audit trail; the secret is the capability.
+ * <p>A disconnected provider keeps its row (who connected it, when, when it ended) and loses its
+ * secret. The row is the audit trail; the secret is the capability.
  */
 @Entity
-@Table(name = "luke_ai_provider")
+@Table(name = "luke_ai_provider",
+        uniqueConstraints = @UniqueConstraint(name = "uq_ai_provider_tenant", columnNames = {"tenant_id", "provider"}),
+        indexes = @Index(name = "idx_ai_provider_tenant", columnList = "tenant_id"))
 public class AiProvider {
 
     /** Verified and usable. */
     public static final String CONNECTED = "CONNECTED";
-    /** The provider rejected the key. AI is off until the workspace fixes it. */
+    /** The provider rejected the key. This provider is off until the workspace fixes it. */
     public static final String INVALID = "INVALID";
     /** The workspace removed it; the secret is gone. */
     public static final String DISCONNECTED = "DISCONNECTED";
 
-    /** The name this tenant's provider key is stored under in {@code luke_secrets}. */
-    public static final String SECRET_NAME = "ai.provider-key";
+    /** Where this provider's key is stored for {@code tenantId}. */
+    public static String secretName(String provider) {
+        return "ai.provider-key." + provider;
+    }
+
+    /** Deterministic row id, so a tenant cannot hold two rows for the same provider. */
+    public static String idFor(String tenantId, String provider) {
+        return tenantId + ":" + provider;
+    }
 
     @Id
     private String id;
 
+    @Column(name = "tenant_id", nullable = false)
+    private String tenantId;
+
     @Column(nullable = false)
     private String provider;
 
-    /** The workspace's chosen model, or null to use the provider's default. */
+    /** The workspace's chosen model for THIS provider, or null for the provider's default. */
     private String model;
 
     @Column(nullable = false)
     private String status = CONNECTED;
+
+    /**
+     * The one a turn uses when the person running it has expressed no preference.
+     *
+     * <p>Exactly one connected provider per workspace carries this. Without it, "which provider
+     * runs this turn" would depend on row order, which is no answer at all.
+     */
+    @Column(nullable = false)
+    private boolean preferred;
 
     /** Last four characters of the key — the only fragment ever shown to a human. */
     @Column(name = "key_last4", length = 8)
@@ -62,7 +91,7 @@ public class AiProvider {
 
     private LocalDateTime disconnectedAt;
 
-    /** Why the provider last refused, for the connect page to show. Never contains the key. */
+    /** Why the provider last refused, for the settings page to show. Never contains the key. */
     @Column(length = 500)
     private String lastError;
 
@@ -78,21 +107,28 @@ public class AiProvider {
 
     protected AiProvider() {}
 
-    public AiProvider(String tenantId) {
-        this.id = tenantId;
+    public AiProvider(String tenantId, String provider) {
+        this.id = idFor(tenantId, provider);
+        this.tenantId = tenantId;
+        this.provider = provider;
     }
 
-    /** Whether a turn may run on this workspace's credential right now. */
+    /** Whether a turn may run on this provider right now. */
     public boolean usable() {
         return CONNECTED.equals(status);
+    }
+
+    /** This provider's own secret name. */
+    public String secretName() {
+        return secretName(provider);
     }
 
     public String getId() {
         return id;
     }
 
-    public void setId(String id) {
-        this.id = id;
+    public String getTenantId() {
+        return tenantId;
     }
 
     public String getProvider() {
@@ -117,6 +153,14 @@ public class AiProvider {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public boolean isPreferred() {
+        return preferred;
+    }
+
+    public void setPreferred(boolean preferred) {
+        this.preferred = preferred;
     }
 
     public String getKeyLast4() {

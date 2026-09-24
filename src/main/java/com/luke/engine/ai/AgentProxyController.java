@@ -193,8 +193,8 @@ public class AgentProxyController {
             // disable the new one. "exhausted" is deliberately NOT handled here — that account
             // is out of credit, which the workspace fixes with their provider, not by
             // reconnecting, and disconnecting them would only hide the real message.
-            providers.markInvalid(tenantId, "Your AI provider rejected this key. Reconnect your provider.",
-                    credential.apiKey());
+            providers.markInvalid(tenantId, credential.provider(),
+                    "Your AI provider rejected this key. Reconnect your provider.", credential.apiKey());
         }
 
         // Pass the fleet's own status and body through: its error messages are already written

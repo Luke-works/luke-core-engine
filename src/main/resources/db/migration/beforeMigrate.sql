@@ -1003,6 +1003,8 @@
 
     create table if not exists luke_ai_provider (
         id varchar(255) not null,
+        tenant_id varchar(255),
+        preferred boolean,
         provider varchar(255) not null,
         model varchar(255),
         status varchar(255) not null,
