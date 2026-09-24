@@ -109,7 +109,10 @@ public class AiProviderController {
                                       @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
         requireMember(auth, tenantId);
         requireEnabled();
-        return Map.of("models", providers.modelsForMembers(tenantId));
+        // Each entry carries `chat`: whether an agent turn could run on it. The provider lists
+        // every modality the account can reach, and a form builder cannot run on a
+        // speech-to-text model.
+        return Map.of("models", AiProviderService.describe(providers.modelsForMembers(tenantId)));
     }
 
     /** This person's own model choice — what their turns run on. */

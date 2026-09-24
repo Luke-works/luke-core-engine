@@ -111,10 +111,16 @@ class AiProviderControllerTest {
         volatile String message = null;
         final List<String> keysSeen = new ArrayList<>();
 
+        /** Set explicitly when a test cares about capability; otherwise every id is chat. */
+        volatile List<ModelInfo> modelInfos = null;
+
         @Override
         public Result verify(AiProviderCatalog.Provider provider, String apiKey) {
             keysSeen.add(apiKey);
-            return new Result(outcome, models,
+            List<ModelInfo> infos = modelInfos != null
+                    ? modelInfos
+                    : models.stream().map(id -> new ModelInfo(id, true)).toList();
+            return new Result(outcome, infos,
                     outcome == Outcome.OK ? null : (message != null ? message : "provider says no"));
         }
     }
@@ -156,6 +162,7 @@ class AiProviderControllerTest {
         probe.outcome = AiProviderProbe.Outcome.OK;
         probe.models = List.of();
         probe.message = null;
+        probe.modelInfos = null;
         probe.keysSeen.clear();
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -670,6 +677,10 @@ class AiProviderControllerTest {
 
         JsonNode seen = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
         assertThat(seen.path("models")).hasSize(2);
+        // Each entry says whether a turn could run on it — a form builder cannot run on a
+        // speech-to-text model, and the provider lists every modality the account can reach.
+        assertThat(seen.path("models").get(0).has("id")).isTrue();
+        assertThat(seen.path("models").get(0).has("chat")).isTrue();
         assertThat(seen.toString()).doesNotContain(KEY);
     }
 
@@ -786,6 +797,25 @@ class AiProviderControllerTest {
 
         JsonNode after = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()));
         assertThat(after.path("models").toString()).contains("claude-haiku");
+    }
+
+    @Test
+    void theListSaysWhichModelsCouldActuallyBuildSomething() throws Exception {
+        // Groq lists Whisper and Orpheus beside its chat models; OpenAI lists embeddings and
+        // image models. Offering those as equal choices is a trap: pick one and every turn fails
+        // with a provider error the user cannot act on.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        probe.modelInfos = List.of(
+                new AiProviderProbe.ModelInfo("openai/gpt-oss-120b", true),
+                new AiProviderProbe.ModelInfo("whisper-large-v3", false),
+                new AiProviderProbe.ModelInfo("meta-llama/llama-prompt-guard-2-86m", false));
+
+        JsonNode models = body(as(member, get("/api/ai/provider/models")).andExpect(status().isOk()))
+                .path("models");
+        assertThat(models).hasSize(3);   // nothing hidden — a wrong guess must not make one unreachable
+        assertThat(models.get(0).path("id").asText()).isEqualTo("openai/gpt-oss-120b");
+        assertThat(models.get(0).path("chat").asBoolean()).isTrue();
+        assertThat(models.get(2).path("chat").asBoolean()).isFalse();
     }
 
     @Test
