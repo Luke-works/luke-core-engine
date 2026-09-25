@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,13 +44,16 @@ public class AiProviderController {
     private final AiProperties props;
     private final ApiCallerResolver callers;
     private final IdentityService identity;
+    private final AiModelRanking ranking;
 
     public AiProviderController(AiProviderService providers, AiProperties props,
-                                ApiCallerResolver callers, IdentityService identity) {
+                                ApiCallerResolver callers, IdentityService identity,
+                                AiModelRanking ranking) {
         this.providers = providers;
         this.props = props;
         this.callers = callers;
         this.identity = identity;
+        this.ranking = ranking;
     }
 
     public record ConnectBody(String provider, String apiKey, String model) {}
@@ -118,13 +122,44 @@ public class AiProviderController {
      */
     @GetMapping("/provider/models")
     public Map<String, Object> models(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String auth,
-                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+                                      @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId,
+                                      @RequestParam(value = "agent", required = false) String agent) {
         requireMember(auth, tenantId);
         requireEnabled();
         // Each entry carries `chat`: whether an agent turn could run on it. The provider lists
         // every modality the account can reach, and a form builder cannot run on a
         // speech-to-text model.
-        return Map.of("models", AiProviderService.describe(providers.modelsForMembers(tenantId)));
+        List<Map<String, Object>> described =
+                AiProviderService.describe(providers.modelsForMembers(tenantId));
+        if (agent == null || agent.isBlank()) return Map.of("models", described);
+
+        // …and, when the caller says what the models are FOR, which of them are worth putting
+        // first. Asked per provider because a recommendation is only meaningful against what
+        // that account can reach, and because the seed the fleet falls back to is per provider.
+        //
+        // Best-effort throughout: an unreachable fleet leaves every model simply unmarked,
+        // which is the list as it was before. Nobody loses a model because an opinion about it
+        // was unavailable.
+        Map<String, List<String>> offeredByProvider = described.stream().collect(
+                java.util.stream.Collectors.groupingBy(
+                        m -> String.valueOf(m.get("provider")),
+                        java.util.stream.Collectors.mapping(
+                                m -> String.valueOf(m.get("id")), java.util.stream.Collectors.toList())));
+        Map<String, List<String>> picks = new java.util.LinkedHashMap<>();
+        offeredByProvider.forEach((provider, offered) ->
+                picks.put(provider, ranking.recommended(agent, provider, offered)));
+
+        List<Map<String, Object>> out = described.stream().map(m -> {
+            List<String> best = picks.getOrDefault(String.valueOf(m.get("provider")), List.of());
+            int at = best.indexOf(String.valueOf(m.get("id")));
+            if (at < 0) return m;
+            Map<String, Object> copy = new java.util.LinkedHashMap<>(m);
+            copy.put("recommended", true);
+            // Its place in the order, so the UI can keep "best first" without re-deriving it.
+            copy.put("rank", at);
+            return copy;
+        }).toList();
+        return Map.of("models", out);
     }
 
     /** This person's own model choice — what their turns run on. */
