@@ -1,0 +1,14 @@
+-- "Out of credit" is a state worth showing, not a reason to disconnect anyone.
+--
+-- A provider that reports an exhausted account still holds a working key: the workspace fixes
+-- it with their provider, not by reconnecting here. Marking the row INVALID would be false, and
+-- would demote it away from being the default — so this is a separate timestamp the UI can
+-- render (red, "out of credit") while the connection stays exactly as it was.
+--
+-- Cleared as soon as a turn on that provider succeeds, which is the only signal we get that the
+-- credit is back; nothing polls a provider's billing.
+--
+-- Postgres profile only (ddl-auto=none there); H2/tests build this from the entity via ddl-auto.
+-- Must stay faithful to AiProvider — PostgresSchemaValidationTest runs Hibernate validate
+-- against a real Postgres + these migrations. Mirrored idempotently in beforeMigrate.sql.
+alter table luke_ai_provider add column if not exists exhausted_at timestamp(6);

@@ -195,6 +195,14 @@ public class AgentProxyController {
             // reconnecting, and disconnecting them would only hide the real message.
             providers.markInvalid(tenantId, credential.provider(),
                     "Your AI provider rejected this key. Reconnect your provider.", credential.apiKey());
+        } else if ("exhausted".equalsIgnoreCase(signal)) {
+            // Not a disconnect — see above. Recorded so the settings page and the model picker
+            // can say "out of credit" instead of leaving someone to infer it from a failed turn.
+            providers.markExhausted(tenantId, credential.provider(), credential.apiKey());
+        } else if (res.statusCode() >= 200 && res.statusCode() < 300) {
+            // A turn actually ran, so any "out of credit" we were showing is stale. Nothing
+            // polls a provider's billing; this is the only signal we get that the credit is back.
+            providers.clearExhausted(tenantId, credential.provider());
         }
 
         // Pass the fleet's own status and body through: its error messages are already written

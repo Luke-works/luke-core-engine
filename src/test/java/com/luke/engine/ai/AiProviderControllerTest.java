@@ -529,6 +529,40 @@ class AiProviderControllerTest {
 
         chat(owner).andExpect(status().isPaymentRequired());
         assertThat(row("groq").getStatus()).isEqualTo(AiProvider.CONNECTED);
+        // …but it IS remembered, so the settings page and the model picker can say so instead
+        // of leaving someone to infer it from a turn that failed.
+        assertThat(row("groq").getExhaustedAt()).isNotNull();
+    }
+
+    @Test
+    void aSuccessfulTurnClearsAStaleOutOfCreditFlag() throws Exception {
+        // Nothing polls a provider's billing, so a turn that actually ran is the only signal we
+        // get that the credit is back. Without this the workspace stays red until someone
+        // reconnects a key that was never the problem.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        fleetStatus = 402;
+        fleetCredentialSignal = "exhausted";
+        fleetBody = "{\"detail\":\"out of credit\"}";
+        chat(owner).andExpect(status().isPaymentRequired());
+        assertThat(row("groq").getExhaustedAt()).isNotNull();
+
+        fleetStatus = 200;
+        fleetCredentialSignal = null;
+        fleetBody = "{\"reply\":\"ok\"}";
+        chat(owner).andExpect(status().isOk());
+
+        assertThat(row("groq").getExhaustedAt())
+                .as("a turn that ran means the account is serving again")
+                .isNull();
+    }
+
+    @Test
+    void aStaleTurnCannotFlagAKeyThatHasSinceBeenReplaced() throws Exception {
+        // Same window markInvalid guards: a 90-second turn can fail after the workspace has
+        // already rotated the key, and the old key's exhaustion says nothing about the new one.
+        connect(owner, "groq", KEY, null).andExpect(status().isOk());
+        ai.markExhausted(tenant, "groq", "gsk_some_other_key_that_is_gone");
+        assertThat(row("groq").getExhaustedAt()).isNull();
     }
 
     @Test

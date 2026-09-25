@@ -123,6 +123,9 @@ public class AiProviderService {
         c.put("connectedBy", row.getConnectedBy());
         c.put("verifiedAt", row.getVerifiedAt());
         c.put("lastError", row.getLastError());
+        // The key works and the workspace is still connected — this is about their balance.
+        c.put("exhausted", row.getExhaustedAt() != null);
+        c.put("exhaustedAt", row.getExhaustedAt());
         return c;
     }
 
@@ -227,7 +230,10 @@ public class AiProviderService {
         // group with "Anthropic" rather than "anthropic" without hardcoding a name table.
         out.put("providers", repository.findByTenantIdOrderByProviderAsc(tenantId).stream()
                 .filter(AiProvider::usable)
-                .map(r -> Map.of("id", r.getProvider(), "label", label(r.getProvider())))
+                // `exhausted` travels with the label so the picker can show which provider is
+                // out of credit BEFORE someone picks it and watches a turn fail.
+                .map(r -> Map.of("id", r.getProvider(), "label", label(r.getProvider()),
+                        "exhausted", r.getExhaustedAt() != null))
                 .toList());
         return out;
     }
@@ -615,6 +621,45 @@ public class AiProviderService {
                     Map.of("provider", String.valueOf(row.getProvider())));
             log.warn("ai: tenant {} provider {} rejected the stored key", tenantId, row.getProvider());
         });
+    }
+
+    /**
+     * Record that this provider's account is out of credit — without disconnecting anyone.
+     *
+     * <p>The key still works; the workspace fixes this with their provider. So no status change
+     * and no demotion, just a flag the UI can show. Same stale-key guard as {@link #markInvalid}:
+     * a turn can take a minute and a half, and a late failure of an old key must not flag the
+     * new one.
+     */
+    public void markExhausted(String tenantId, String providerId, String keyUsed) {
+        repository.findByTenantIdAndProvider(tenantId, providerId).ifPresent(row -> {
+            if (!AiProvider.CONNECTED.equals(row.getStatus())) return;
+            if (keyUsed != null && !fingerprint(keyUsed).equals(row.getKeyFingerprint())) {
+                log.debug("ai: ignoring an exhausted report for tenant {} — the key has changed since", tenantId);
+                return;
+            }
+            if (row.getExhaustedAt() != null) return;  // already known; don't churn the row
+            row.setExhaustedAt(LocalDateTime.now());
+            repository.save(row);
+            log.info("ai: tenant {} provider {} reports the account is out of credit",
+                    tenantId, row.getProvider());
+        });
+    }
+
+    /**
+     * A turn succeeded on this provider, so any "out of credit" we were showing is stale.
+     *
+     * <p>Nothing polls a provider's billing, so a working turn is the only signal we get that
+     * the credit is back. Cheap: a no-op unless the flag is actually set.
+     */
+    public void clearExhausted(String tenantId, String providerId) {
+        repository.findByTenantIdAndProvider(tenantId, providerId)
+                .filter(row -> row.getExhaustedAt() != null)
+                .ifPresent(row -> {
+                    row.setExhaustedAt(null);
+                    repository.save(row);
+                    log.info("ai: tenant {} provider {} is serving turns again", tenantId, row.getProvider());
+                });
     }
 
     /* ── disconnecting ────────────────────────────────────────────────────── */
