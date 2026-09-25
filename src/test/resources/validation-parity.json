@@ -1,5 +1,5 @@
 {
-  "revision": "2026-07-31.2",
+  "revision": "2026-09-25.1",
   "note": [
     "CROSS-LANGUAGE PARITY FIXTURE. The declarative validation rules exist twice: in",
     "@lukeflow/form-core (TypeScript, runs in the browser) and in luke-core-engine's",
@@ -935,6 +935,30 @@
       "type": "textField",
       "attributes": {},
       "value": "anything at all",
+      "valid": true
+    },
+    {
+      "id": "stepper-rejects-non-numeric",
+      "type": "stepper",
+      "attributes": {},
+      "value": "abc",
+      "valid": false,
+      "code": "type"
+    },
+    {
+      "id": "stepper-accepts-a-number",
+      "type": "stepper",
+      "attributes": {},
+      "value": 3,
+      "valid": true
+    },
+    {
+      "id": "stepper-zero-is-a-real-answer",
+      "type": "stepper",
+      "attributes": {
+        "required": true
+      },
+      "value": 0,
       "valid": true
     }
   ],

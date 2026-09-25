@@ -36,7 +36,7 @@ class SubmissionValidatorParityTest {
      * Pinned fixture revision. Bump ONLY together with re-copying the fixture from luke-forms and
      * confirming {@code parity.test.ts} passes there.
      */
-    private static final String EXPECTED_REVISION = "2026-07-31.2";
+    private static final String EXPECTED_REVISION = "2026-09-25.1";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final JsonNode FIXTURE = load();
