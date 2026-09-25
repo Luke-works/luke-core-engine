@@ -91,6 +91,16 @@ public class AiProvider {
 
     private LocalDateTime disconnectedAt;
 
+    /**
+     * When this provider last told us the account is out of credit or over its quota.
+     *
+     * <p>Deliberately NOT a status: the key is fine and the workspace is still connected, so
+     * marking it INVALID would be a lie that also demotes it and hides the real message. It is
+     * a flag the settings page and the model picker can show, and it clears the moment a turn
+     * on this provider succeeds — which is the only reliable signal that the credit is back.
+     */
+    private LocalDateTime exhaustedAt;
+
     /** Why the provider last refused, for the settings page to show. Never contains the key. */
     @Column(length = 500)
     private String lastError;
@@ -209,6 +219,14 @@ public class AiProvider {
 
     public void setDisconnectedAt(LocalDateTime disconnectedAt) {
         this.disconnectedAt = disconnectedAt;
+    }
+
+    public LocalDateTime getExhaustedAt() {
+        return exhaustedAt;
+    }
+
+    public void setExhaustedAt(LocalDateTime exhaustedAt) {
+        this.exhaustedAt = exhaustedAt;
     }
 
     public String getLastError() {

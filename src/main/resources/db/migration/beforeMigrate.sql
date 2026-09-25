@@ -1020,6 +1020,11 @@
         primary key (id)
     );
 
+-- ── from V30__ai_provider_exhausted.sql ────────────────────────────────────────────────────────────
+-- "Out of credit" is shown, not acted on: the key still works and the workspace stays connected.
+
+    alter table luke_ai_provider add column if not exists exhausted_at timestamp(6);
+
 -- ── from V28__ai_user_model_pref.sql ───────────────────────────────────────────────────────────────
 -- Per-person model choice within a workspace. Holds no secret.
 
