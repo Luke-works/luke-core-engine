@@ -197,6 +197,36 @@ class AiProviderProbeTest {
     }
 
     @Test
+    void keepsWhatTheProviderSaysAboutEachModel() {
+        // Google publishes prose and both token limits. We were throwing all of it away and
+        // then telling the user "your provider doesn't say" — which was our omission, not theirs.
+        reply = "{\"models\":[{\"name\":\"models/gemini-2.0-flash\",\"displayName\":\"Gemini 2.0 Flash\","
+                + "\"description\":\"Fast and versatile multimodal model.\","
+                + "\"inputTokenLimit\":1048576,\"outputTokenLimit\":8192,"
+                + "\"supportedGenerationMethods\":[\"generateContent\"]}]}";
+        AiProviderProbe.ModelInfo g =
+                probe.verify(provider(AiProviderCatalog.Auth.QUERY), "AIzaGood").models().get(0);
+        assertThat(g.displayName()).isEqualTo("Gemini 2.0 Flash");
+        assertThat(g.description()).isEqualTo("Fast and versatile multimodal model.");
+        assertThat(g.contextTokens()).isEqualTo(1048576);
+        assertThat(g.maxOutputTokens()).isEqualTo(8192);
+    }
+
+    @Test
+    void readsGroqsOwnFieldNamesForTheSameFacts() {
+        // Same facts, different spellings — the reason each lookup takes a list of field names.
+        reply = "{\"data\":[{\"id\":\"openai/gpt-oss-120b\",\"context_window\":131072,"
+                + "\"max_completion_tokens\":32766,\"owned_by\":\"OpenAI\"}]}";
+        AiProviderProbe.ModelInfo m =
+                probe.verify(provider(AiProviderCatalog.Auth.BEARER), "gsk_good").models().get(0);
+        assertThat(m.contextTokens()).isEqualTo(131072);
+        assertThat(m.maxOutputTokens()).isEqualTo(32766);
+        // …and silence stays silence: Groq ships no prose, so we must not invent any.
+        assertThat(m.description()).isNull();
+        assertThat(m.displayName()).isNull();
+    }
+
+    @Test
     void theModalitiesGroqActuallyReturnsAreClassifiedSensibly() {
         // Verbatim from a real Groq account: chat models listed beside speech-to-text,
         // text-to-speech and prompt-injection classifiers.
