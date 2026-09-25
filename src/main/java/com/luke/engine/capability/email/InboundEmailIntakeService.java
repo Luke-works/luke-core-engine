@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Turns a Postmark inbound webhook payload into stored mail and, usually, a task.
@@ -68,10 +70,13 @@ public class InboundEmailIntakeService {
     @Value("${luke.email.inbox-process-key:EmailInboxProcess}")
     private String inboxProcessKey;
 
+    private final TransactionTemplate tx;
+
     public InboundEmailIntakeService(EmailServerRepository servers, EmailBoxService boxes,
             EmailMessageRepository messages, InboundEmailRepository inbound,
             EmailRoutingRuleService routing, EmailEventCorrelator correlator,
-            RuntimeService runtimeService, IdentityService identityService) {
+            RuntimeService runtimeService, IdentityService identityService,
+            PlatformTransactionManager transactionManager) {
         this.servers = servers;
         this.boxes = boxes;
         this.messages = messages;
@@ -80,6 +85,7 @@ public class InboundEmailIntakeService {
         this.correlator = correlator;
         this.runtimeService = runtimeService;
         this.identityService = identityService;
+        this.tx = new TransactionTemplate(transactionManager);
     }
 
     /** What the webhook reports back (also the shape asserted by the tests). */
@@ -171,10 +177,26 @@ public class InboundEmailIntakeService {
     }
 
     /** Persist the envelope + the content. Returns the new message id. */
+    /**
+     * The envelope and the content must commit or fail together.
+     *
+     * <p>Without a transaction the {@code luke_email_messages} envelope committed first, and any
+     * failure of the second write left it standing alone. The dedup lookup then treats every
+     * Postmark redelivery as a duplicate and answers 200, so the retry that would have saved the
+     * message is the thing that discards it: no body, no routing decision, no review task, and
+     * nothing to recover from. A display name longer than the column is enough to trigger it
+     * (now truncated above), but any transient failure of the second write does the same.
+     *
+     * <p>An explicit {@link TransactionTemplate} rather than {@code @Transactional}: this method
+     * is private and called from {@code intake} on the same instance, so the annotation would be
+     * silently ignored — Spring's proxy cannot intercept a self-invocation. It also keeps the
+     * boundary exactly around the two writes, leaving the Camunda work that follows outside it.
+     */
     private String store(String tenantId, Optional<EmailBox> box, String boxAddress, String recipient,
             String mailboxHash, String from, String subject, String postmarkMessageId,
             String textBody, String htmlBody, JsonNode payload) {
 
+        return tx.execute(status -> {
         EmailMessage msg = new EmailMessage();
         msg.setTenantId(tenantId);
         msg.setDirection("INBOUND");
@@ -189,9 +211,9 @@ public class InboundEmailIntakeService {
         content.setId(messageId);
         content.setTenantId(tenantId);
         content.setBoxId(box.map(EmailBox::getId).orElse(null));
-        content.setBoxAddress(boxAddress);
-        content.setMailboxHash(mailboxHash);
-        content.setFromName(fromFull(payload, "Name"));
+        content.setBoxAddress(truncate(boxAddress, 255));
+        content.setMailboxHash(truncate(mailboxHash, 255));
+        content.setFromName(truncate(fromFull(payload, "Name"), 255));
         content.setToFull(truncate(text(payload, "To"), 1000));
         content.setCcAddresses(truncate(text(payload, "Cc"), 1000));
         content.setReplyTo(truncate(text(payload, "ReplyTo"), 255));
@@ -209,6 +231,7 @@ public class InboundEmailIntakeService {
         content.setAttachmentCount(attachments.size());
         inbound.save(content);
         return messageId;
+        });
     }
 
     /** Start the review process for one message, carrying the routing decision. */
