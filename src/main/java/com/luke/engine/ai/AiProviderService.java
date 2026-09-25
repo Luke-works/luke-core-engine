@@ -379,7 +379,8 @@ public class AiProviderService {
     }
 
     /** One model a workspace could pick, and which of its providers offers it. */
-    public record OfferedModel(String provider, String id, boolean chat) {}
+    public record OfferedModel(String provider, String id, boolean chat, String displayName,
+            String description, Integer contextTokens, Integer maxOutputTokens) {}
 
     /**
      * The wire shape for a model list: which provider offers it, its id, and whether an agent
@@ -392,9 +393,21 @@ public class AiProviderService {
      * demote a model, never make it unreachable.
      */
     public static List<Map<String, Object>> describe(List<OfferedModel> models) {
-        return models.stream()
-                .map(m -> Map.<String, Object>of("provider", m.provider(), "id", m.id(), "chat", m.chat()))
-                .toList();
+        return models.stream().map(m -> {
+            // HashMap, not Map.of: the descriptive fields are absent for most providers and
+            // Map.of rejects a null value outright.
+            Map<String, Object> out = new java.util.HashMap<>();
+            out.put("provider", m.provider());
+            out.put("id", m.id());
+            out.put("chat", m.chat());
+            // Only what the provider actually said. A field left out here means "they did not
+            // tell us", which the UI shows as such rather than filling in.
+            if (m.displayName() != null) out.put("displayName", m.displayName());
+            if (m.description() != null) out.put("description", m.description());
+            if (m.contextTokens() != null) out.put("contextTokens", m.contextTokens());
+            if (m.maxOutputTokens() != null) out.put("maxOutputTokens", m.maxOutputTokens());
+            return out;
+        }).toList();
     }
 
     /**
@@ -416,7 +429,8 @@ public class AiProviderService {
             // One provider being unreadable must not hide the others: availableModels already
             // degrades to an empty list rather than throwing.
             for (AiProviderProbe.ModelInfo m : availableModels(tenantId, row)) {
-                out.add(new OfferedModel(row.getProvider(), m.id(), m.chat()));
+                out.add(new OfferedModel(row.getProvider(), m.id(), m.chat(),
+                        m.displayName(), m.description(), m.contextTokens(), m.maxOutputTokens()));
             }
         }
         return List.copyOf(out);
@@ -506,7 +520,8 @@ public class AiProviderService {
 
         Map<String, Object> out = new LinkedHashMap<>(view(tenantId));
         out.put("models", describe(result.models().stream()
-                .map(m -> new OfferedModel(provider.id(), m.id(), m.chat())).toList()));
+                .map(m -> new OfferedModel(provider.id(), m.id(), m.chat(),
+                        m.displayName(), m.description(), m.contextTokens(), m.maxOutputTokens())).toList()));
         return out;
     }
 

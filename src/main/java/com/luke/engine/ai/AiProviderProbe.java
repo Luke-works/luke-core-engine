@@ -71,7 +71,23 @@ public class AiProviderProbe {
      * @param id    the model id to send upstream
      * @param chat  false when we can tell it is not a text-generating model
      */
-    public record ModelInfo(String id, boolean chat) {}
+    /**
+     * One model a key may use, plus whatever the provider chose to say about it.
+     *
+     * <p>Every field beyond {@code id} and {@code chat} is the PROVIDER'S own answer, nullable
+     * because they disagree about what to publish: Google ships a human {@code description} and
+     * both token limits, Groq reports {@code context_window} and {@code max_completion_tokens},
+     * Anthropic only a {@code display_name}, OpenAI close to nothing. We report what they say
+     * and stay silent where they say nothing — a blank here means the provider did not tell us,
+     * which is a fact worth showing rather than a gap to fill with a guess.
+     */
+    public record ModelInfo(String id, boolean chat, String displayName, String description,
+            Integer contextTokens, Integer maxOutputTokens, String ownedBy) {
+
+        public ModelInfo(String id, boolean chat) {
+            this(id, chat, null, null, null, null, null);
+        }
+    }
 
     /**
      * @param models models this key may use, best-effort and possibly empty — a provider
@@ -240,7 +256,7 @@ public class AiProviderProbe {
                         String name = item.path("name").asText("");
                         id = name.startsWith("models/") ? name.substring("models/".length()) : name;
                     }
-                    if (id != null && !id.isBlank()) out.add(new ModelInfo(id, isChatModel(item, id)));
+                    if (id != null && !id.isBlank()) out.add(describeModel(item, id));
                 }
             }
         } catch (Exception e) {  // NOSONAR - an unreadable list must not fail a valid key
@@ -249,6 +265,49 @@ public class AiProviderProbe {
         }
         out.sort(Comparator.comparing(ModelInfo::id));
         return List.copyOf(out);
+    }
+
+    /**
+     * Read back what the provider published about one model.
+     *
+     * <p>Field names differ per provider and none of them is required, so every lookup is
+     * best-effort and absence is normal. Nothing here is derived or inferred — if a value is
+     * present it is because the provider sent it.
+     */
+    private ModelInfo describeModel(JsonNode item, String id) {
+        return new ModelInfo(
+                id,
+                isChatModel(item, id),
+                // Google: displayName · Anthropic: display_name.
+                text(item, "displayName", "display_name"),
+                // Google is the only one that ships prose today.
+                text(item, "description"),
+                // Google: inputTokenLimit · Groq/OpenAI: context_window.
+                number(item, "inputTokenLimit", "context_window"),
+                // Google: outputTokenLimit · Groq/OpenAI: max_completion_tokens.
+                number(item, "outputTokenLimit", "max_completion_tokens"),
+                text(item, "owned_by", "ownedBy"));
+    }
+
+    /** First of these fields the provider actually sent, trimmed and bounded; null if none. */
+    private static String text(JsonNode item, String... fields) {
+        for (String f : fields) {
+            String v = item.path(f).asText(null);
+            if (v != null && !v.isBlank()) {
+                String t = v.trim();
+                return t.length() > 400 ? t.substring(0, 400) : t;
+            }
+        }
+        return null;
+    }
+
+    /** First of these numeric fields the provider actually sent; null if none or not a number. */
+    private static Integer number(JsonNode item, String... fields) {
+        for (String f : fields) {
+            JsonNode n = item.path(f);
+            if (n.isNumber() && n.asInt() > 0) return n.asInt();
+        }
+        return null;
     }
 
     /**
