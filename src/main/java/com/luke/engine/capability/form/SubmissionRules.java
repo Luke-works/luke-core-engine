@@ -151,7 +151,10 @@ final class SubmissionRules {
     }
 
     /** Field types whose stored value must parse as a number / as a date. */
-    private static final Set<String> NUMERIC_TYPES = Set.of("number", "currency", "rating");
+    // `stepper` is the − / + control added in luke-forms: a number field with a different
+    // input, so it must be held to the same shape here. Omitting it made it the only numeric
+    // field with no server-side type check.
+    private static final Set<String> NUMERIC_TYPES = Set.of("number", "currency", "rating", "stepper");
     private static final Set<String> DATE_TYPES = Set.of("day", "datetime");
     private static final Pattern TIME_RE = Pattern.compile("^(\\d{1,2}):([0-5]\\d)(?::([0-5]\\d))?$");
 
